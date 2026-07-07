@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ingresar · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="contenedor">
+    <div class="tarjeta-login">
+      <div class="eyebrow">servicio de quimioterapia</div>
+      <h1 style="font-size:20px; margin-bottom:24px;">Ingresar al sistema</h1>
+
+      <div class="mensaje-error" id="mensaje-error"></div>
+
+      <form id="form-login">
+        <div class="campo">
+          <label for="email">Email</label>
+          <input type="email" id="email" required autocomplete="username" />
+        </div>
+        <div class="campo">
+          <label for="password">Contraseña</label>
+          <input type="password" id="password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="boton-principal" id="boton-ingresar">Ingresar</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    const form = document.getElementById("form-login");
+    const mensajeError = document.getElementById("mensaje-error");
+    const botonIngresar = document.getElementById("boton-ingresar");
+
+    // Si ya hay una sesión activa, va directo al panel de inicio
+    auth.onAuthStateChanged((user) => {
+      if (user) window.location.href = "index.html";
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      mensajeError.style.display = "none";
+      botonIngresar.disabled = true;
+      botonIngresar.textContent = "Ingresando…";
+
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      try {
+        await auth.signInWithEmailAndPassword(email, password);
+        window.location.href = "index.html";
+      } catch (error) {
+        mensajeError.textContent = traducirErrorAuth(error.code);
+        mensajeError.style.display = "block";
+        botonIngresar.disabled = false;
+        botonIngresar.textContent = "Ingresar";
+      }
+    });
+  </script>
+</body>
+</html>

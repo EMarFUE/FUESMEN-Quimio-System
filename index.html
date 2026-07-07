@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel de inicio · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <div class="eyebrow">Servicio de quimioterapia</div>
+        <h1 style="margin-bottom:0;">Panel de inicio</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion()">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div class="tarjetas">
+      <a href="medicacion/index.html" class="tarjeta">
+        <div class="tarjeta-icono">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3l3 3l-9 9l-4 1l1 -4z"/><path d="M9 15l6 -6"/><path d="M13 5l3 3"/></svg>
+        </div>
+        <div class="tarjeta-titulo">medicación</div>
+        <div class="tarjeta-texto">Stock, ingresos y egresos de medicación oncológica.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
+
+      <div class="tarjeta deshabilitada">
+        <div class="tarjeta-icono">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg>
+        </div>
+        <div class="tarjeta-titulo">turnero</div>
+        <div class="tarjeta-texto">Asignación de sillones y horarios de tratamiento.</div>
+        <span class="etiqueta-proximamente">Próximamente</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+    });
+  </script>
+</body>
+</html>
