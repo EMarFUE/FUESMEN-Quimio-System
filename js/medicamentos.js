@@ -33,10 +33,8 @@ function escaparHtml(texto) {
 function iniciarCatalogo(datosUsuario) {
   puedeEditarCatalogo = ROLES_EDICION_CATALOGO.includes(datosUsuario.rol);
 
-  if (!puedeEditarCatalogo) {
-    document.getElementById("bloque-alta").style.display = "none";
-    document.getElementById("bloque-importacion").style.display = "none";
-  } else {
+  if (puedeEditarCatalogo) {
+    document.getElementById("bloque-alta").style.display = "block";
     document.getElementById("form-medicamento").addEventListener("submit", onGuardarMedicamento);
     document.getElementById("input-excel").addEventListener("change", onArchivoExcelSeleccionado);
     document.getElementById("boton-confirmar-importacion").addEventListener("click", onConfirmarImportacion);
@@ -58,8 +56,9 @@ async function cargarMedicamentos() {
   tbody.innerHTML = `<tr><td colspan="3" style="color:var(--color-muted);">Cargando...</td></tr>`;
 
   try {
-    const snapshot = await db.collection("medicamentos").orderBy("droga").get();
+    const snapshot = await db.collection("medicamentos").get();
     medicamentosCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    medicamentosCache.sort((a, b) => (a.droga || "").localeCompare(b.droga || "", "es"));
     renderizarTabla();
   } catch (error) {
     console.error("Error al cargar medicamentos:", error);
