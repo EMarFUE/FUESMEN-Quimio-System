@@ -65,6 +65,18 @@ function normalizarTexto(texto) {
     .trim();
 }
 
+function normalizarObraSocialParaComparar(texto) {
+  return normalizarTexto(texto).replace(/\s+/g, "");
+}
+
+function capitalizarPalabras(texto) {
+  return (texto || "")
+    .trim()
+    .split(/\s+/)
+    .map((palabra) => palabra.charAt(0).toUpperCase() + palabra.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function soloDigitos(texto) {
   return (texto || "").replace(/\D/g, "");
 }
@@ -126,14 +138,18 @@ function inicializarFormulario() {
   });
 }
 
-function resetearFormulario() {
+function limpiarCamposFormulario() {
   idEnEdicion = null;
   document.getElementById("form-paciente").reset();
   document.getElementById("campo-otra-obra-social").style.display = "none";
   document.getElementById("campo-tipo-documento").disabled = false;
   document.getElementById("campo-numero-documento").disabled = false;
   document.getElementById("boton-cancelar-edicion").style.display = "none";
-  document.getElementById("titulo-formulario").textContent = "Nuevo Paciente";
+  document.getElementById("titulo-formulario").textContent = "nuevo paciente";
+}
+
+function resetearFormulario() {
+  limpiarCamposFormulario();
   document.getElementById("mensaje-form").style.display = "none";
 }
 
@@ -147,8 +163,8 @@ function mostrarMensajeForm(texto, tipo) {
 async function guardarPaciente() {
   const tipoDocumento = document.getElementById("campo-tipo-documento").value;
   const numeroDocumento = soloDigitos(document.getElementById("campo-numero-documento").value);
-  const nombre = document.getElementById("campo-nombre").value.trim();
-  const apellido = document.getElementById("campo-apellido").value.trim();
+  const nombre = capitalizarPalabras(document.getElementById("campo-nombre").value);
+  const apellido = capitalizarPalabras(document.getElementById("campo-apellido").value);
   const selectObraSocial = document.getElementById("campo-obra-social").value;
   const otraObraSocial = document.getElementById("campo-otra-obra-social").value.trim();
 
@@ -165,7 +181,21 @@ async function guardarPaciente() {
     return;
   }
 
-  const obraSocial = selectObraSocial === OTRA_OBRA_SOCIAL ? otraObraSocial : selectObraSocial;
+  let obraSocial;
+  let avisoObraSocial = "";
+  if (selectObraSocial === OTRA_OBRA_SOCIAL) {
+    const coincidencia = OBRAS_SOCIALES.find(
+      (os) => normalizarObraSocialParaComparar(os) === normalizarObraSocialParaComparar(otraObraSocial)
+    );
+    if (coincidencia) {
+      obraSocial = coincidencia;
+      avisoObraSocial = ` Se usó "${coincidencia}" de la lista en vez del texto ingresado.`;
+    } else {
+      obraSocial = otraObraSocial;
+    }
+  } else {
+    obraSocial = selectObraSocial;
+  }
   const id = idPaciente(tipoDocumento, numeroDocumento);
   const botonGuardar = document.getElementById("boton-guardar");
   botonGuardar.disabled = true;
@@ -177,7 +207,7 @@ async function guardarPaciente() {
         apellido,
         obraSocial
       });
-      mostrarMensajeForm("Paciente actualizado.", "exito");
+      mostrarMensajeForm(`Paciente actualizado.${avisoObraSocial}`, "exito");
     } else {
       const existente = await db.collection("pacientes").doc(id).get();
       if (existente.exists) {
@@ -194,9 +224,12 @@ async function guardarPaciente() {
         activo: true,
         creadoEn: firebase.firestore.FieldValue.serverTimestamp()
       });
-      mostrarMensajeForm("Paciente creado.", "exito");
+      mostrarMensajeForm(`Paciente creado.${avisoObraSocial}`, "exito");
     }
-    resetearFormulario();
+    limpiarCamposFormulario();
+    setTimeout(() => {
+      document.getElementById("mensaje-form").style.display = "none";
+    }, 4000);
     await cargarPacientes();
   } catch (error) {
     console.error("Error al guardar paciente:", error);
