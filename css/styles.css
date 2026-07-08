@@ -297,3 +297,119 @@ h1 {
   height: 40px;
   width: auto;
 }
+
+/* Catálogo de medicamentos (etapa 3) */
+.encabezado-modulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tarjeta-formulario {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  background: var(--color-surface);
+  margin-bottom: 24px;
+}
+
+.grid-form-catalogo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 560px) {
+  .grid-form-catalogo {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 32px;
+}
+
+.tabla th {
+  text-align: left;
+  padding: 8px 6px;
+  color: var(--color-muted);
+  font-weight: 500;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabla td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabla tr.inactivo td {
+  color: var(--color-muted);
+}
+
+.acciones-fila {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.enlace-accion {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 12px;
+  font-family: var(--font);
+}
+
+.enlace-accion.peligro {
+  color: var(--color-danger);
+}
+
+.badge {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  display: inline-block;
+}
+
+.badge-nuevo {
+  background: var(--color-accent-secondary-soft);
+  color: #3b6d11;
+  border-color: var(--color-accent-secondary-soft);
+}
+
+.tarjeta-importacion {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  background: var(--color-accent-soft);
+  margin-bottom: 24px;
+}
+
+.mensaje-info {
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+
+.mensaje-info.exito {
+  background: var(--color-accent-secondary-soft);
+  color: #3b6d11;
+}
+
+.mensaje-info.error {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
