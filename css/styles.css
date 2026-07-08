@@ -1,11 +1,14 @@
 :root {
-  --color-bg: #f7f7f5;
+  /* Paleta institucional FUESMEN del logo: azul primario y verde lima como acento */
+  --color-bg: #f5f7f9;
   --color-surface: #ffffff;
-  --color-border: #dcdcd6;
-  --color-text: #1f2320;
-  --color-muted: #6b7168;
-  --color-accent: #2f6f5e;
-  --color-accent-soft: #e6efec;
+  --color-border: #d7dde3;
+  --color-text: #2b3542;
+  --color-muted: #5b6470;
+  --color-accent: #5eb3e6;
+  --color-accent-soft: #e8f3f9;
+  --color-accent-secondary: #b3d946;
+  --color-accent-secondary-soft: #f0f5dd;
   --color-danger: #a13d3d;
   --color-danger-soft: #f5e9e9;
   --radius: 10px;
@@ -28,6 +31,13 @@ body {
   max-width: 720px;
   margin: 0 auto;
   padding: 48px 24px;
+}
+
+.logo-institucional {
+  height: 32px;
+  width: auto;
+  display: block;
+  margin-bottom: 12px;
 }
 
 .eyebrow {
@@ -180,9 +190,19 @@ h1 {
   max-width: 360px;
   margin: 80px auto;
   border: 1px solid var(--color-border);
+  border-top: 3px solid var(--color-lime);
   border-radius: var(--radius);
   padding: 32px;
   background: var(--color-surface);
+  text-align: center;
+}
+
+.tarjeta-login form {
+  text-align: left;
+}
+
+.tarjeta-login .logo-institucional {
+  margin: 0 auto 20px auto;
 }
 
 .campo {
@@ -263,4 +283,17 @@ h1 {
   background: var(--color-surface);
   font-size: 14px;
   color: var(--color-muted);
+}
+
+/* Logo en encabezados */
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.header-logo img {
+  height: 40px;
+  width: auto;
 }
