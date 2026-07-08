@@ -133,7 +133,7 @@ function resetearFormulario() {
   document.getElementById("campo-tipo-documento").disabled = false;
   document.getElementById("campo-numero-documento").disabled = false;
   document.getElementById("boton-cancelar-edicion").style.display = "none";
-  document.getElementById("titulo-formulario").textContent = "nuevo paciente";
+  document.getElementById("titulo-formulario").textContent = "Nuevo Paciente";
   document.getElementById("mensaje-form").style.display = "none";
 }
 
@@ -270,7 +270,7 @@ function renderizarListado(filtro) {
   cuerpo.innerHTML = "";
 
   if (filtrados.length === 0) {
-    cuerpo.innerHTML = `<tr><td colspan="4" style="color:var(--color-muted);padding:16px 6px;">No se encontraron pacientes.</td></tr>`;
+    cuerpo.innerHTML = `<tr><td colspan="5" style="color:var(--color-muted);padding:16px 6px;">No se encontraron pacientes.</td></tr>`;
     return;
   }
 
@@ -287,7 +287,8 @@ function renderizarListado(filtro) {
       : "";
 
     fila.innerHTML = `
-      <td>${p.tipoDocumento} ${formatearNumeroDocumento(p.numeroDocumento)}</td>
+      <td>${p.tipoDocumento}</td>
+      <td>${formatearNumeroDocumento(p.numeroDocumento)}</td>
       <td>${p.apellido}, ${p.nombre}${p.activo === false ? ' <span class="badge">inactivo</span>' : ""}</td>
       <td>${p.obraSocial ? p.obraSocial : '<span style="color:var(--color-muted);">—</span>'}</td>
       <td class="acciones-fila">${acciones}</td>
