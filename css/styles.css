@@ -594,3 +594,7 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.tarjeta-destacada {
+  border-top: 3px solid var(--color-accent-secondary);
+}
