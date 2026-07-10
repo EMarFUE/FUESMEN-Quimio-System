@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Importación masiva de pacientes (uso único) · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+  <style>
+    .aviso-herramienta {
+      background: var(--color-danger-soft); color: var(--color-danger);
+      border-radius: var(--radius); padding: 12px 14px; font-size: 13px; margin-bottom: 24px;
+    }
+    .resumen-importacion {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+    }
+    @media (max-width: 640px) { .resumen-importacion { grid-template-columns: 1fr 1fr; } }
+    .caja-resumen {
+      border: 1px solid var(--color-border); border-radius: var(--radius);
+      padding: 14px; background: var(--color-surface); text-align: center;
+    }
+    .caja-resumen .numero { font-size: 22px; font-weight: 600; }
+    .caja-resumen .etiqueta { font-size: 12px; color: var(--color-muted); margin-top: 4px; }
+    .caja-resumen.nuevo .numero { color: #3b6d11; }
+    .caja-resumen.omitido .numero { color: var(--color-muted); }
+    .caja-resumen.invalido .numero { color: var(--color-danger); }
+    .lista-invalidos {
+      max-height: 220px; overflow-y: auto; border: 1px solid var(--color-border);
+      border-radius: var(--radius); padding: 10px 12px; font-size: 13px; margin-bottom: 20px; background: var(--color-danger-soft);
+    }
+    .lista-invalidos div { padding: 3px 0; }
+    #barra-progreso-contenedor {
+      display: none; border: 1px solid var(--color-border); border-radius: var(--radius);
+      overflow: hidden; height: 10px; background: var(--color-bg); margin-bottom: 12px;
+    }
+    #barra-progreso { height: 100%; width: 0%; background: var(--color-accent); transition: width 0.2s; }
+  </style>
+</head>
+<body>
+  <div class="contenedor">
+    <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Medicación</a> &gt; Importación de pacientes</div>
+    <h1>Importación masiva de pacientes</h1>
+
+    <div class="aviso-herramienta">
+      Herramienta de uso único, no enlazada desde ningún menú del sistema. Sirve para precargar el padrón histórico
+      antes de arrancar a usar la carga de entregas (etapa 5), y evitar dar de alta a mano a cada paciente en los
+      primeros días. Una vez usada, no hace falta volver a abrirla.
+    </div>
+
+    <div id="tarjeta-form-paciente" class="tarjeta-formulario" style="display:none;">
+      <div class="encabezado-modulo">
+        <strong style="font-size:14px;">1. Elegí el archivo Excel</strong>
+      </div>
+      <input type="file" id="input-excel" accept=".xlsx,.xls" />
+      <p style="font-size:12.5px; color:var(--color-muted); margin-top:10px;">
+        Busca una hoja llamada "Original" con las columnas Paciente, Tipo Documento, Documento y Obra Social.
+        Si un mismo documento aparece varias veces, se queda con los datos de la última fila (para resolver el caso
+        de obras sociales distintas en el tiempo).
+      </p>
+      <div id="mensaje-lectura" class="mensaje-info" style="display:none; margin-top:14px;"></div>
+    </div>
+
+    <div id="bloque-resumen" style="display:none;">
+      <div class="encabezado-modulo">
+        <strong style="font-size:14px;">2. Revisá antes de confirmar</strong>
+      </div>
+      <div class="resumen-importacion">
+        <div class="caja-resumen"><div class="numero" id="num-total">0</div><div class="etiqueta">filas leídas</div></div>
+        <div class="caja-resumen nuevo"><div class="numero" id="num-nuevos">0</div><div class="etiqueta">pacientes nuevos</div></div>
+        <div class="caja-resumen omitido"><div class="numero" id="num-existentes">0</div><div class="etiqueta">ya en la base, se omiten</div></div>
+        <div class="caja-resumen invalido"><div class="numero" id="num-invalidos">0</div><div class="etiqueta">documento inválido</div></div>
+      </div>
+      <div id="detalle-invalidos" style="display:none;">
+        <strong style="font-size:13px;">Estos quedan fuera de la importación (documento fuera del rango de 7 a 9 dígitos):</strong>
+        <div class="lista-invalidos" id="lista-invalidos"></div>
+      </div>
+      <button type="button" id="boton-confirmar" class="boton-principal" style="width:auto; padding:10px 22px;">Confirmar e importar</button>
+      <div id="barra-progreso-contenedor" style="margin-top:14px;"><div id="barra-progreso"></div></div>
+      <div id="mensaje-resultado" class="mensaje-info" style="display:none; margin-top:14px;"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script>
+    // Misma lista y mismas funciones de normalización que js/pacientes.js, copiadas acá
+    // para que esta herramienta no dependa de otros archivos y se pueda borrar sola sin romper nada.
+    const OBRAS_SOCIALES = [
+      "ACLISA","ACONCAGUA MEDICINA PREVENTIVA S.A","ASOC MUTUAL 20 DE OCTUBRE",
+      "PAPSI - ASOC. COOP HOSP CENTRAL PAPSI","POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES",
+      "ASOCIACION MUTUAL SANCOR","BOREAL - COBERTURA DE SALUD (BOREAL)","PAMI - INSSJP - COIR SR",
+      "CONFERENCIA EPISCOPAL ARGENTINA","DAMSU-DPT.AS.ME.SO.U","DASUTEN","DELTA S.A.",
+      "GALENO ARGENTINA S.A.","GERENCIAMIENTO MEDICO SA","HOSPITAL TEODORO SCHESTAKOW","IOSFA",
+      "ITER MEDICINA SA","MEDICUS SA","MEDIFE ASOCIACION CIVIL","MUTUAL DEL PERSONAL DE AGUA Y ENERGIA",
+      "OBRA SOCIAL DE PETROLEROS","OBRA SOCIAL DEL PERSONAL DE FARMACIAS",
+      "OBRA SOCIAL DEL PODER JUDICIAL DE LA NACION","OBRA SOCIAL UNION PERS DE LA UNION PERS CIVIL DE LA NACION",
+      "OMINT","OSDE ORGANIZ DE SS DIRECTOS EMPRESARIOS","OSDEPYM","OSEP","OSPELSYM","OSPIA DELEG MENDOZA",
+      "OSPJERA","OSPSA - PERS.SANID.ARG","OSSEG","OSTES","PARTICULAR","POLICIA FED ARGENTINA",
+      "PREVENCION SALUD SA","PROFE - MENDOZA","ROI SA","SER SALUD PRESTACIONES SA",
+      "SISTEMA DE COBERTURA INT. DE SALUD SA","SUMA SALUD","SWISS MEDICAL SA","VISITAR SRL"
+    ];
+
+    function normalizarTexto(texto) {
+      return (texto || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    }
+    function normalizarObraSocialParaComparar(texto) {
+      return normalizarTexto(texto).replace(/\s+/g, "");
+    }
+    function capitalizarPalabras(texto) {
+      return (texto || "").trim().split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(" ");
+    }
+    function soloDigitos(texto) {
+      return (texto || "").toString().replace(/\D/g, "");
+    }
+
+    let filasProcesadas = []; // { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial, estado }
+
+    document.getElementById("input-excel").addEventListener("change", onArchivoSeleccionado);
+    document.getElementById("boton-confirmar").addEventListener("click", confirmarImportacion);
+
+    function mostrarMensaje(idElemento, texto, tipo) {
+      const el = document.getElementById(idElemento);
+      el.textContent = texto;
+      el.className = "mensaje-info " + tipo;
+      el.style.display = "block";
+    }
+
+    function onArchivoSeleccionado(evento) {
+      const archivo = evento.target.files[0];
+      if (!archivo) return;
+
+      const lector = new FileReader();
+      lector.onload = async (e) => {
+        try {
+          const datos = new Uint8Array(e.target.result);
+          const libro = XLSX.read(datos, { type: "array" });
+
+          let nombreHoja = libro.SheetNames.find(n => normalizarTexto(n) === "original");
+          if (!nombreHoja) nombreHoja = libro.SheetNames[0];
+
+          const hoja = libro.Sheets[nombreHoja];
+          const filas = XLSX.utils.sheet_to_json(hoja, { defval: "" });
+          await procesarFilas(filas);
+        } catch (error) {
+          console.error("Error al leer el Excel:", error);
+          mostrarMensaje("mensaje-lectura", "No se pudo leer el archivo. Verificá que sea un .xlsx válido.", "error");
+        }
+      };
+      lector.readAsArrayBuffer(archivo);
+    }
+
+    function obtenerValorColumna(fila, nombresPosibles) {
+      const claves = Object.keys(fila);
+      for (const clave of claves) {
+        if (nombresPosibles.includes(normalizarTexto(clave))) return fila[clave];
+      }
+      return "";
+    }
+
+    async function procesarFilas(filas) {
+      mostrarMensaje("mensaje-lectura", `Leyendo ${filas.length} filas...`, "info");
+
+      // Se queda con la última fila de cada documento (resuelve obras sociales repetidas en el tiempo).
+      const porDocumento = new Map();
+      filas.forEach(fila => {
+        const pacienteTexto = String(obtenerValorColumna(fila, ["paciente"]) || "").trim();
+        const tipoRaw = String(obtenerValorColumna(fila, ["tipo documento", "tipodocumento"]) || "DNI").trim().toUpperCase();
+        const documentoRaw = obtenerValorColumna(fila, ["documento"]);
+        const obraSocialRaw = String(obtenerValorColumna(fila, ["obra social", "obrasocial"]) || "").trim();
+
+        if (!pacienteTexto || !documentoRaw) return;
+
+        const tipoDocumento = ["DNI", "LC", "LE"].includes(tipoRaw) ? tipoRaw : "DNI";
+        const numeroDocumento = soloDigitos(documentoRaw);
+        if (!numeroDocumento) return;
+
+        const [apellidoRaw, ...resto] = pacienteTexto.split(",");
+        const nombreRaw = resto.join(",").trim();
+
+        const clave = `${tipoDocumento}-${numeroDocumento}`;
+        porDocumento.set(clave, {
+          id: clave,
+          tipoDocumento,
+          numeroDocumento,
+          nombre: capitalizarPalabras(nombreRaw),
+          apellido: capitalizarPalabras(apellidoRaw),
+          obraSocialOriginal: obraSocialRaw
+        });
+      });
+
+      // Chequeo contra la base real para no duplicar si la herramienta se corre más de una vez.
+      const existentesSnapshot = await db.collection("pacientes").get();
+      const idsExistentes = new Set(existentesSnapshot.docs.map(d => d.id));
+
+      filasProcesadas = Array.from(porDocumento.values()).map(p => {
+        let obraSocial = "";
+        if (p.obraSocialOriginal) {
+          const coincidencia = OBRAS_SOCIALES.find(
+            os => normalizarObraSocialParaComparar(os) === normalizarObraSocialParaComparar(p.obraSocialOriginal)
+          );
+          obraSocial = coincidencia || p.obraSocialOriginal;
+        }
+
+        let estado = "nuevo";
+        if (p.numeroDocumento.length < 7 || p.numeroDocumento.length > 9) {
+          estado = "invalido";
+        } else if (idsExistentes.has(p.id)) {
+          estado = "existente";
+        }
+
+        return { ...p, obraSocial, estado };
+      });
+
+      renderizarResumen(filas.length);
+    }
+
+    function renderizarResumen(totalFilasLeidas) {
+      document.getElementById("mensaje-lectura").style.display = "none";
+      document.getElementById("bloque-resumen").style.display = "block";
+
+      const nuevos = filasProcesadas.filter(f => f.estado === "nuevo");
+      const existentes = filasProcesadas.filter(f => f.estado === "existente");
+      const invalidos = filasProcesadas.filter(f => f.estado === "invalido");
+
+      document.getElementById("num-total").textContent = totalFilasLeidas;
+      document.getElementById("num-nuevos").textContent = nuevos.length;
+      document.getElementById("num-existentes").textContent = existentes.length;
+      document.getElementById("num-invalidos").textContent = invalidos.length;
+
+      document.getElementById("boton-confirmar").textContent = `Confirmar e importar ${nuevos.length} pacientes`;
+      document.getElementById("boton-confirmar").disabled = nuevos.length === 0;
+
+      if (invalidos.length > 0) {
+        document.getElementById("detalle-invalidos").style.display = "block";
+        document.getElementById("lista-invalidos").innerHTML = invalidos
+          .map(f => `<div>${f.apellido}, ${f.nombre} · ${f.tipoDocumento} ${f.numeroDocumento} (${f.numeroDocumento.length} dígitos)</div>`)
+          .join("");
+      } else {
+        document.getElementById("detalle-invalidos").style.display = "none";
+      }
+    }
+
+    async function confirmarImportacion() {
+      const nuevos = filasProcesadas.filter(f => f.estado === "nuevo");
+      if (nuevos.length === 0) return;
+
+      document.getElementById("boton-confirmar").disabled = true;
+      document.getElementById("barra-progreso-contenedor").style.display = "block";
+
+      const TAMANO_LOTE = 450;
+      let importados = 0;
+
+      try {
+        for (let i = 0; i < nuevos.length; i += TAMANO_LOTE) {
+          const lote = nuevos.slice(i, i + TAMANO_LOTE);
+          const batch = db.batch();
+          lote.forEach(p => {
+            const ref = db.collection("pacientes").doc(p.id);
+            batch.set(ref, {
+              tipoDocumento: p.tipoDocumento,
+              numeroDocumento: p.numeroDocumento,
+              nombre: p.nombre,
+              apellido: p.apellido,
+              obraSocial: p.obraSocial,
+              activo: true,
+              creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          });
+          await batch.commit();
+          importados += lote.length;
+          document.getElementById("barra-progreso").style.width = `${Math.round((importados / nuevos.length) * 100)}%`;
+        }
+
+        mostrarMensaje("mensaje-resultado", `Se importaron ${importados} pacientes nuevos.`, "exito");
+      } catch (error) {
+        console.error("Error al importar pacientes:", error);
+        mostrarMensaje("mensaje-resultado", `Se importaron ${importados} antes de un error. Revisá la consola y reintentá — los ya importados no se van a duplicar.`, "error");
+      } finally {
+        document.getElementById("boton-confirmar").disabled = false;
+      }
+    }
+
+    requireAuth(async (user, datosUsuario) => {
+      if (datosUsuario.rol !== "administrador" && datosUsuario.rol !== "enfermeria") {
+        document.querySelector(".contenedor").innerHTML =
+          '<p style="padding:40px 0;color:var(--color-muted);">Esta herramienta requiere rol de administrador o enfermería.</p>';
+        return;
+      }
+      document.getElementById("tarjeta-form-paciente").style.display = "block";
+    }, "../login.html");
+  </script>
+</body>
+</html>
