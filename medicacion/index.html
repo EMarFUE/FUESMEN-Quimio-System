@@ -31,6 +31,16 @@
         <div class="tarjeta-texto">Alta, edición y búsqueda de pacientes por documento.</div>
         <div class="tarjeta-enlace">Entrar →</div>
       </a>
+      <a class="tarjeta" href="entregas.html" id="tarjeta-entregas" style="display:none;">
+        <div class="tarjeta-titulo">carga de entrega</div>
+        <div class="tarjeta-texto">Registrar el ingreso de medicación de un paciente.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
+      <a class="tarjeta" href="stock.html">
+        <div class="tarjeta-titulo">stock</div>
+        <div class="tarjeta-texto">Consultar y exportar el stock disponible por depósito.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
     </div>
   </div>
 
@@ -44,6 +54,10 @@
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol === "administrador" || datosUsuario.rol === "enfermeria") {
+        document.getElementById("tarjeta-entregas").style.display = "block";
+      }
     }, "../login.html");
   </script>
 </body>

@@ -474,3 +474,123 @@ h1 {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
+
+/* Carga de entregas y stock (etapa 5) */
+.titulo-bloque {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted);
+  text-transform: lowercase;
+  margin-bottom: 14px;
+}
+
+.titulo-bloque::first-letter {
+  text-transform: uppercase;
+}
+
+.fila-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fila-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 560px) {
+  .fila-2,
+  .fila-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.check-linea {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  margin: 4px 0 16px;
+}
+
+.check-linea input {
+  width: auto;
+}
+
+.resultado-busqueda {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+}
+
+.paciente-seleccionado {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  font-size: 13.5px;
+}
+
+.bloque-alta-rapida {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-top: 10px;
+  background: var(--color-bg);
+}
+
+.fila-medicamento {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 10px;
+  background: var(--color-bg);
+}
+
+.fila-medicamento-encabezado {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.fila-medicamento-encabezado span {
+  font-size: 12.5px;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.barra-filtros-stock {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.barra-filtros-stock select,
+.barra-filtros-stock input {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: var(--font);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+@media (max-width: 640px) {
+  .barra-filtros-stock {
+    grid-template-columns: 1fr;
+  }
+}

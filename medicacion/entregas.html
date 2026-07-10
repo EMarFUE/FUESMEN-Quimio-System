@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Carga de entrega · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body>
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 32px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Medicación</a> &gt; Carga de entrega</div>
+        <h1 style="margin-bottom:0;">Carga de entrega</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-general" class="mensaje-info" style="display:none;"></div>
+
+    <div id="contenido-entrega" style="display:none;">
+
+      <!-- Bloque 1: depósito y donación -->
+      <div class="tarjeta-formulario">
+        <div class="titulo-bloque">datos generales</div>
+        <div class="fila-2">
+          <div class="campo" style="margin-bottom:0;">
+            <label for="campo-deposito">Depósito</label>
+            <select id="campo-deposito">
+              <option value="FUESMEN">FUESMEN</option>
+              <option value="Programa Oncológico">Programa Oncológico</option>
+            </select>
+          </div>
+          <div class="campo" style="margin-bottom:0; display:flex; align-items:flex-end;">
+            <div class="check-linea" style="margin:0;">
+              <input type="checkbox" id="campo-donacion" />
+              <label for="campo-donacion" style="margin:0;">Es una donación</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bloque 2: paciente (dueño actual o anterior según donación) -->
+      <div class="tarjeta-formulario">
+        <div class="titulo-bloque" id="titulo-bloque-paciente">a quién pertenece</div>
+
+        <div id="zona-busqueda-paciente">
+          <div class="campo">
+            <label for="campo-buscar-paciente">Buscar por documento o apellido</label>
+            <input type="text" id="campo-buscar-paciente" placeholder="ej: 30111222 o Gómez" autocomplete="off" />
+          </div>
+          <div id="resultados-busqueda-paciente"></div>
+          <div id="sin-resultados" style="display:none; font-size:13px; color:var(--color-muted); margin-bottom:10px;">
+            No se encontró ningún paciente con ese dato.
+            <button type="button" class="enlace-accion" onclick="mostrarAltaRapida()">dar de alta ahora</button>
+          </div>
+          <div id="bloque-alta-rapida" class="bloque-alta-rapida" style="display:none;">
+            <div class="fila-3">
+              <div class="campo" style="margin-bottom:8px;">
+                <label for="alta-tipo-documento">Tipo doc.</label>
+                <select id="alta-tipo-documento">
+                  <option value="DNI">DNI</option><option value="LC">LC</option><option value="LE">LE</option>
+                </select>
+              </div>
+              <div class="campo" style="margin-bottom:8px;">
+                <label for="alta-numero-documento">Número</label>
+                <input type="text" id="alta-numero-documento" inputmode="numeric" placeholder="41982305" />
+              </div>
+              <div></div>
+            </div>
+            <div class="fila-2">
+              <div class="campo" style="margin-bottom:8px;"><label for="alta-nombre">Nombre</label><input type="text" id="alta-nombre" /></div>
+              <div class="campo" style="margin-bottom:8px;"><label for="alta-apellido">Apellido</label><input type="text" id="alta-apellido" /></div>
+            </div>
+            <div id="mensaje-alta-rapida" class="mensaje-info error" style="display:none;"></div>
+            <button type="button" class="boton-secundario" onclick="altaRapidaPaciente()">Guardar paciente y usar en esta carga</button>
+          </div>
+        </div>
+
+        <div id="paciente-seleccionado" class="paciente-seleccionado" style="display:none;">
+          <div id="texto-paciente-seleccionado"></div>
+          <button type="button" class="enlace-accion peligro" onclick="quitarPacienteSeleccionado()">cambiar</button>
+        </div>
+      </div>
+
+      <!-- Bloque 3: quien entrega -->
+      <div class="tarjeta-formulario">
+        <div class="titulo-bloque">quién entrega</div>
+        <div class="check-linea">
+          <input type="checkbox" id="campo-es-mismo-paciente" onchange="onToggleEsMismoPaciente()" disabled />
+          <label for="campo-es-mismo-paciente" id="label-es-mismo-paciente" style="margin:0;">Trae el propio paciente</label>
+        </div>
+        <div class="fila-3">
+          <div class="campo" style="margin-bottom:0;"><label for="entrega-nombre">Nombre</label><input type="text" id="entrega-nombre" /></div>
+          <div class="campo" style="margin-bottom:0;"><label for="entrega-apellido">Apellido</label><input type="text" id="entrega-apellido" /></div>
+          <div class="campo" style="margin-bottom:0;"><label for="entrega-documento">Documento</label><input type="text" id="entrega-documento" inputmode="numeric" placeholder="41982305" /></div>
+        </div>
+      </div>
+
+      <!-- Bloque 4: medicamentos -->
+      <div class="tarjeta-formulario">
+        <div class="titulo-bloque">medicamentos de esta carga</div>
+        <div id="lista-medicamentos"></div>
+        <button type="button" class="boton-secundario" onclick="agregarFilaMedicamento()">+ agregar medicamento</button>
+      </div>
+
+      <button type="button" id="boton-guardar-entrega" class="boton-principal" style="width:auto; padding:11px 22px;" onclick="guardarEntrega()">Guardar entrega</button>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/entregas.js"></script>
+  <script>
+    requireAuth(async (user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol !== "administrador" && datosUsuario.rol !== "enfermeria") {
+        document.getElementById("mensaje-general").className = "mensaje-info error";
+        document.getElementById("mensaje-general").textContent = "Esta pantalla es exclusiva para administrador y enfermería.";
+        document.getElementById("mensaje-general").style.display = "block";
+        return;
+      }
+
+      document.getElementById("contenido-entrega").style.display = "block";
+      await iniciarEntregas(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>

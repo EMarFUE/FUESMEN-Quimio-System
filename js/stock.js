@@ -1,0 +1,97 @@
+// Lógica de la pantalla de stock (etapa 5).
+// Lectura para los cuatro roles (médico y administrativo la necesitan para consultar
+// disponibilidad); no hay alta ni edición manual acá, el stock solo se actualiza desde
+// el batch que crea una entrega en entregas.js.
+
+let stockCache = [];
+
+function normalizarTextoStock(texto) {
+  return (texto || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+async function iniciarStock() {
+  document.getElementById("filtro-deposito").addEventListener("change", renderizarTablaStock);
+  document.getElementById("filtro-droga").addEventListener("input", renderizarTablaStock);
+  await cargarStock();
+}
+
+async function cargarStock() {
+  const tbody = document.getElementById("cuerpo-tabla-stock");
+  tbody.innerHTML = `<tr><td colspan="5" style="color:var(--color-muted);">Cargando...</td></tr>`;
+
+  try {
+    const snapshot = await db.collection("stock").get();
+    stockCache = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    stockCache.sort((a, b) => {
+      const porDroga = (a.droga || "").localeCompare(b.droga || "", "es", { sensitivity: "base" });
+      if (porDroga !== 0) return porDroga;
+      return (a.deposito || "").localeCompare(b.deposito || "", "es", { sensitivity: "base" });
+    });
+    renderizarTablaStock();
+  } catch (error) {
+    console.error("Error al cargar el stock:", error);
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--color-danger);">No se pudo cargar el stock.</td></tr>`;
+  }
+}
+
+function filasFiltradas() {
+  const deposito = document.getElementById("filtro-deposito").value;
+  const filtroDroga = normalizarTextoStock(document.getElementById("filtro-droga").value);
+
+  return stockCache.filter((item) => {
+    const coincideDeposito = !deposito || item.deposito === deposito;
+    const coincideDroga = !filtroDroga || normalizarTextoStock(item.droga).includes(filtroDroga);
+    return coincideDeposito && coincideDroga;
+  });
+}
+
+function renderizarTablaStock() {
+  const tbody = document.getElementById("cuerpo-tabla-stock");
+  const filtrados = filasFiltradas();
+
+  if (filtrados.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--color-muted);padding:16px 6px;">No hay stock cargado con ese filtro.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtrados
+    .map(
+      (item) => `
+        <tr>
+          <td>${item.droga || ""}</td>
+          <td>${item.marca ? item.marca : '<span style="color:var(--color-muted);">—</span>'}</td>
+          <td>${item.unidadMedidaLabel || item.unidadMedida || ""}</td>
+          <td>${item.deposito || ""}</td>
+          <td>${formatearCantidad(item.cantidad)}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+function formatearCantidad(cantidad) {
+  const numero = Number(cantidad) || 0;
+  return numero.toLocaleString("es-AR", { maximumFractionDigits: 3 });
+}
+
+function exportarStockAExcel() {
+  const filas = filasFiltradas().map((item) => ({
+    Droga: item.droga || "",
+    Marca: item.marca || "",
+    "Unidad de medida": item.unidadMedidaLabel || item.unidadMedida || "",
+    Depósito: item.deposito || "",
+    Cantidad: Number(item.cantidad) || 0
+  }));
+
+  if (filas.length === 0) {
+    alert("No hay datos para exportar con el filtro actual.");
+    return;
+  }
+
+  const hoja = XLSX.utils.json_to_sheet(filas);
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, "Stock");
+
+  const fecha = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(libro, `stock_quimioterapia_${fecha}.xlsx`);
+}
