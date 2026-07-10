@@ -21,7 +21,7 @@
     </div>
 
     <div class="tarjetas">
-      <a class="tarjeta tarjeta-destacada" href="entregas.html" id="tarjeta-entregas" style="display:none;">
+      <a class="tarjeta tarjeta-destacada" href="entregas.html" id="tarjeta-entregas">
         <div class="tarjeta-titulo">carga de entrega</div>
         <div class="tarjeta-texto">Registrar el ingreso de medicación de un paciente.</div>
         <div class="tarjeta-enlace">Entrar →</div>
@@ -55,8 +55,8 @@
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
-      if (datosUsuario.rol === "administrador" || datosUsuario.rol === "enfermeria") {
-        document.getElementById("tarjeta-entregas").style.display = "block";
+      if (datosUsuario.rol === "medico" || datosUsuario.rol === "administrativo") {
+        document.getElementById("tarjeta-entregas").style.display = "none";
       }
     }, "../login.html");
   </script>
