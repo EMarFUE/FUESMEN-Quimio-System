@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Medicación · Servicio de quimioterapia</title>
+  <title>Otras herramientas · Servicio de quimioterapia</title>
   <link rel="stylesheet" href="../css/styles.css" />
 </head>
 <body>
@@ -11,8 +11,8 @@
     <div class="encabezado-sesion">
       <div>
         <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 32px; width: auto; margin-bottom: 8px;" />
-        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; Medicación</div>
-        <h1 style="margin-bottom:0;">Medicación</h1>
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Medicación</a> &gt; Otras herramientas</div>
+        <h1 style="margin-bottom:0;">Otras herramientas</h1>
       </div>
       <div style="text-align:right;">
         <div class="datos-sesion" id="datos-sesion"></div>
@@ -20,26 +20,28 @@
       </div>
     </div>
 
-    <div class="tarjetas tarjetas-principales">
-      <a class="tarjeta tarjeta-destacada" href="entregas.html" id="tarjeta-entregas">
-        <span class="etiqueta-tipo-carga etiqueta-tipo-ingreso">ingreso</span>
-        <div class="tarjeta-titulo">carga de medicación</div>
-        <div class="tarjeta-texto">Registrar el ingreso de medicación de un paciente.</div>
+    <div class="tarjetas">
+      <a class="tarjeta" href="catalogo.html">
+        <div class="tarjeta-titulo">catálogo de medicamentos</div>
+        <div class="tarjeta-texto">Alta, edición e importación de drogas y marcas.</div>
         <div class="tarjeta-enlace">Entrar →</div>
       </a>
-      <a class="tarjeta tarjeta-destacada-egreso" href="egresos.html" id="tarjeta-egresos">
-        <span class="etiqueta-tipo-carga etiqueta-tipo-egreso">egreso</span>
-        <div class="tarjeta-titulo">tratamientos</div>
-        <div class="tarjeta-texto">Registrar la medicación utilizada en un tratamiento.</div>
+      <a class="tarjeta" href="pacientes.html">
+        <div class="tarjeta-titulo">pacientes</div>
+        <div class="tarjeta-texto">Alta, edición y búsqueda de pacientes por documento.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
+      <a class="tarjeta" href="stock.html">
+        <div class="tarjeta-titulo">stock</div>
+        <div class="tarjeta-texto">Consultar y exportar el stock disponible por depósito.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
+      <a class="tarjeta" href="herramienta-importar-pacientes.html" id="tarjeta-importacion">
+        <div class="tarjeta-titulo">importación masiva de pacientes</div>
+        <div class="tarjeta-texto">Carga por Excel del padrón histórico, no para altas individuales.</div>
         <div class="tarjeta-enlace">Entrar →</div>
       </a>
     </div>
-
-    <a class="tarjeta tarjeta-secundaria" href="herramientas.html">
-      <div class="tarjeta-titulo">otras herramientas</div>
-      <div class="tarjeta-texto">Catálogo de medicamentos, pacientes, stock e importación masiva.</div>
-      <div class="tarjeta-enlace">Entrar →</div>
-    </a>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -54,8 +56,7 @@
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
       if (datosUsuario.rol === "medico" || datosUsuario.rol === "administrativo") {
-        document.getElementById("tarjeta-entregas").style.display = "none";
-        document.getElementById("tarjeta-egresos").style.display = "none";
+        document.getElementById("tarjeta-importacion").style.display = "none";
       }
     }, "../login.html");
   </script>

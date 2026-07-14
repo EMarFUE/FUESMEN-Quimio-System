@@ -598,3 +598,91 @@ h1 {
 .tarjeta-destacada {
   border-top: 3px solid var(--color-accent-secondary);
 }
+
+/* Tratamientos / egreso de stock (etapa 6) */
+:root {
+  --color-warning: #d85a30;
+  --color-warning-soft: #faece7;
+  --color-warning-text: #712b13;
+}
+
+.tarjetas-principales {
+  margin-bottom: 16px;
+}
+
+.tarjeta-secundaria {
+  display: block;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  background: var(--color-surface);
+  text-decoration: none;
+  color: inherit;
+}
+
+.tarjeta-destacada-egreso {
+  border-top: 3px solid var(--color-accent);
+}
+
+.etiqueta-tipo-carga {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.etiqueta-tipo-ingreso {
+  background: var(--color-accent-secondary-soft);
+  color: #3b6d11;
+}
+
+.etiqueta-tipo-egreso {
+  background: var(--color-accent-soft);
+  color: #1f5c85;
+}
+
+.aviso-sin-stock {
+  font-size: 12.5px;
+  color: var(--color-danger);
+  margin-top: 8px;
+}
+
+.tarjeta-confirmacion-stock {
+  border: 1px solid var(--color-warning);
+  background: var(--color-warning-soft);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.titulo-confirmacion-stock {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-warning-text);
+  margin-bottom: 6px;
+}
+
+.texto-confirmacion-stock {
+  font-size: 13px;
+  color: var(--color-warning-text);
+  margin-bottom: 14px;
+}
+
+.boton-confirmar-stock {
+  background: var(--color-warning-text);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+.boton-confirmar-stock:hover {
+  opacity: 0.92;
+}

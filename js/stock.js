@@ -71,7 +71,13 @@ function renderizarTablaStock() {
 
 function formatearCantidad(cantidad) {
   const numero = Number(cantidad) || 0;
-  return numero.toLocaleString("es-AR", { maximumFractionDigits: 3 });
+  const texto = numero.toLocaleString("es-AR", { maximumFractionDigits: 3 });
+  // Un valor negativo señala una carga para revisar (ver Handoff_etapa_6.md): no se oculta
+  // ni se redondea a cero, se destaca en rojo para que salte a la vista.
+  if (numero < 0) {
+    return `<span style="color:var(--color-danger); font-weight:600;">${texto}</span>`;
+  }
+  return texto;
 }
 
 function exportarStockAExcel() {

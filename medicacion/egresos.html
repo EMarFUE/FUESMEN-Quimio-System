@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tratamiento · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body>
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 32px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Medicación</a> &gt; Tratamiento</div>
+        <span class="etiqueta-tipo-carga etiqueta-tipo-egreso">tratamiento — egreso</span>
+        <h1 style="margin-bottom:0;margin-top:8px;">Tratamiento</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-general" class="mensaje-info" style="display:none;"></div>
+
+    <div class="tarjeta-formulario tarjeta-formulario-egreso">
+
+      <div class="titulo-bloque">Datos generales</div>
+      <div class="fila-3">
+        <div class="campo">
+          <label>Depósito</label>
+          <select id="campo-deposito">
+            <option value="FUESMEN">FUESMEN</option>
+            <option value="Programa Oncológico">Programa Oncológico</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label>Ciclo</label>
+          <input type="number" id="campo-ciclo" min="1" step="1" placeholder="1" />
+        </div>
+        <div class="campo">
+          <label>Sesión</label>
+          <input type="number" id="campo-sesion" min="1" step="1" placeholder="1" />
+        </div>
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:8px;">A quién pertenece</div>
+      <div id="paciente-seleccionado" class="paciente-seleccionado" style="display:none;">
+        <span id="texto-paciente-seleccionado"></span>
+        <button type="button" class="enlace-accion peligro" onclick="quitarPacienteSeleccionado()">quitar</button>
+      </div>
+      <div id="bloque-busqueda-paciente">
+        <div class="campo">
+          <input type="text" id="campo-buscar-paciente" placeholder="Buscar por apellido, nombre o documento" />
+        </div>
+        <div id="resultados-busqueda-paciente"></div>
+        <div id="sin-resultados" style="display:none;font-size:13px;color:var(--color-muted);margin-bottom:8px;">
+          No se encontró ningún paciente. Podés darlo de alta:
+          <button type="button" class="enlace-accion" onclick="mostrarAltaRapida()">dar de alta</button>
+        </div>
+        <div id="bloque-alta-rapida" class="bloque-alta-rapida" style="display:none;">
+          <div class="fila-3">
+            <div class="campo" style="margin-bottom:0;">
+              <label>Tipo de documento</label>
+              <select id="alta-tipo-documento">
+                <option value="DNI">DNI</option>
+                <option value="LC">Libreta cívica</option>
+                <option value="LE">Libreta de enrolamiento</option>
+              </select>
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label>Número de documento</label>
+              <input type="text" id="alta-numero-documento" inputmode="numeric" placeholder="Sin puntos ni espacios" />
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label>&nbsp;</label>
+              <button type="button" class="boton-principal" onclick="altaRapidaPaciente()">Guardar paciente</button>
+            </div>
+          </div>
+          <div class="fila-2">
+            <div class="campo" style="margin-bottom:0;">
+              <label>Nombre</label>
+              <input type="text" id="alta-nombre" />
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label>Apellido</label>
+              <input type="text" id="alta-apellido" />
+            </div>
+          </div>
+          <div id="mensaje-alta-rapida" class="mensaje-info error" style="display:none;margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:8px;">Medicamentos de este tratamiento</div>
+      <div id="lista-medicamentos"></div>
+      <button type="button" class="enlace-accion" onclick="agregarFilaMedicamento()" style="margin-bottom:20px;">+ agregar otro medicamento</button>
+
+      <button type="button" id="boton-guardar-egreso" class="boton-principal" onclick="intentarGuardarEgreso()">Guardar tratamiento</button>
+    </div>
+
+    <div id="bloque-confirmacion-stock" class="tarjeta-confirmacion-stock" style="display:none;">
+      <div class="titulo-confirmacion-stock">Stock insuficiente</div>
+      <div id="texto-confirmacion-stock" class="texto-confirmacion-stock"></div>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="boton-secundario" style="flex:1;" onclick="cancelarConfirmacionStock()">No, revisar</button>
+        <button type="button" class="boton-confirmar-stock" style="flex:1;" onclick="confirmarGuardarConStockNegativo()">Sí, continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/egresos.js"></script>
+  <script>
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol === "medico" || datosUsuario.rol === "administrativo") {
+        document.querySelector(".contenedor").innerHTML +=
+          '<p style="padding:20px 0;color:var(--color-muted);">No tenés permiso para cargar tratamientos.</p>';
+        document.querySelector(".tarjeta-formulario").style.display = "none";
+        return;
+      }
+
+      iniciarEgresos(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>
