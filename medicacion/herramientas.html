@@ -36,7 +36,7 @@
         <div class="tarjeta-texto">Consultar y exportar el stock disponible por depósito.</div>
         <div class="tarjeta-enlace">Entrar →</div>
       </a>
-      <a class="tarjeta" href="herramienta-importar-pacientes.html" id="tarjeta-importacion">
+      <a class="tarjeta" href="herramienta-importar-pacientes.html" id="tarjeta-importacion" style="display:none;">
         <div class="tarjeta-titulo">importación masiva de pacientes</div>
         <div class="tarjeta-texto">Carga por Excel del padrón histórico, no para altas individuales.</div>
         <div class="tarjeta-enlace">Entrar →</div>
@@ -55,8 +55,8 @@
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
-      if (datosUsuario.rol === "medico" || datosUsuario.rol === "administrativo") {
-        document.getElementById("tarjeta-importacion").style.display = "none";
+      if (datosUsuario.rol === "administrador" || datosUsuario.rol === "enfermeria") {
+        document.getElementById("tarjeta-importacion").style.display = "block";
       }
     }, "../login.html");
   </script>

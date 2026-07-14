@@ -21,13 +21,13 @@
     </div>
 
     <div class="tarjetas tarjetas-principales">
-      <a class="tarjeta tarjeta-destacada" href="entregas.html" id="tarjeta-entregas">
+      <a class="tarjeta tarjeta-destacada" href="entregas.html" id="tarjeta-entregas" style="display:none;">
         <span class="etiqueta-tipo-carga etiqueta-tipo-ingreso">ingreso</span>
         <div class="tarjeta-titulo">carga de medicación</div>
         <div class="tarjeta-texto">Registrar el ingreso de medicación de un paciente.</div>
         <div class="tarjeta-enlace">Entrar →</div>
       </a>
-      <a class="tarjeta tarjeta-destacada-egreso" href="egresos.html" id="tarjeta-egresos">
+      <a class="tarjeta tarjeta-destacada-egreso" href="egresos.html" id="tarjeta-egresos" style="display:none;">
         <span class="etiqueta-tipo-carga etiqueta-tipo-egreso">egreso</span>
         <div class="tarjeta-titulo">tratamientos</div>
         <div class="tarjeta-texto">Registrar la medicación utilizada en un tratamiento.</div>
@@ -53,9 +53,9 @@
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
-      if (datosUsuario.rol === "medico" || datosUsuario.rol === "administrativo") {
-        document.getElementById("tarjeta-entregas").style.display = "none";
-        document.getElementById("tarjeta-egresos").style.display = "none";
+      if (datosUsuario.rol === "administrador" || datosUsuario.rol === "enfermeria") {
+        document.getElementById("tarjeta-entregas").style.display = "block";
+        document.getElementById("tarjeta-egresos").style.display = "block";
       }
     }, "../login.html");
   </script>
