@@ -24,7 +24,7 @@
 
     <div id="contenido-entrega" style="display:none;">
 
-      <!-- Bloque 1: depósito y donación -->
+      <!-- Bloque 1: depósito, donación y uso inmediato -->
       <div class="tarjeta-formulario">
         <div class="titulo-bloque">datos generales</div>
         <div class="fila-2">
@@ -33,6 +33,7 @@
             <select id="campo-deposito">
               <option value="FUESMEN">FUESMEN</option>
               <option value="Programa Oncológico">Programa Oncológico</option>
+              <option value="Donaciones">Donaciones</option>
             </select>
           </div>
           <div class="campo" style="margin-bottom:0; display:flex; align-items:flex-end;">
@@ -40,6 +41,20 @@
               <input type="checkbox" id="campo-donacion" />
               <label for="campo-donacion" style="margin:0;">Es una donación</label>
             </div>
+          </div>
+        </div>
+        <div class="check-linea" style="margin-top:4px;">
+          <input type="checkbox" id="campo-uso-inmediato" onchange="onToggleUsoInmediato()" />
+          <label for="campo-uso-inmediato" style="margin:0;">Esta medicación se va a utilizar en esta misma sesión (registra también el tratamiento)</label>
+        </div>
+        <div id="bloque-ciclo-sesion" class="fila-2" style="display:none; margin-top:10px;">
+          <div class="campo" style="margin-bottom:0;">
+            <label for="campo-ciclo">Ciclo</label>
+            <input type="number" id="campo-ciclo" min="1" step="1" placeholder="1" />
+          </div>
+          <div class="campo" style="margin-bottom:0;">
+            <label for="campo-sesion">Sesión</label>
+            <input type="number" id="campo-sesion" min="1" step="1" placeholder="1" />
           </div>
         </div>
       </div>

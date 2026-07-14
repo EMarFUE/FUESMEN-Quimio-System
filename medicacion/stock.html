@@ -25,6 +25,7 @@
         <option value="">Todos los depósitos</option>
         <option value="FUESMEN">FUESMEN</option>
         <option value="Programa Oncológico">Programa Oncológico</option>
+        <option value="Donaciones">Donaciones</option>
       </select>
       <input type="text" id="filtro-droga" placeholder="buscar droga..." autocomplete="off" />
       <button type="button" class="boton-secundario" onclick="exportarStockAExcel()">Exportar a Excel</button>
@@ -57,7 +58,7 @@
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
-      await iniciarStock();
+      await iniciarStock(datosUsuario.rol);
     }, "../login.html");
   </script>
 </body>

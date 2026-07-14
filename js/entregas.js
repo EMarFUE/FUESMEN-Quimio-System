@@ -59,6 +59,12 @@ async function iniciarEntregas(user, datosUsuario) {
 
   document.getElementById("campo-donacion").addEventListener("change", actualizarEtiquetasSegunDonacion);
   document.getElementById("campo-buscar-paciente").addEventListener("input", (e) => buscarPaciente(e.target.value));
+  document.getElementById("campo-ciclo").addEventListener("input", (e) => {
+    e.target.value = soloDigitos(e.target.value);
+  });
+  document.getElementById("campo-sesion").addEventListener("input", (e) => {
+    e.target.value = soloDigitos(e.target.value);
+  });
   document.getElementById("alta-numero-documento").addEventListener("input", (e) => {
     e.target.value = soloDigitos(e.target.value).slice(0, 9);
   });
@@ -92,6 +98,13 @@ function actualizarEtiquetasSegunDonacion() {
     ? "Es el mismo paciente que donaba la medicación"
     : "Trae el propio paciente";
   renderizarPacienteSeleccionado();
+}
+
+// --- Uso inmediato: registra el tratamiento en el mismo acto que la entrega ---
+
+function onToggleUsoInmediato() {
+  const marcado = document.getElementById("campo-uso-inmediato").checked;
+  document.getElementById("bloque-ciclo-sesion").style.display = marcado ? "grid" : "none";
 }
 
 // --- Búsqueda y alta rápida de paciente ---
@@ -295,6 +308,7 @@ async function guardarEntrega() {
 
   const deposito = document.getElementById("campo-deposito").value;
   const esDonacion = document.getElementById("campo-donacion").checked;
+  const usoInmediato = document.getElementById("campo-uso-inmediato").checked;
   const quienEntregaNombre = capitalizarPalabras(document.getElementById("entrega-nombre").value);
   const quienEntregaApellido = capitalizarPalabras(document.getElementById("entrega-apellido").value);
   const quienEntregaDocumento = soloDigitos(document.getElementById("entrega-documento").value);
@@ -315,6 +329,21 @@ async function guardarEntrega() {
   if (quienEntregaDocumento.length < 7 || quienEntregaDocumento.length > 9) {
     mostrarMensajeGeneral("El documento de quién entrega debe tener entre 7 y 9 dígitos.", "error");
     return;
+  }
+
+  let ciclo = null;
+  let sesion = null;
+  if (usoInmediato) {
+    ciclo = parseInt(document.getElementById("campo-ciclo").value, 10);
+    sesion = parseInt(document.getElementById("campo-sesion").value, 10);
+    if (!ciclo || ciclo < 1) {
+      mostrarMensajeGeneral("El ciclo tiene que ser un número mayor o igual a 1.", "error");
+      return;
+    }
+    if (!sesion || sesion < 1) {
+      mostrarMensajeGeneral("La sesión tiene que ser un número mayor o igual a 1.", "error");
+      return;
+    }
   }
 
   const medicamentos = [];
@@ -352,7 +381,9 @@ async function guardarEntrega() {
     const batch = db.batch();
 
     const entregaRef = db.collection("entregas").doc();
-    batch.set(entregaRef, {
+    const egresoRef = usoInmediato ? db.collection("egresos").doc() : null;
+
+    const datosEntrega = {
       deposito,
       esDonacion,
       paciente: {
@@ -371,30 +402,64 @@ async function guardarEntrega() {
       medicamentos,
       creadoPor: { uid: usuarioActual.uid, nombre: datosUsuarioActual.nombre || usuarioActual.email },
       creadoEn: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    };
+    if (usoInmediato) {
+      datosEntrega.egresoVinculadoId = egresoRef.id;
+    }
+    batch.set(entregaRef, datosEntrega);
 
-    medicamentos.forEach((linea) => {
-      const stockId = `${linea.medicamentoId}_${linea.unidadMedida}_${slugDeposito(deposito)}`;
-      const stockRef = db.collection("stock").doc(stockId);
-      batch.set(
-        stockRef,
-        {
-          medicamentoId: linea.medicamentoId,
-          droga: linea.droga,
-          marca: linea.marca,
-          unidadMedida: linea.unidadMedida,
-          unidadMedidaLabel: linea.unidadMedidaLabel,
-          deposito,
-          cantidad: firebase.firestore.FieldValue.increment(linea.cantidad),
-          actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    if (usoInmediato) {
+      // El tratamiento queda como documento propio en "egresos" (no un campo dentro de
+      // "entregas"), para que más adelante, con la etapa 9, se pueda corregir o anular
+      // uno de los dos sin tocar el otro (ver conversación de la etapa 6).
+      batch.set(egresoRef, {
+        deposito,
+        paciente: {
+          id: pacienteSeleccionado.id,
+          tipoDocumento: pacienteSeleccionado.tipoDocumento,
+          numeroDocumento: pacienteSeleccionado.numeroDocumento,
+          nombre: pacienteSeleccionado.nombre,
+          apellido: pacienteSeleccionado.apellido
         },
-        { merge: true }
-      );
-    });
+        ciclo,
+        sesion,
+        medicamentos,
+        origen: "carga-combinada",
+        entregaOrigenId: entregaRef.id,
+        creadoPor: { uid: usuarioActual.uid, nombre: datosUsuarioActual.nombre || usuarioActual.email },
+        creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      // No se toca el stock: la misma cantidad entra y sale en el mismo acto, así que
+      // el efecto neto es cero.
+    } else {
+      medicamentos.forEach((linea) => {
+        const stockId = `${linea.medicamentoId}_${linea.unidadMedida}_${slugDeposito(deposito)}`;
+        const stockRef = db.collection("stock").doc(stockId);
+        batch.set(
+          stockRef,
+          {
+            medicamentoId: linea.medicamentoId,
+            droga: linea.droga,
+            marca: linea.marca,
+            unidadMedida: linea.unidadMedida,
+            unidadMedidaLabel: linea.unidadMedidaLabel,
+            deposito,
+            cantidad: firebase.firestore.FieldValue.increment(linea.cantidad),
+            actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+          },
+          { merge: true }
+        );
+      });
+    }
 
     await batch.commit();
 
-    mostrarMensajeGeneral("Entrega guardada y stock actualizado.", "exito");
+    mostrarMensajeGeneral(
+      usoInmediato
+        ? "Entrega y tratamiento guardados juntos. El stock no se modificó porque la medicación entró y salió en el mismo acto."
+        : "Entrega guardada y stock actualizado.",
+      "exito"
+    );
     resetearFormularioEntrega(deposito);
     setTimeout(() => {
       document.getElementById("mensaje-general").style.display = "none";
@@ -414,6 +479,10 @@ function resetearFormularioEntrega(depositoAnterior) {
   document.getElementById("campo-deposito").value = depositoAnterior;
   document.getElementById("campo-donacion").checked = false;
   actualizarEtiquetasSegunDonacion();
+  document.getElementById("campo-uso-inmediato").checked = false;
+  document.getElementById("campo-ciclo").value = "";
+  document.getElementById("campo-sesion").value = "";
+  onToggleUsoInmediato();
 
   quitarPacienteSeleccionado();
   document.getElementById("campo-buscar-paciente").value = "";
