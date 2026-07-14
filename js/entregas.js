@@ -106,6 +106,16 @@ function actualizarEtiquetasSegunDonacion() {
     ? "Es el mismo paciente que donaba"
     : "Trae el propio paciente";
   renderizarPacienteSeleccionado();
+
+  // Una donación entra al stock de "Donaciones" para uso futuro de cualquier paciente;
+  // no tiene sentido marcarla como usada en la sesión de hoy, así que el tilde de uso
+  // inmediato ni siquiera se muestra en ese caso.
+  const bloqueUsoInmediato = document.getElementById("bloque-uso-inmediato");
+  bloqueUsoInmediato.style.display = esDonacion ? "none" : "block";
+  if (esDonacion) {
+    document.getElementById("campo-uso-inmediato").checked = false;
+    onToggleUsoInmediato();
+  }
 }
 
 // --- Uso inmediato: registra el tratamiento en el mismo acto que la entrega ---

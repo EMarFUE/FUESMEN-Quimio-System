@@ -35,18 +35,20 @@
             <option value="Donaciones">Donaciones</option>
           </select>
         </div>
-        <div class="check-linea" style="margin-top:4px;">
-          <input type="checkbox" id="campo-uso-inmediato" onchange="onToggleUsoInmediato()" />
-          <label for="campo-uso-inmediato" style="margin:0;">Esta medicación se va a utilizar en esta misma sesión (registra también el tratamiento)</label>
-        </div>
-        <div id="bloque-ciclo-sesion" class="fila-2" style="display:none; margin-top:10px;">
-          <div class="campo" style="margin-bottom:0;">
-            <label for="campo-ciclo">Ciclo</label>
-            <input type="number" id="campo-ciclo" min="1" step="1" placeholder="1" />
+        <div id="bloque-uso-inmediato">
+          <div class="check-linea" style="margin-top:4px;">
+            <input type="checkbox" id="campo-uso-inmediato" onchange="onToggleUsoInmediato()" />
+            <label for="campo-uso-inmediato" style="margin:0;">Esta medicación se va a utilizar en esta misma sesión (registra también el tratamiento)</label>
           </div>
-          <div class="campo" style="margin-bottom:0;">
-            <label for="campo-sesion">Sesión</label>
-            <input type="number" id="campo-sesion" min="1" step="1" placeholder="1" />
+          <div id="bloque-ciclo-sesion" class="fila-2" style="display:none; margin-top:10px;">
+            <div class="campo" style="margin-bottom:0;">
+              <label for="campo-ciclo">Ciclo</label>
+              <input type="number" id="campo-ciclo" min="1" step="1" placeholder="1" />
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label for="campo-sesion">Sesión</label>
+              <input type="number" id="campo-sesion" min="1" step="1" placeholder="1" />
+            </div>
           </div>
         </div>
       </div>

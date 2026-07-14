@@ -4,12 +4,23 @@
 // el batch que crea una entrega en entregas.js.
 
 let stockCache = [];
+let rolActualStock = null;
+
+// Médico y administrativo solo necesitan ver si hay stock disponible para prestar
+// (Programa Oncológico y Donaciones); el depósito de FUESMEN queda fuera de su vista,
+// tanto en el filtro como en los datos que se cargan (ver conversación de la etapa 6).
+const DEPOSITOS_RESTRINGIDOS = ["medico", "administrativo"];
 
 function normalizarTextoStock(texto) {
   return (texto || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
-async function iniciarStock() {
+async function iniciarStock(rol) {
+  rolActualStock = rol;
+  if (DEPOSITOS_RESTRINGIDOS.includes(rolActualStock)) {
+    const opcionFuesmen = document.querySelector('#filtro-deposito option[value="FUESMEN"]');
+    if (opcionFuesmen) opcionFuesmen.remove();
+  }
   document.getElementById("filtro-deposito").addEventListener("change", renderizarTablaStock);
   document.getElementById("filtro-droga").addEventListener("input", renderizarTablaStock);
   await cargarStock();
@@ -20,7 +31,14 @@ async function cargarStock() {
   tbody.innerHTML = `<tr><td colspan="5" style="color:var(--color-muted);">Cargando...</td></tr>`;
 
   try {
-    const snapshot = await db.collection("stock").get();
+    // Para médico y administrativo, la propia consulta tiene que pedir solo los depósitos
+    // permitidos: la regla de Firestore ahora exige que la consulta esté acotada de
+    // antemano, no alcanza con filtrar acá después de traer todo (ver Handoff_etapa_6.md).
+    const consulta = DEPOSITOS_RESTRINGIDOS.includes(rolActualStock)
+      ? db.collection("stock").where("deposito", "in", ["Programa Oncológico", "Donaciones"])
+      : db.collection("stock");
+
+    const snapshot = await consulta.get();
     stockCache = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     stockCache.sort((a, b) => {
       const porDroga = (a.droga || "").localeCompare(b.droga || "", "es", { sensitivity: "base" });
