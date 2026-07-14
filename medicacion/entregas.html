@@ -24,24 +24,16 @@
 
     <div id="contenido-entrega" style="display:none;">
 
-      <!-- Bloque 1: depósito, donación y uso inmediato -->
+      <!-- Bloque 1: depósito y uso inmediato -->
       <div class="tarjeta-formulario">
         <div class="titulo-bloque">datos generales</div>
-        <div class="fila-2">
-          <div class="campo" style="margin-bottom:0;">
-            <label for="campo-deposito">Depósito</label>
-            <select id="campo-deposito">
-              <option value="FUESMEN">FUESMEN</option>
-              <option value="Programa Oncológico">Programa Oncológico</option>
-              <option value="Donaciones">Donaciones</option>
-            </select>
-          </div>
-          <div class="campo" style="margin-bottom:0; display:flex; align-items:flex-end;">
-            <div class="check-linea" style="margin:0;">
-              <input type="checkbox" id="campo-donacion" />
-              <label for="campo-donacion" style="margin:0;">Es una donación</label>
-            </div>
-          </div>
+        <div class="campo">
+          <label for="campo-deposito">Depósito</label>
+          <select id="campo-deposito">
+            <option value="FUESMEN">FUESMEN</option>
+            <option value="Programa Oncológico">Programa Oncológico</option>
+            <option value="Donaciones">Donaciones</option>
+          </select>
         </div>
         <div class="check-linea" style="margin-top:4px;">
           <input type="checkbox" id="campo-uso-inmediato" onchange="onToggleUsoInmediato()" />
@@ -59,7 +51,7 @@
         </div>
       </div>
 
-      <!-- Bloque 2: paciente (dueño actual o anterior según donación) -->
+      <!-- Bloque 2: paciente (dueño actual o anterior según el depósito elegido) -->
       <div class="tarjeta-formulario">
         <div class="titulo-bloque" id="titulo-bloque-paciente">a quién pertenece</div>
 

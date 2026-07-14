@@ -57,7 +57,7 @@ async function iniciarEntregas(user, datosUsuario) {
   usuarioActual = user;
   datosUsuarioActual = datosUsuario;
 
-  document.getElementById("campo-donacion").addEventListener("change", actualizarEtiquetasSegunDonacion);
+  document.getElementById("campo-deposito").addEventListener("change", actualizarEtiquetasSegunDonacion);
   document.getElementById("campo-buscar-paciente").addEventListener("input", (e) => buscarPaciente(e.target.value));
   document.getElementById("campo-ciclo").addEventListener("input", (e) => {
     e.target.value = soloDigitos(e.target.value);
@@ -91,11 +91,19 @@ async function cargarMedicamentosEntregas() {
 
 // --- Donación: cambia a qué se refiere el bloque de paciente y la etiqueta de "quién entrega" ---
 
+// --- Donación: se calcula solo por el depósito elegido (ver conversación de la etapa 6).
+// El depósito "Donaciones" es la única fuente de verdad; no hay un tilde aparte que pueda
+// contradecirlo. ---
+
+function esDonacionSegunDeposito() {
+  return document.getElementById("campo-deposito").value === "Donaciones";
+}
+
 function actualizarEtiquetasSegunDonacion() {
-  const esDonacion = document.getElementById("campo-donacion").checked;
+  const esDonacion = esDonacionSegunDeposito();
   document.getElementById("titulo-bloque-paciente").textContent = esDonacion ? "a quién pertenecía" : "a quién pertenece";
   document.getElementById("label-es-mismo-paciente").textContent = esDonacion
-    ? "Es el mismo paciente que donaba la medicación"
+    ? "Es el mismo paciente que donaba"
     : "Trae el propio paciente";
   renderizarPacienteSeleccionado();
 }
@@ -161,7 +169,7 @@ function renderizarPacienteSeleccionado() {
     return;
   }
   cont.style.display = "flex";
-  const esDonacion = document.getElementById("campo-donacion").checked;
+  const esDonacion = esDonacionSegunDeposito();
   document.getElementById("texto-paciente-seleccionado").innerHTML =
     `<strong>${pacienteSeleccionado.apellido}, ${pacienteSeleccionado.nombre}</strong> · ${pacienteSeleccionado.tipoDocumento} ${pacienteSeleccionado.numeroDocumento}` +
     (esDonacion ? ` <span class="badge" style="margin-left:8px;">dueño anterior</span>` : "");
@@ -307,7 +315,7 @@ async function guardarEntrega() {
   if (guardando) return;
 
   const deposito = document.getElementById("campo-deposito").value;
-  const esDonacion = document.getElementById("campo-donacion").checked;
+  const esDonacion = esDonacionSegunDeposito();
   const usoInmediato = document.getElementById("campo-uso-inmediato").checked;
   const quienEntregaNombre = capitalizarPalabras(document.getElementById("entrega-nombre").value);
   const quienEntregaApellido = capitalizarPalabras(document.getElementById("entrega-apellido").value);
@@ -477,7 +485,6 @@ function resetearFormularioEntrega(depositoAnterior) {
   // El depósito se mantiene seleccionado a propósito: es habitual cargar varias entregas
   // seguidas en el mismo depósito, y volver a elegirlo cada vez sería una fricción innecesaria.
   document.getElementById("campo-deposito").value = depositoAnterior;
-  document.getElementById("campo-donacion").checked = false;
   actualizarEtiquetasSegunDonacion();
   document.getElementById("campo-uso-inmediato").checked = false;
   document.getElementById("campo-ciclo").value = "";
