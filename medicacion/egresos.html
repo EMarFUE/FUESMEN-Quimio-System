@@ -6,7 +6,7 @@
   <title>Tratamiento · Servicio de quimioterapia</title>
   <link rel="stylesheet" href="../css/styles.css" />
 </head>
-<body>
+<body style="visibility:hidden">
   <div class="contenedor">
     <div class="encabezado-sesion">
       <div>
@@ -23,6 +23,7 @@
 
     <div id="mensaje-general" class="mensaje-info" style="display:none;"></div>
 
+    <div id="contenido-egreso" style="display:none;">
     <div class="tarjeta-formulario tarjeta-formulario-egreso">
 
       <div class="titulo-bloque">Datos generales</div>
@@ -99,6 +100,8 @@
       <button type="button" id="boton-guardar-egreso" class="boton-principal" onclick="intentarGuardarEgreso()">Guardar tratamiento</button>
     </div>
 
+    </div><!-- /contenido-egreso -->
+
     <div id="bloque-confirmacion-stock" class="tarjeta-confirmacion-stock" style="display:none;">
       <div class="titulo-confirmacion-stock">Stock insuficiente</div>
       <div id="texto-confirmacion-stock" class="texto-confirmacion-stock"></div>
@@ -122,13 +125,14 @@
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
       if (datosUsuario.rol === "medico" || datosUsuario.rol === "administrativo") {
-        document.querySelector(".contenedor").innerHTML +=
-          '<p style="padding:20px 0;color:var(--color-muted);">No tenés permiso para cargar tratamientos.</p>';
-        document.querySelector(".tarjeta-formulario").style.display = "none";
+        document.getElementById("mensaje-general").className = "mensaje-info error";
+        document.getElementById("mensaje-general").textContent = "Esta pantalla es exclusiva para administrador y enfermería.";
+        document.getElementById("mensaje-general").style.display = "block";
         return;
       }
 
-      iniciarEgresos(user, datosUsuario);
+      document.getElementById("contenido-egreso").style.display = "block";
+      await iniciarEgresos(user, datosUsuario);
     }, "../login.html");
   </script>
 </body>
