@@ -10,43 +10,31 @@
 function _inyectarSpinner() {
   const spinner = document.createElement("div");
   spinner.id = "auth-spinner";
+  spinner.style.cssText = [
+    "position:fixed", "inset:0", "display:flex", "align-items:center",
+    "justify-content:center", "background:#f5f7fa", "z-index:9999"
+  ].join(";");
   spinner.innerHTML = `
-    <div style="
-      position:fixed; inset:0; display:flex; align-items:center;
-      justify-content:center; background:var(--color-fondo, #f5f7fa);
-      z-index:9999;
-    ">
-      <div style="text-align:center; color:var(--color-muted, #888); font-size:14px; font-family:inherit;">
-        <div style="
-          width:28px; height:28px; border:3px solid var(--color-borde, #ddd);
-          border-top-color:var(--color-primario, #5eb3e6);
-          border-radius:50%; animation:auth-spin 0.7s linear infinite;
-          margin:0 auto 12px;
-        "></div>
-        Verificando acceso…
-      </div>
+    <style>@keyframes auth-spin{to{transform:rotate(360deg)}}</style>
+    <div style="text-align:center;color:#888;font-size:14px;">
+      <div style="width:28px;height:28px;border:3px solid #ddd;border-top-color:#5eb3e6;
+        border-radius:50%;animation:auth-spin 0.7s linear infinite;margin:0 auto 12px;"></div>
+      Verificando acceso…
     </div>
-    <style>
-      @keyframes auth-spin { to { transform: rotate(360deg); } }
-    </style>
   `;
   document.body.appendChild(spinner);
 }
 
-function _quitarSpinner() {
-  const spinner = document.getElementById("auth-spinner");
-  if (spinner) spinner.remove();
-}
-
 function _revelarPagina() {
   document.body.style.visibility = "visible";
-  _quitarSpinner();
+  const spinner = document.getElementById("auth-spinner");
+  if (spinner) spinner.remove();
 }
 
 /**
  * Verifica que haya una sesión activa y que el usuario tenga un rol
  * asignado en Firestore (colección "usuarios", documento = uid).
- * Si todo está OK, ejecuta callback(user, datosUsuario).
+ * Si todo está OK, ejecuta callback(user, datosUsuario) y revela la página.
  * Si no hay sesión, redirige a login.html.
  * Si hay sesión pero no tiene rol asignado, muestra un aviso y no continúa.
  *
@@ -65,28 +53,35 @@ function requireAuth(callback, loginPath = "login.html") {
       const doc = await db.collection("usuarios").doc(user.uid).get();
 
       if (!doc.exists) {
-        _revelarPagina();
         mostrarErrorSinRol();
+        _revelarPagina();
         return;
       }
 
       const datosUsuario = doc.data();
 
       if (datosUsuario.activo === false) {
-        _revelarPagina();
         mostrarErrorSinRol("Este usuario fue dado de baja. Contactá al administrador.");
+        _revelarPagina();
         return;
       }
 
-      // El rol está confirmado: ejecutar el callback de la página,
-      // luego revelar el body ya con los permisos aplicados.
-      await callback(user, datosUsuario);
+      // Ejecutar el callback (sync o async) y luego revelar la página
+      try {
+        const resultado = callback(user, datosUsuario);
+        if (resultado && typeof resultado.then === "function") {
+          await resultado;
+        }
+      } catch (errorCallback) {
+        console.error("Error en el callback de requireAuth:", errorCallback);
+      }
+
       _revelarPagina();
 
     } catch (error) {
       console.error("Error al obtener el rol del usuario:", error);
-      _revelarPagina();
       mostrarErrorSinRol("No se pudo verificar el rol del usuario. Reintentá en unos segundos.");
+      _revelarPagina();
     }
   });
 }
