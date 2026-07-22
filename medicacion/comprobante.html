@@ -401,18 +401,21 @@
         document.getElementById("comprobante").style.display = "block";
         document.getElementById("comp-acciones").style.display = "flex";
 
-        // Imprimir automáticamente
-        window.print();
+        // window.print() se llama desde el callback de requireAuth, DESPUÉS de que
+        // auth.js revele el body con visibility:visible. Si se llama acá adentro,
+        // el diálogo de impresión se abre con la página todavía oculta.
+        return true;
 
       } catch (error) {
         console.error("Error al cargar el comprobante:", error);
         document.getElementById("estado-carga").textContent =
           "No se pudo cargar el comprobante. Cerrá esta ventana y reintentá.";
+        return false;
       }
     }
 
     // Esta pantalla es de solo lectura: cualquier usuario autenticado puede verla.
-    // requireAuth revela el body y luego carga los datos.
+    // requireAuth revela el body al terminar el callback; recién entonces se imprime.
     requireAuth(async (user, datosUsuario) => {
       const params = new URLSearchParams(window.location.search);
       const entregaId = params.get("id");
@@ -420,7 +423,13 @@
         document.getElementById("estado-carga").textContent = "Falta el ID de la entrega en la URL.";
         return;
       }
-      await cargarComprobante(entregaId);
+      const listo = await cargarComprobante(entregaId);
+      // auth.js llama a _revelarPagina() justo después de que este callback resuelve,
+      // así que al llegar acá el body ya está por volverse visible. Un pequeño delay
+      // asegura que el navegador termine de pintar antes de abrir el diálogo.
+      if (listo) {
+        setTimeout(() => window.print(), 300);
+      }
     }, "../login.html");
   </script>
 </body>
