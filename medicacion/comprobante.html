@@ -162,21 +162,6 @@
     }
     .comp-condiciones ol li { margin-bottom: 3px; break-inside: avoid; }
 
-    /* Firma de recepción */
-    .comp-firma-recepcion {
-      display: flex;
-      gap: 24px;
-      margin-top: 10px;
-    }
-    .comp-firma-bloque {
-      flex: 1;
-      border-top: 1px solid var(--color-texto);
-      padding-top: 4px;
-      font-size: 10px;
-      color: var(--color-muted);
-      text-align: center;
-    }
-
     /* ─── Bloque 2: consentimiento informado ─── */
     .bloque-consentimiento { padding-top: 2px; }
 
@@ -201,10 +186,10 @@
     }
     .cons-cuerpo p { margin-bottom: 5px; break-inside: avoid; }
 
-    /* Firma del consentimiento */
-    .comp-firma-consentimiento {
+    /* Firma final — único bloque de firmas de toda la hoja */
+    .comp-firma-final {
       display: grid;
-      grid-template-columns: 2fr 1fr 1fr;
+      grid-template-columns: 2fr 1fr 2fr;
       gap: 0 20px;
       margin-top: 8px;
     }
@@ -331,12 +316,6 @@
         </ol>
       </div>
 
-      <!-- Firmas de recepción -->
-      <div class="comp-firma-recepcion">
-        <div class="comp-firma-bloque">Firma de quien entrega</div>
-        <div class="comp-firma-bloque">Sello y firma de enfermería</div>
-      </div>
-
     </div><!-- /bloque-recepcion -->
 
     <!-- ══════════════════════════════════════════
@@ -356,11 +335,11 @@
         <p>En forma libre y voluntaria, <strong>DOY MI CONSENTIMIENTO Y AUTORIZO</strong> al médico responsable y al equipo de salud a realizar el tratamiento indicado y las medidas médicamente necesarias relacionadas con este, dejando constancia de que la firma del presente no implica renuncia alguna a mis derechos.</p>
       </div>
 
-      <!-- Firma del paciente -->
-      <div class="comp-firma-consentimiento">
-        <div class="comp-firma-campo">Apellido y nombre del paciente / representante</div>
+      <!-- Único bloque de firmas de toda la hoja -->
+      <div class="comp-firma-final">
+        <div class="comp-firma-campo">Firma del paciente / representante</div>
         <div class="comp-firma-campo">DNI</div>
-        <div class="comp-firma-campo">Firma</div>
+        <div class="comp-firma-campo">Sello y firma de enfermería</div>
       </div>
 
     </div><!-- /bloque-consentimiento -->
