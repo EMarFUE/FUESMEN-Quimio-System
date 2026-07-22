@@ -30,9 +30,16 @@
       font-size: 14px;
     }
 
-    /* ─── Contenedor principal ─── */
+    /* ─── Contenedor principal ───
+       display:flex + min-height fijo (aprox. una hoja A4 a esta escala) para poder
+       empujar el bloque de firmas al pie con margin-top:auto, incluso cuando el
+       contenido es corto. Si el contenido es más largo que una hoja (muchos
+       medicamentos), el contenedor simplemente crece más allá del mínimo y las
+       firmas quedan justo debajo del contenido, como antes. */
     #comprobante {
       display: none;
+      flex-direction: column;
+      min-height: 1000px;
       background: #fff;
       max-width: 720px;
       margin: 0 auto;
@@ -186,12 +193,15 @@
     }
     .cons-cuerpo p { margin-bottom: 5px; break-inside: avoid; }
 
-    /* Firma final — único bloque de firmas de toda la hoja */
+    /* Firma final — único bloque de firmas de toda la hoja.
+       margin-top:auto la empuja al pie del contenedor flex (#comprobante), aprovechando
+       todo el espacio sobrante cuando el contenido no llena la hoja. */
     .comp-firma-final {
       display: grid;
       grid-template-columns: 2fr 1fr 2fr;
       gap: 0 20px;
-      margin-top: 8px;
+      margin-top: auto;
+      padding-top: 24px;
     }
     .comp-firma-campo {
       border-top: 1px solid var(--color-texto);
@@ -223,13 +233,18 @@
     }
 
     /* ─── Print ─── */
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
     @media print {
       body { background: #fff; padding: 0; }
       #estado-carga { display: none !important; }
       #comprobante {
-        display: block !important;
+        display: flex !important;
         border: none;
         max-width: 100%;
+        min-height: calc(297mm - 24mm);
         padding: 12px 14px 10px;
         margin: 0;
       }
@@ -328,21 +343,22 @@
       <div class="cons-cuerpo">
         <p>Declaro que he recibido información clara, suficiente y comprensible acerca del tratamiento oncológico indicado, sus objetivos, forma de administración, beneficios esperados, alternativas terapéuticas, limitaciones y posibles riesgos y efectos adversos.</p>
         <p>Comprendo que el tratamiento puede incluir quimioterapia, agentes biológicos, terapias dirigidas, hormonoterapia u otros medicamentos, administrados por vía intravenosa, oral, subcutánea o intramuscular, solos o combinados, según indicación médica. Su finalidad es tratar la enfermedad, procurando reducir el riesgo de recaída o progresión, aumentar la supervivencia, aliviar síntomas y/o mejorar la calidad de vida, sin que pueda garantizarse la curación ni un resultado determinado.</p>
-        <p>He sido informado de que pueden presentarse efectos adversos, generalmente transitorios, aunque algunos pueden ser graves, permanentes o, excepcionalmente, mortales. Estos pueden incluir, entre otros: cansancio, fiebre, infecciones, alteraciones sanguíneas y de las defensas, hemorragias, caída del cabello, náuseas, vómitos, diarrea o estreñimiento, lesiones en piel y mucosas, reacciones alérgicas, alteraciones neurológicas, renales, hepáticas, cardíacas, respiratorias, vasculares, reproductivas y osteoarticulares, así como complicaciones relacionadas con la administración de los medicamentos.</p>
+        <p>He sido informado de que pueden presentarse efectos adversos, generalmente transitorios, aunque algunos pueden ser graves y/o permanentes. Estos pueden incluir, entre otros: cansancio, fiebre, infecciones, alteraciones sanguíneas y de las defensas, hemorragias, caída del cabello, náuseas, vómitos, diarrea o estreñimiento, lesiones en piel y mucosas, reacciones alérgicas, alteraciones neurológicas, renales, hepáticas, cardíacas, respiratorias, vasculares, reproductivas y osteoarticulares, así como complicaciones relacionadas con la administración de los medicamentos.</p>
         <p>Comprendo que, según mi evolución clínica, pueden requerirse estudios, análisis, toma de muestras biológicas, imágenes, transfusiones, internación, derivación a un servicio de guardia u otras medidas de soporte necesarias para mi atención.</p>
         <p>Me comprometo a informar al equipo tratante sobre la medicación que utilizo, otros tratamientos o procedimientos médicos y, en caso de corresponder, sobre embarazo, sospecha de embarazo o lactancia.</p>
         <p>He podido realizar preguntas y solicitar las aclaraciones necesarias, obteniendo respuestas satisfactorias. Comprendo que puedo revocar este consentimiento en cualquier momento, comunicándolo al equipo tratante.</p>
         <p>En forma libre y voluntaria, <strong>DOY MI CONSENTIMIENTO Y AUTORIZO</strong> al médico responsable y al equipo de salud a realizar el tratamiento indicado y las medidas médicamente necesarias relacionadas con este, dejando constancia de que la firma del presente no implica renuncia alguna a mis derechos.</p>
       </div>
 
-      <!-- Único bloque de firmas de toda la hoja -->
-      <div class="comp-firma-final">
-        <div class="comp-firma-campo">Firma del paciente / representante</div>
-        <div class="comp-firma-campo">DNI</div>
-        <div class="comp-firma-campo">Sello y firma de enfermería</div>
-      </div>
-
     </div><!-- /bloque-consentimiento -->
+
+    <!-- Único bloque de firmas de toda la hoja. Hijo directo de #comprobante (no de
+         bloque-consentimiento) para que margin-top:auto lo empuje al pie de la hoja. -->
+    <div class="comp-firma-final">
+      <div class="comp-firma-campo">Firma del paciente / representante</div>
+      <div class="comp-firma-campo">DNI</div>
+      <div class="comp-firma-campo">Sello y firma de enfermería</div>
+    </div>
 
   </div><!-- /comprobante -->
 
@@ -437,7 +453,7 @@
 
         // Mostrar comprobante y acciones
         document.getElementById("estado-carga").style.display = "none";
-        document.getElementById("comprobante").style.display = "block";
+        document.getElementById("comprobante").style.display = "flex";
         document.getElementById("comp-acciones").style.display = "flex";
 
         // window.print() se llama desde el callback de requireAuth, DESPUÉS de que
