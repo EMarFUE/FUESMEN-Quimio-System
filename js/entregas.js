@@ -1,4 +1,4 @@
-// Lógica de la carga de entrega de medicación (etapa 5).
+// Lógica de la carga de entrega de medicación (etapa 5, actualizado en etapa 7).
 // No depende de pacientes.js ni de medicamentos.js: cada pantalla del sistema mantiene sus propias
 // funciones de normalización, igual que ya conviven medicamentos.js y pacientes.js entre sí.
 
@@ -88,8 +88,6 @@ async function cargarMedicamentosEntregas() {
     .filter((med) => med.activo !== false)
     .sort((a, b) => (a.droga || "").localeCompare(b.droga || "", "es", { sensitivity: "base" }));
 }
-
-// --- Donación: cambia a qué se refiere el bloque de paciente y la etiqueta de "quién entrega" ---
 
 // --- Donación: se calcula solo por el depósito elegido (ver conversación de la etapa 6).
 // El depósito "Donaciones" es la única fuente de verdad; no hay un tilde aparte que pueda
@@ -319,7 +317,46 @@ function quitarFilaMedicamento(id) {
   document.getElementById(id).remove();
 }
 
-// --- Guardado: crea la entrega y actualiza el stock en el mismo batch ---
+// --- Número de comprobante correlativo por año ---
+// Se guarda en Firestore en contadores/comprobantes, campo igual al año (ej. "2025": 47).
+// FieldValue.increment(1) es atómico: no puede haber colisión aunque dos entregas se guarden
+// al mismo tiempo. El número se lee DESPUÉS del commit para obtener el valor ya incrementado.
+
+async function obtenerProximoNumeroComprobante(batch) {
+  const anio = new Date().getFullYear().toString();
+  const contadorRef = db.collection("contadores").doc("comprobantes");
+  batch.set(
+    contadorRef,
+    { [anio]: firebase.firestore.FieldValue.increment(1) },
+    { merge: true }
+  );
+  // El número real se obtiene leyendo el documento después del commit (ver guardarEntrega).
+  return anio;
+}
+
+function formatearNumeroComprobante(anio, numero) {
+  return `${anio}-${String(numero).padStart(4, "0")}`;
+}
+
+// --- Comprobante: abre ventana nueva e imprime automáticamente ---
+
+function abrirComprobante(entregaId) {
+  // La URL base se calcula dinámicamente para funcionar tanto en GitHub Pages
+  // como en cualquier otro entorno de despliegue.
+  const base = window.location.href.replace(/\/[^/]*$/, "");
+  const url = `${base}/comprobante.html?id=${entregaId}`;
+  const ventana = window.open(url, "_blank", "width=800,height=600");
+  if (!ventana) {
+    // Si el navegador bloqueó el popup, mostrar el enlace en la pantalla.
+    mostrarMensajeGeneral(
+      `Entrega guardada. El navegador bloqueó la ventana del comprobante — ` +
+      `<a href="${url}" target="_blank">hacé clic acá para abrirlo</a>.`,
+      "exito"
+    );
+  }
+}
+
+// --- Guardado: crea la entrega, actualiza el stock y genera el número de comprobante ---
 
 async function guardarEntrega() {
   if (guardando) return;
@@ -397,9 +434,18 @@ async function guardarEntrega() {
 
   try {
     const batch = db.batch();
+    const anio = new Date().getFullYear().toString();
 
     const entregaRef = db.collection("entregas").doc();
     const egresoRef = usoInmediato ? db.collection("egresos").doc() : null;
+
+    // Incrementar contador de comprobantes en el mismo batch
+    const contadorRef = db.collection("contadores").doc("comprobantes");
+    batch.set(
+      contadorRef,
+      { [anio]: firebase.firestore.FieldValue.increment(1) },
+      { merge: true }
+    );
 
     const datosEntrega = {
       deposito,
@@ -423,6 +469,8 @@ async function guardarEntrega() {
     };
     if (usoInmediato) {
       datosEntrega.egresoVinculadoId = egresoRef.id;
+      datosEntrega.ciclo = ciclo;
+      datosEntrega.sesion = sesion;
     }
     batch.set(entregaRef, datosEntrega);
 
@@ -472,16 +520,26 @@ async function guardarEntrega() {
 
     await batch.commit();
 
+    // Leer el número correlativo que quedó en el contador después del commit
+    const contadorSnap = await contadorRef.get();
+    const numeroCorrelativo = contadorSnap.data()[anio];
+    const numeroComprobante = formatearNumeroComprobante(anio, numeroCorrelativo);
+
+    // Guardar el número de comprobante en la entrega recién creada
+    await entregaRef.update({ numeroComprobante });
+
     mostrarMensajeGeneral(
       usoInmediato
-        ? "Entrega y tratamiento guardados juntos. El stock no se modificó porque la medicación entró y salió en el mismo acto."
-        : "Entrega guardada y stock actualizado.",
+        ? "Entrega y tratamiento guardados. Abriendo comprobante…"
+        : "Entrega guardada. Abriendo comprobante…",
       "exito"
     );
+
     resetearFormularioEntrega(deposito);
-    setTimeout(() => {
-      document.getElementById("mensaje-general").style.display = "none";
-    }, 4000);
+
+    // Abrir comprobante en ventana nueva (se imprime automáticamente desde comprobante.html)
+    abrirComprobante(entregaRef.id);
+
   } catch (error) {
     console.error("Error al guardar la entrega:", error);
     mostrarMensajeGeneral("No se pudo guardar la entrega. Reintentá en unos segundos.", "error");
