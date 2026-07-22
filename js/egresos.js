@@ -58,7 +58,8 @@ async function iniciarEgresos(user, datosUsuario) {
   datosUsuarioActualEgresos = datosUsuario;
   rolActualEgresos = datosUsuario.rol;
 
-  document.getElementById("campo-buscar-paciente").addEventListener("input", (e) => buscarPaciente(e.target.value));
+  const campoBuscarPaciente = document.getElementById("campo-buscar-paciente");
+  campoBuscarPaciente.addEventListener("input", (e) => buscarPaciente(e.target.value));
   document.getElementById("alta-numero-documento").addEventListener("input", (e) => {
     e.target.value = soloDigitos(e.target.value).slice(0, 9);
   });
@@ -70,7 +71,22 @@ async function iniciarEgresos(user, datosUsuario) {
   });
   document.getElementById("campo-deposito").addEventListener("change", recalcularUnidadesTodasLasFilas);
 
-  await Promise.all([cargarPacientesEgresos(), cargarMedicamentosEgresos(), cargarStockEgresos()]);
+  // El listado de pacientes activos (~2.600 registros) es, de las tres colecciones que
+  // usa esta pantalla, la que más tarda en traerse. Antes se esperaban las tres juntas
+  // (Promise.all) antes de que auth.js revelara la página, así que toda la pantalla
+  // quedaba oculta el tiempo que tardara la consulta más lenta de las tres.
+  // Ahora se carga en paralelo sin bloquear la aparición del formulario: el buscador de
+  // paciente queda deshabilitado con un aviso mientras tanto, y se habilita solo cuando
+  // el cache está listo. Medicamentos y stock sí se siguen esperando antes de revelar,
+  // porque agregarFilaMedicamento() los necesita para armar la primera fila.
+  campoBuscarPaciente.disabled = true;
+  campoBuscarPaciente.placeholder = "Cargando listado de pacientes…";
+  cargarPacientesEgresos().then(() => {
+    campoBuscarPaciente.disabled = false;
+    campoBuscarPaciente.placeholder = "Buscar por apellido, nombre o documento";
+  });
+
+  await Promise.all([cargarMedicamentosEgresos(), cargarStockEgresos()]);
   agregarFilaMedicamento();
 }
 
