@@ -14,6 +14,7 @@ let pacienteSeleccionado = null;
 let contadorFilasMedicamento = 0;
 let guardando = false;
 let pendingEgresoData = null;
+let rolActualEgresos = null;
 
 function normalizarTexto(texto) {
   return (texto || "")
@@ -55,6 +56,7 @@ function mostrarMensajeGeneral(texto, tipo) {
 async function iniciarEgresos(user, datosUsuario) {
   usuarioActualEgresos = user;
   datosUsuarioActualEgresos = datosUsuario;
+  rolActualEgresos = datosUsuario.rol;
 
   document.getElementById("campo-buscar-paciente").addEventListener("input", (e) => buscarPaciente(e.target.value));
   document.getElementById("alta-numero-documento").addEventListener("input", (e) => {
@@ -86,7 +88,13 @@ async function cargarMedicamentosEgresos() {
 }
 
 async function cargarStockEgresos() {
-  const snapshot = await db.collection("stock").get();
+  // Médico y administrativo solo pueden leer Programa Oncológico y Donaciones
+  // (misma restricción que en stock.js, exigida por la regla de Firestore).
+  const ROLES_RESTRINGIDOS = ["medico", "administrativo"];
+  const consulta = ROLES_RESTRINGIDOS.includes(rolActualEgresos)
+    ? db.collection("stock").where("deposito", "in", ["Programa Oncológico", "Donaciones"])
+    : db.collection("stock");
+  const snapshot = await consulta.get();
   stockCacheEgresos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
