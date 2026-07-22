@@ -119,7 +119,7 @@
   <script src="../js/auth.js"></script>
   <script src="../js/egresos.js"></script>
   <script>
-    requireAuth((user, datosUsuario) => {
+    requireAuth(async (user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
