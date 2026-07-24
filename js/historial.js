@@ -14,7 +14,10 @@
 // usa cada filtro (Firestore tira un enlace directo en la consola del navegador,
 // F12, para crearlos con un clic si hace falta):
 //   - "por paciente": paciente.id (==) + creadoEn (orderBy)
-//   - "por ciclo y sesión": ciclo (==) + sesion (==) + creadoEn (orderBy)
+//   - "por ciclo y sesión": como el filtro admite completar ciclo solo, sesión sola,
+//     o los dos juntos, cada combinación es una consulta distinta y puede pedir su
+//     propio índice la primera vez que se use: ciclo (==) + creadoEn (orderBy),
+//     sesion (==) + creadoEn (orderBy), y ciclo (==) + sesion (==) + creadoEn (orderBy).
 // "Recientes" y "por rango de fechas" no piden índice adicional porque el rango y
 // el orden caen sobre el mismo campo (creadoEn).
 
@@ -101,10 +104,10 @@ function cambiarModoFiltroHistorial(modo) {
   }
 
   if (modo === "ciclo-sesion") {
-    if (estadoFiltroHistorial.ciclo && estadoFiltroHistorial.sesion) {
+    if (estadoFiltroHistorial.ciclo || estadoFiltroHistorial.sesion) {
       cargarPaginaHistorial(true);
     } else {
-      mostrarPlaceholderHistorial("Completá ciclo y sesión y presioná «Buscar».");
+      mostrarPlaceholderHistorial("Completá ciclo, sesión, o los dos, y presioná «Buscar».");
     }
     return;
   }
@@ -132,9 +135,12 @@ function construirConsultaHistorial() {
   if (estadoFiltroHistorial.modo === "paciente") {
     consulta = consulta.where("paciente.id", "==", estadoFiltroHistorial.pacienteId);
   } else if (estadoFiltroHistorial.modo === "ciclo-sesion") {
-    consulta = consulta
-      .where("ciclo", "==", estadoFiltroHistorial.ciclo)
-      .where("sesion", "==", estadoFiltroHistorial.sesion);
+    if (estadoFiltroHistorial.ciclo) {
+      consulta = consulta.where("ciclo", "==", estadoFiltroHistorial.ciclo);
+    }
+    if (estadoFiltroHistorial.sesion) {
+      consulta = consulta.where("sesion", "==", estadoFiltroHistorial.sesion);
+    }
   } else if (estadoFiltroHistorial.modo === "fecha") {
     consulta = consulta
       .where("creadoEn", ">=", estadoFiltroHistorial.fechaDesde)
@@ -310,11 +316,21 @@ function quitarPacienteSeleccionadoHistorial() {
 // --- Filtro por ciclo y sesión ---
 
 function aplicarFiltroCicloSesion() {
-  const ciclo = parseInt(document.getElementById("campo-filtro-ciclo").value, 10);
-  const sesion = parseInt(document.getElementById("campo-filtro-sesion").value, 10);
+  const cicloTexto = document.getElementById("campo-filtro-ciclo").value;
+  const sesionTexto = document.getElementById("campo-filtro-sesion").value;
+  const ciclo = cicloTexto ? parseInt(cicloTexto, 10) : null;
+  const sesion = sesionTexto ? parseInt(sesionTexto, 10) : null;
 
-  if (!ciclo || ciclo < 1 || !sesion || sesion < 1) {
-    alert("Ingresá ciclo y sesión, ambos mayores o iguales a 1.");
+  if (!ciclo && !sesion) {
+    alert("Completá ciclo, sesión, o los dos.");
+    return;
+  }
+  if (cicloTexto && (!ciclo || ciclo < 1)) {
+    alert("El ciclo tiene que ser un número mayor o igual a 1.");
+    return;
+  }
+  if (sesionTexto && (!sesion || sesion < 1)) {
+    alert("La sesión tiene que ser un número mayor o igual a 1.");
     return;
   }
 
