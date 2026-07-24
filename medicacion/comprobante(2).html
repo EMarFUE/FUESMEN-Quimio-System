@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comprobante de entrega · Servicio de quimioterapia</title>
+  <style>
+    :root {
+      --color-primario: #5eb3e6;
+      --color-acento: #b3d946;
+      --color-texto: #1a1a1a;
+      --color-muted: #666;
+      --color-borde: #ddd;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 12px;
+      color: var(--color-texto);
+      background: #f5f7fa;
+      padding: 20px;
+    }
+
+    #estado-carga {
+      text-align: center;
+      padding: 48px 0;
+      color: var(--color-muted);
+      font-size: 14px;
+    }
+
+    /* ─── Contenedor principal ─── */
+    #comprobante {
+      display: none;
+      background: #fff;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 30px 20px;
+      border: 1px solid var(--color-borde);
+    }
+
+    /* ─── Encabezado compartido ─── */
+    .comp-encabezado {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--color-primario);
+    }
+    .comp-encabezado img { height: 34px; width: auto; }
+    .comp-encabezado-derecha { text-align: right; }
+    .comp-titulo {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--color-primario);
+      margin-bottom: 2px;
+    }
+    .comp-numero, .comp-fecha {
+      font-size: 11px;
+      color: var(--color-muted);
+    }
+
+    /* ─── Badge ─── */
+    .comp-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 3px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .comp-badge-ingreso  { background: #e8f5fe; color: var(--color-primario); }
+    .comp-badge-donacion { background: #f0f7e0; color: #5a7a18; }
+
+    /* ─── Bloque 1: recepción ─── */
+    .bloque-recepcion {
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+      border-bottom: 1.5px dashed var(--color-borde);
+    }
+
+    .bloque-titulo {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--color-muted);
+      margin-bottom: 8px;
+      padding-bottom: 3px;
+      border-bottom: 1px solid var(--color-borde);
+    }
+
+    /* Datos en dos columnas */
+    .comp-datos-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 20px;
+      margin-bottom: 10px;
+    }
+    .comp-dato-grupo { margin-bottom: 6px; }
+    .comp-dato-label {
+      font-size: 10px;
+      color: var(--color-muted);
+      margin-bottom: 1px;
+    }
+    .comp-dato-valor {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* Tabla de medicamentos */
+    .comp-tabla {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+    .comp-tabla th {
+      text-align: left;
+      font-weight: 700;
+      font-size: 10px;
+      color: var(--color-muted);
+      border-bottom: 1px solid var(--color-borde);
+      padding: 3px 6px 3px 0;
+    }
+    .comp-tabla td {
+      padding: 4px 6px 4px 0;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: top;
+    }
+    .comp-tabla td:last-child,
+    .comp-tabla th:last-child { text-align: right; }
+
+    /* Sesión (carga combinada) */
+    .comp-sesion {
+      background: #f5f7fa;
+      border-left: 3px solid var(--color-acento);
+      padding: 5px 10px;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+
+    /* Condiciones de recepción — en dos columnas para ahorrar espacio */
+    .comp-condiciones-titulo {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 5px;
+    }
+    .comp-condiciones ol {
+      padding-left: 14px;
+      color: var(--color-muted);
+      font-size: 10px;
+      line-height: 1.5;
+      columns: 2;
+      column-gap: 16px;
+    }
+    .comp-condiciones ol li { margin-bottom: 3px; break-inside: avoid; }
+
+    /* Firma de recepción */
+    .comp-firma-recepcion {
+      display: flex;
+      gap: 24px;
+      margin-top: 10px;
+    }
+    .comp-firma-bloque {
+      flex: 1;
+      border-top: 1px solid var(--color-texto);
+      padding-top: 4px;
+      font-size: 10px;
+      color: var(--color-muted);
+      text-align: center;
+    }
+
+    /* ─── Bloque 2: consentimiento informado ─── */
+    .bloque-consentimiento { padding-top: 2px; }
+
+    .cons-titulo {
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+      color: var(--color-texto);
+    }
+
+    .cons-cuerpo {
+      font-size: 10px;
+      line-height: 1.5;
+      color: #333;
+      text-align: justify;
+      columns: 2;
+      column-gap: 16px;
+      margin-bottom: 10px;
+    }
+    .cons-cuerpo p { margin-bottom: 5px; break-inside: avoid; }
+
+    /* Firma del consentimiento */
+    .comp-firma-consentimiento {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 0 20px;
+      margin-top: 8px;
+    }
+    .comp-firma-campo {
+      border-top: 1px solid var(--color-texto);
+      padding-top: 4px;
+      font-size: 10px;
+      color: var(--color-muted);
+    }
+
+    /* ─── Botones pantalla ─── */
+    .comp-acciones {
+      max-width: 720px;
+      margin: 14px auto 0;
+      display: flex;
+      gap: 10px;
+    }
+    .comp-acciones button {
+      padding: 9px 18px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      border: 1px solid var(--color-borde);
+      background: #fff;
+    }
+    .comp-acciones button.primario {
+      background: var(--color-primario);
+      color: #fff;
+      border-color: var(--color-primario);
+      font-weight: 600;
+    }
+
+    /* ─── Print ─── */
+    @media print {
+      body { background: #fff; padding: 0; }
+      #estado-carga { display: none !important; }
+      #comprobante {
+        display: block !important;
+        border: none;
+        max-width: 100%;
+        padding: 12px 14px 10px;
+        margin: 0;
+      }
+      .comp-acciones { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="estado-carga">Cargando comprobante…</div>
+
+  <div id="comprobante">
+
+    <!-- ── Encabezado compartido ── -->
+    <div class="comp-encabezado">
+      <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" />
+      <div class="comp-encabezado-derecha">
+        <div class="comp-titulo">Servicio de quimioterapia · FUESMEN</div>
+        <div class="comp-numero" id="comp-numero"></div>
+        <div class="comp-fecha" id="comp-fecha"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         BLOQUE 1 — COMPROBANTE DE RECEPCIÓN
+    ══════════════════════════════════════════ -->
+    <div class="bloque-recepcion">
+
+      <div class="bloque-titulo">Comprobante de recepción de medicación</div>
+      <div id="comp-badge-contenedor"></div>
+
+      <!-- Paciente y quién entrega en dos columnas -->
+      <div class="comp-datos-grid">
+        <div>
+          <div class="comp-dato-grupo">
+            <div class="comp-dato-label">Paciente</div>
+            <div class="comp-dato-valor" id="comp-paciente-nombre"></div>
+          </div>
+          <div class="comp-dato-grupo">
+            <div class="comp-dato-label">Documento</div>
+            <div class="comp-dato-valor" id="comp-paciente-documento"></div>
+          </div>
+        </div>
+        <div>
+          <div class="comp-dato-grupo">
+            <div class="comp-dato-label" id="label-quien-entrega">Quién entrega</div>
+            <div class="comp-dato-valor" id="comp-entrega-nombre"></div>
+          </div>
+          <div class="comp-dato-grupo">
+            <div class="comp-dato-label">Documento</div>
+            <div class="comp-dato-valor" id="comp-entrega-documento"></div>
+          </div>
+          <div class="comp-dato-grupo">
+            <div class="comp-dato-label">Depósito</div>
+            <div class="comp-dato-valor" id="comp-deposito"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Medicamentos -->
+      <div class="bloque-titulo">Medicación entregada</div>
+      <table class="comp-tabla">
+        <thead>
+          <tr>
+            <th>Droga</th>
+            <th>Marca</th>
+            <th>Cantidad</th>
+          </tr>
+        </thead>
+        <tbody id="comp-tabla-medicamentos"></tbody>
+      </table>
+
+      <!-- Sesión (solo carga combinada) -->
+      <div id="comp-sesion-contenedor"></div>
+
+      <!-- Condiciones de recepción -->
+      <div class="comp-condiciones">
+        <div class="comp-condiciones-titulo">Condiciones de recepción y resguardo de medicación</div>
+        <ol>
+          <li>La medicación será entregada exclusivamente por el paciente, familiar o persona autorizada por este, y recepcionada únicamente por personal de Enfermería.</li>
+          <li>La medicación será recepcionada y, de encontrarse el paciente apto para el tratamiento, preparada y administrada en la fecha indicada.</li>
+          <li>Si el tratamiento se suspende <strong>antes de la preparación</strong>, la medicación será devuelta al paciente o persona autorizada. Una vez preparada, <strong>no podrá ser reutilizada ni resguardada y deberá ser descartada</strong>, cualquiera sea el motivo de suspensión del tratamiento.</li>
+          <li>El correcto resguardo y conservación de la medicación, conforme a las condiciones indicadas para cada medicamento, será responsabilidad del paciente mientras se encuentre en su poder.</li>
+        </ol>
+      </div>
+
+      <!-- Firmas de recepción -->
+      <div class="comp-firma-recepcion">
+        <div class="comp-firma-bloque">Firma de quien entrega</div>
+        <div class="comp-firma-bloque">Sello y firma de enfermería</div>
+      </div>
+
+    </div><!-- /bloque-recepcion -->
+
+    <!-- ══════════════════════════════════════════
+         BLOQUE 2 — CONSENTIMIENTO INFORMADO
+    ══════════════════════════════════════════ -->
+    <div class="bloque-consentimiento">
+
+      <div class="bloque-titulo">Consentimiento informado para tratamiento oncológico</div>
+
+      <div class="cons-cuerpo">
+        <p>Declaro que he recibido información clara, suficiente y comprensible acerca del tratamiento oncológico indicado, sus objetivos, forma de administración, beneficios esperados, alternativas terapéuticas, limitaciones y posibles riesgos y efectos adversos.</p>
+        <p>Comprendo que el tratamiento puede incluir quimioterapia, agentes biológicos, terapias dirigidas, hormonoterapia u otros medicamentos, administrados por vía intravenosa, oral, subcutánea o intramuscular, solos o combinados, según indicación médica. Su finalidad es tratar la enfermedad, procurando reducir el riesgo de recaída o progresión, aumentar la supervivencia, aliviar síntomas y/o mejorar la calidad de vida, sin que pueda garantizarse la curación ni un resultado determinado.</p>
+        <p>He sido informado de que pueden presentarse efectos adversos, generalmente transitorios, aunque algunos pueden ser graves, permanentes o, excepcionalmente, mortales. Estos pueden incluir, entre otros: cansancio, fiebre, infecciones, alteraciones sanguíneas y de las defensas, hemorragias, caída del cabello, náuseas, vómitos, diarrea o estreñimiento, lesiones en piel y mucosas, reacciones alérgicas, alteraciones neurológicas, renales, hepáticas, cardíacas, respiratorias, vasculares, reproductivas y osteoarticulares, así como complicaciones relacionadas con la administración de los medicamentos.</p>
+        <p>Comprendo que, según mi evolución clínica, pueden requerirse estudios, análisis, toma de muestras biológicas, imágenes, transfusiones, internación, derivación a un servicio de guardia u otras medidas de soporte necesarias para mi atención.</p>
+        <p>Me comprometo a informar al equipo tratante sobre la medicación que utilizo, otros tratamientos o procedimientos médicos y, en caso de corresponder, sobre embarazo, sospecha de embarazo o lactancia.</p>
+        <p>He podido realizar preguntas y solicitar las aclaraciones necesarias, obteniendo respuestas satisfactorias. Comprendo que puedo revocar este consentimiento en cualquier momento, comunicándolo al equipo tratante.</p>
+        <p>En forma libre y voluntaria, <strong>DOY MI CONSENTIMIENTO Y AUTORIZO</strong> al médico responsable y al equipo de salud a realizar el tratamiento indicado y las medidas médicamente necesarias relacionadas con este, dejando constancia de que la firma del presente no implica renuncia alguna a mis derechos.</p>
+      </div>
+
+      <!-- Firma del paciente -->
+      <div class="comp-firma-consentimiento">
+        <div class="comp-firma-campo">Apellido y nombre del paciente / representante</div>
+        <div class="comp-firma-campo">DNI</div>
+        <div class="comp-firma-campo">Firma</div>
+      </div>
+
+    </div><!-- /bloque-consentimiento -->
+
+  </div><!-- /comprobante -->
+
+  <div class="comp-acciones" id="comp-acciones" style="display:none;">
+    <button class="primario" onclick="window.print()">Imprimir</button>
+    <button onclick="window.close()">Cerrar</button>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script>
+    function formatearFechaHora(timestamp) {
+      if (!timestamp) return "—";
+      const fecha = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      return fecha.toLocaleString("es-AR", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit"
+      });
+    }
+
+    function formatearCantidad(cantidad, unidadLabel) {
+      const num = Number(cantidad) || 0;
+      return `${num.toLocaleString("es-AR", { maximumFractionDigits: 3 })} ${unidadLabel}`;
+    }
+
+    async function cargarComprobante(entregaId) {
+      try {
+        const doc = await db.collection("entregas").doc(entregaId).get();
+        if (!doc.exists) {
+          document.getElementById("estado-carga").textContent = "No se encontró el comprobante.";
+          return false;
+        }
+
+        const d = doc.data();
+
+        // Número y fecha
+        document.getElementById("comp-numero").textContent =
+          d.numeroComprobante ? `N.° ${d.numeroComprobante}` : `ID: ${doc.id}`;
+        document.getElementById("comp-fecha").textContent = formatearFechaHora(d.creadoEn);
+
+        // Badge de tipo
+        const badge = document.createElement("div");
+        badge.className = `comp-badge ${d.esDonacion ? "comp-badge-donacion" : "comp-badge-ingreso"}`;
+        badge.textContent = d.esDonacion ? "donación" : "ingreso de medicación";
+        document.getElementById("comp-badge-contenedor").appendChild(badge);
+
+        // Paciente
+        document.getElementById("comp-paciente-nombre").textContent =
+          `${d.paciente.apellido}, ${d.paciente.nombre}`;
+        document.getElementById("comp-paciente-documento").textContent =
+          `${d.paciente.tipoDocumento} ${d.paciente.numeroDocumento}`;
+
+        // Quién entrega
+        document.getElementById("comp-entrega-nombre").textContent =
+          d.esMismoPaciente
+            ? `${d.quienEntrega.apellido}, ${d.quienEntrega.nombre} (el propio paciente)`
+            : `${d.quienEntrega.apellido}, ${d.quienEntrega.nombre}`;
+        document.getElementById("comp-entrega-documento").textContent = d.quienEntrega.documento;
+
+        // Depósito
+        document.getElementById("comp-deposito").textContent = d.deposito;
+
+        // Etiqueta "quién entrega" según donación
+        if (d.esDonacion) {
+          document.getElementById("label-quien-entrega").textContent = "Quién donaba";
+        }
+
+        // Medicamentos
+        const tbody = document.getElementById("comp-tabla-medicamentos");
+        d.medicamentos.forEach((m) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${m.droga}</td>
+            <td>${m.marca || '<span style="color:#999;">—</span>'}</td>
+            <td>${formatearCantidad(m.cantidad, m.unidadMedidaLabel)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // Sesión (solo si es carga combinada)
+        if (d.egresoVinculadoId && d.ciclo && d.sesion) {
+          document.getElementById("comp-sesion-contenedor").innerHTML = `
+            <div class="comp-sesion">
+              Medicación registrada como utilizada en el tratamiento:
+              ciclo <strong>${d.ciclo}</strong> / sesión <strong>${d.sesion}</strong>.
+            </div>
+          `;
+        }
+
+        // Mostrar comprobante y acciones
+        document.getElementById("estado-carga").style.display = "none";
+        document.getElementById("comprobante").style.display = "block";
+        document.getElementById("comp-acciones").style.display = "flex";
+
+        // window.print() se llama desde el callback de requireAuth, DESPUÉS de que
+        // auth.js revele el body con visibility:visible.
+        return true;
+
+      } catch (error) {
+        console.error("Error al cargar el comprobante:", error);
+        document.getElementById("estado-carga").textContent =
+          "No se pudo cargar el comprobante. Cerrá esta ventana y reintentá.";
+        return false;
+      }
+    }
+
+    // Esta pantalla es de solo lectura: cualquier usuario autenticado puede verla.
+    // requireAuth revela el body al terminar el callback; recién entonces se imprime.
+    requireAuth(async (user, datosUsuario) => {
+      const params = new URLSearchParams(window.location.search);
+      const entregaId = params.get("id");
+      if (!entregaId) {
+        document.getElementById("estado-carga").textContent = "Falta el ID de la entrega en la URL.";
+        return;
+      }
+      const listo = await cargarComprobante(entregaId);
+      if (listo) {
+        setTimeout(() => window.print(), 300);
+      }
+    }, "../login.html");
+  </script>
+</body>
+</html>

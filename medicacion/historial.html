@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Historial de comprobantes · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 32px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Medicación</a> &gt; <a href="herramientas.html">Otras herramientas</a> &gt; Historial de comprobantes</div>
+        <h1 style="margin-bottom:0;">Historial de comprobantes</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div class="filtro-tabs" id="filtro-tabs">
+      <button type="button" class="filtro-tab activo" data-modo="recientes">Recientes</button>
+      <button type="button" class="filtro-tab" data-modo="paciente">Por paciente</button>
+      <button type="button" class="filtro-tab" data-modo="ciclo-sesion">Por ciclo y sesión</button>
+      <button type="button" class="filtro-tab" data-modo="fecha">Por rango de fechas</button>
+    </div>
+
+    <!-- Filtro por paciente: mismo patrón de búsqueda y selección que entregas.html / egresos.html -->
+    <div id="bloque-filtro-paciente" class="bloque-filtro" style="display:none;">
+      <div id="bloque-busqueda-paciente-historial">
+        <input
+          type="text"
+          id="campo-buscar-paciente-historial"
+          class="campo-busqueda-pacientes"
+          placeholder="Buscar por apellido, nombre o documento"
+          autocomplete="off"
+          style="margin-bottom:8px;"
+        />
+        <div id="resultados-busqueda-paciente-historial"></div>
+        <div id="sin-resultados-historial" style="display:none;color:var(--color-muted);font-size:13px;">No se encontraron pacientes.</div>
+      </div>
+      <div id="paciente-seleccionado-historial" class="paciente-seleccionado" style="display:none;">
+        <span id="texto-paciente-seleccionado-historial"></span>
+        <button type="button" class="enlace-accion" onclick="quitarPacienteSeleccionadoHistorial()">quitar</button>
+      </div>
+    </div>
+
+    <!-- Filtro por ciclo y sesión -->
+    <div id="bloque-filtro-ciclo-sesion" class="bloque-filtro" style="display:none;">
+      <div class="fila-2">
+        <input type="text" id="campo-filtro-ciclo" placeholder="Ciclo" inputmode="numeric" autocomplete="off" />
+        <input type="text" id="campo-filtro-sesion" placeholder="Sesión" inputmode="numeric" autocomplete="off" />
+      </div>
+      <button type="button" class="boton-secundario" style="margin-top:12px;" onclick="aplicarFiltroCicloSesion()">Buscar</button>
+    </div>
+
+    <!-- Filtro por rango de fechas -->
+    <div id="bloque-filtro-fecha" class="bloque-filtro" style="display:none;">
+      <div class="fila-2">
+        <div class="campo" style="margin-bottom:0;">
+          <label>Desde</label>
+          <input type="date" id="campo-filtro-fecha-desde" />
+        </div>
+        <div class="campo" style="margin-bottom:0;">
+          <label>Hasta</label>
+          <input type="date" id="campo-filtro-fecha-hasta" />
+        </div>
+      </div>
+      <button type="button" class="boton-secundario" style="margin-top:12px;" onclick="aplicarFiltroFecha()">Buscar</button>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Paciente</th>
+            <th>Depósito</th>
+            <th>Tipo</th>
+            <th>Tratamiento vinculado</th>
+            <th>N.° comprobante</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="cuerpo-tabla-historial">
+          <tr><td colspan="7" style="color:var(--color-muted);">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="zona-cargar-mas" style="text-align:center;margin-top:8px;">
+      <button type="button" class="boton-secundario" id="boton-cargar-mas" onclick="cargarMasHistorial()">Cargar más</button>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/historial.js"></script>
+  <script>
+    // El callback NO es async y no devuelve la promesa de iniciarHistorial(): así
+    // auth.js revela la página apenas confirma el rol, sin esperar la carga de
+    // entregas. La colección crece indefinidamente (a diferencia de catálogo,
+    // pacientes o stock), así que no conviene bloquear el render en ella.
+    // Ver conversación de la etapa 8 para el detalle de esta decisión.
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+      iniciarHistorial();
+    }, "../login.html");
+  </script>
+</body>
+</html>
