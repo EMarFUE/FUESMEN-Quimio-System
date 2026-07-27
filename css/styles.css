@@ -760,6 +760,7 @@ h1 {
 
 .acciones-fila-multiple .enlace-accion {
   margin-left: 0;
+  text-align: right;
 }
 
 /* Modal de solicitud de corrección (etapa 9): antes quedaba al final de la hoja,
