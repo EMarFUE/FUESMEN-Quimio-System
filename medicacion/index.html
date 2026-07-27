@@ -35,11 +35,18 @@
       </a>
     </div>
 
-    <a class="tarjeta tarjeta-secundaria" href="herramientas.html">
-      <div class="tarjeta-titulo">otras herramientas</div>
-      <div class="tarjeta-texto">Catálogo de medicamentos, pacientes, stock e importación masiva.</div>
-      <div class="tarjeta-enlace">Entrar →</div>
-    </a>
+    <div class="tarjetas">
+      <a class="tarjeta tarjeta-secundaria" href="herramientas.html" id="tarjeta-herramientas">
+        <div class="tarjeta-titulo">otras herramientas</div>
+        <div class="tarjeta-texto">Catálogo de medicamentos, pacientes, stock e importación masiva.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
+      <a class="tarjeta tarjeta-secundaria" href="correcciones.html" id="tarjeta-correcciones" style="display:none;">
+        <div class="tarjeta-titulo">correcciones</div>
+        <div class="tarjeta-texto">Revisar y aprobar solicitudes de anulación o corrección de stock.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
+    </div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -56,6 +63,17 @@
       if (datosUsuario.rol === "administrador" || datosUsuario.rol === "enfermeria") {
         document.getElementById("tarjeta-entregas").style.display = "block";
         document.getElementById("tarjeta-egresos").style.display = "block";
+      }
+
+      if (datosUsuario.rol === "administrador") {
+        // Con las cuatro tarjetas visibles, el administrador ve dos filas de cuadrantes:
+        // entregas/tratamientos arriba, herramientas/correcciones abajo.
+        document.getElementById("tarjeta-correcciones").style.display = "block";
+      } else {
+        // Sin "correcciones", "otras herramientas" recupera el ancho completo que
+        // tenía antes de agregar esta cuarta tarjeta, en vez de quedar como una
+        // tarjeta a mitad de fila con un hueco vacío al lado.
+        document.getElementById("tarjeta-herramientas").style.gridColumn = "1 / -1";
       }
     }, "../login.html");
   </script>

@@ -807,3 +807,15 @@ h1 {
 .modal-cerrar:hover {
   color: var(--color-text);
 }
+
+/* Aprobación de correcciones (etapa 9, ronda 2). El de "comprobante" reutiliza
+   .badge-ingreso (mismo azul institucional); este es el único color nuevo que hacía
+   falta, para distinguir el origen "tratamiento" en el listado de pendientes. */
+.badge-tratamiento {
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--color-accent-soft);
+  color: #1f5c85;
+}
