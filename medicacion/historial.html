@@ -10,7 +10,7 @@
   <div class="contenedor">
     <div class="encabezado-sesion">
       <div>
-        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 32px; width: auto; margin-bottom: 8px;" />
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
         <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Medicación</a> &gt; <a href="herramientas.html">Otras herramientas</a> &gt; Historial</div>
         <h1 style="margin-bottom:0;">Historial</h1>
       </div>
@@ -105,9 +105,12 @@
       <button type="button" class="boton-secundario" id="boton-cargar-mas" onclick="cargarMasHistorial()">Cargar más</button>
     </div>
 
-    <!-- Panel de solicitud de corrección (etapa 9). Se arma dinámicamente desde historial.js
-         según si el documento elegido tiene vínculo (carga combinada) o no. -->
-    <div id="panel-solicitud-correccion" style="display:none;margin-top:24px;"></div>
+    <!-- Panel de solicitud de corrección (etapa 9), como superposición modal. El
+         contenido se arma dinámicamente desde historial.js según si el documento
+         elegido tiene vínculo (carga combinada) o no. -->
+    <div id="panel-solicitud-correccion" class="overlay-modal" style="display:none;">
+      <div class="modal-panel" id="modal-panel-correccion"></div>
+    </div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>

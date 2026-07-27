@@ -124,6 +124,18 @@ function puedeSolicitarCorreccion() {
   return rolActualHistorial === "enfermeria";
 }
 
+// Cierra el modal al hacer click en el fondo (fuera de .modal-panel) o al presionar
+// Escape. Se configura una sola vez, al iniciar la pantalla.
+function configurarCierreModalCorreccion() {
+  const panel = document.getElementById("panel-solicitud-correccion");
+  panel.addEventListener("click", (e) => {
+    if (e.target === panel) cerrarSolicitudCorreccion();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && panel.style.display !== "none") cerrarSolicitudCorreccion();
+  });
+}
+
 function iniciarHistorial(user, datosUsuario) {
   usuarioActualHistorial = user;
   datosUsuarioActualHistorial = datosUsuario;
@@ -136,6 +148,7 @@ function iniciarHistorial(user, datosUsuario) {
   document.getElementById("campo-buscar-paciente-historial").addEventListener("input", (e) => buscarPacienteHistorial(e.target.value));
   document.getElementById("campo-filtro-ciclo").addEventListener("input", (e) => { e.target.value = soloDigitos(e.target.value); });
   document.getElementById("campo-filtro-sesion").addEventListener("input", (e) => { e.target.value = soloDigitos(e.target.value); });
+  configurarCierreModalCorreccion();
 
   // No se espera esta carga: la página ya se reveló (o está por revelarse) sin
   // depender de ella.
@@ -577,7 +590,7 @@ async function abrirSolicitudCorreccion(coleccion, id, datos) {
 
   const vinculadoId = coleccion === "entregas" ? datos.egresoVinculadoId : datos.entregaOrigenId;
 
-  panel.style.display = "block";
+  panel.style.display = "flex";
 
   if (vinculadoId) {
     panel.dataset.modo = "vinculado";
@@ -586,14 +599,12 @@ async function abrirSolicitudCorreccion(coleccion, id, datos) {
     panel.dataset.modo = "libre";
     await renderFormularioLibre(coleccion, datos);
   }
-
-  panel.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function cerrarSolicitudCorreccion() {
   const panel = document.getElementById("panel-solicitud-correccion");
   panel.style.display = "none";
-  panel.innerHTML = "";
+  document.getElementById("modal-panel-correccion").innerHTML = "";
   panelDatosOriginales = null;
   correccionPacienteSeleccionado = null;
 }
@@ -633,13 +644,17 @@ function textoEfectoStockAnulacion(coleccion, datos) {
 }
 
 function renderAvisoVinculado(coleccion, datos, vinculadoId) {
+  const contenedor = document.getElementById("modal-panel-correccion");
   const panel = document.getElementById("panel-solicitud-correccion");
   const esEntrega = coleccion === "entregas";
   const nombreDocumento = esEntrega ? "esta entrega" : "este tratamiento";
   const nombreVinculo = esEntrega ? "el tratamiento registrado en el mismo acto" : "la entrega registrada en el mismo acto";
 
-  panel.innerHTML = `
-    <div class="tarjeta-confirmacion-stock">
+  contenedor.innerHTML = `
+    <div class="modal-encabezado">
+      <button type="button" class="modal-cerrar" onclick="cerrarSolicitudCorreccion()" aria-label="Cerrar">×</button>
+    </div>
+    <div class="tarjeta-confirmacion-stock" style="margin-top:0;">
       <div class="titulo-confirmacion-stock">Esta carga está vinculada</div>
       <div class="texto-confirmacion-stock">
         ${nombreDocumento.charAt(0).toUpperCase() + nombreDocumento.slice(1)} se cargó junto con ${nombreVinculo}
@@ -704,32 +719,34 @@ async function enviarSolicitudVinculada(coleccion, id, vinculadoId) {
 // --- Caso sin vínculo: anulación simple, o corrección con datos nuevos ---
 
 async function renderFormularioLibre(coleccion, datos) {
+  const contenedor = document.getElementById("modal-panel-correccion");
   const panel = document.getElementById("panel-solicitud-correccion");
   const esEntrega = coleccion === "entregas";
 
-  panel.innerHTML = `
-    <div class="tarjeta-formulario">
-      <div class="titulo-bloque">solicitar corrección — ${esEntrega ? "entrega" : "tratamiento"}</div>
-      <div class="filtro-tabs" id="selector-tipo-solicitud">
-        <button type="button" class="filtro-tab activo" data-tipo="anulacion">Anular sin reemplazo</button>
-        <button type="button" class="filtro-tab" data-tipo="correccion">Corregir datos</button>
-      </div>
-      <div id="cuerpo-tipo-solicitud"></div>
-      <div class="campo" style="margin-top:4px;">
-        <label>Motivo</label>
-        <input type="text" id="motivo-correccion-libre" placeholder="Ej: la unidad de medida se cargó mal, correspondía cc y no mg" />
-      </div>
-      <div id="mensaje-panel-correccion" class="mensaje-info error" style="display:none;"></div>
-      <div style="display:flex;gap:8px;">
-        <button type="button" class="boton-secundario" style="flex:1;" onclick="cerrarSolicitudCorreccion()">Cancelar</button>
-        <button type="button" class="boton-principal" style="flex:1;" onclick="enviarSolicitudLibre('${coleccion}', '${panel.dataset.id}')">Enviar solicitud</button>
-      </div>
+  contenedor.innerHTML = `
+    <div class="modal-encabezado">
+      <button type="button" class="modal-cerrar" onclick="cerrarSolicitudCorreccion()" aria-label="Cerrar">×</button>
+    </div>
+    <div class="titulo-bloque">solicitar corrección — ${esEntrega ? "entrega" : "tratamiento"}</div>
+    <div class="filtro-tabs" id="selector-tipo-solicitud">
+      <button type="button" class="filtro-tab activo" data-tipo="anulacion">Anular sin reemplazo</button>
+      <button type="button" class="filtro-tab" data-tipo="correccion">Corregir datos</button>
+    </div>
+    <div id="cuerpo-tipo-solicitud"></div>
+    <div class="campo" style="margin-top:4px;">
+      <label>Motivo</label>
+      <input type="text" id="motivo-correccion-libre" placeholder="Ej: la unidad de medida se cargó mal, correspondía cc y no mg" />
+    </div>
+    <div id="mensaje-panel-correccion" class="mensaje-info error" style="display:none;"></div>
+    <div style="display:flex;gap:8px;">
+      <button type="button" class="boton-secundario" style="flex:1;" onclick="cerrarSolicitudCorreccion()">Cancelar</button>
+      <button type="button" class="boton-principal" style="flex:1;" onclick="enviarSolicitudLibre('${coleccion}', '${panel.dataset.id}')">Enviar solicitud</button>
     </div>
   `;
 
-  panel.querySelectorAll("#selector-tipo-solicitud .filtro-tab").forEach((btn) => {
+  contenedor.querySelectorAll("#selector-tipo-solicitud .filtro-tab").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      panel.querySelectorAll("#selector-tipo-solicitud .filtro-tab").forEach((b) => b.classList.toggle("activo", b === btn));
+      contenedor.querySelectorAll("#selector-tipo-solicitud .filtro-tab").forEach((b) => b.classList.toggle("activo", b === btn));
       panel.dataset.tipoSolicitud = btn.dataset.tipo;
       await renderCuerpoTipoSolicitud(coleccion, datos, btn.dataset.tipo);
     });

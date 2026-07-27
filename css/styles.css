@@ -72,7 +72,7 @@ h1 {
 /* Encabezado con sesión activa */
 .encabezado-sesion {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 32px;
   flex-wrap: wrap;
@@ -760,4 +760,50 @@ h1 {
 
 .acciones-fila-multiple .enlace-accion {
   margin-left: 0;
+}
+
+/* Modal de solicitud de corrección (etapa 9): antes quedaba al final de la hoja,
+   ahora se muestra como superposición para no tener que bajar a buscarlo. Mismo
+   lenguaje visual del resto del sistema — superficie plana, borde fino — la
+   separación del fondo la da el velo semitransparente, no una sombra decorativa. */
+.overlay-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(43, 53, 66, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.modal-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  max-width: 640px;
+  width: 100%;
+  padding: 24px;
+}
+
+.modal-encabezado {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.modal-cerrar {
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-family: var(--font);
+}
+
+.modal-cerrar:hover {
+  color: var(--color-text);
 }
