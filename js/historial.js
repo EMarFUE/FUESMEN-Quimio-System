@@ -118,8 +118,10 @@ function mostrarMensajeGeneralHistorial(texto, tipo) {
   setTimeout(() => { el.style.display = "none"; }, 5000);
 }
 
+// Exclusivo enfermería (ver Handoff/sección 3.10): el administrador no solicita
+// correcciones, solo las aprueba o rechaza desde la pantalla de aprobación.
 function puedeSolicitarCorreccion() {
-  return rolActualHistorial === "administrador" || rolActualHistorial === "enfermeria";
+  return rolActualHistorial === "enfermeria";
 }
 
 function iniciarHistorial(user, datosUsuario) {
@@ -337,7 +339,7 @@ function filaEntregaHistorial(id, d) {
     <td>${tipo}${estadoBadge}</td>
     <td>${tratamiento}</td>
     <td>${numero}</td>
-    <td class="acciones-fila"></td>
+    <td class="acciones-fila acciones-fila-multiple"></td>
   `;
 
   const celdaAcciones = tr.querySelector(".acciones-fila");
@@ -376,7 +378,7 @@ function filaEgresoHistorial(id, d) {
     <td>${d.deposito || ""}</td>
     <td>ciclo ${d.ciclo ?? "—"} / sesión ${d.sesion ?? "—"}</td>
     <td>${origen}${estadoBadge}</td>
-    <td class="acciones-fila"></td>
+    <td class="acciones-fila acciones-fila-multiple"></td>
   `;
 
   const celdaAcciones = tr.querySelector(".acciones-fila");

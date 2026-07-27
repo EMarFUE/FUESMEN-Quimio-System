@@ -744,3 +744,20 @@ h1 {
   background: var(--color-accent-secondary-soft);
   color: #5a7a18;
 }
+
+/* Acciones múltiples por fila (etapa 9): en el historial, algunas filas ahora tienen
+   más de un enlace de acción ("Reimprimir" + "Solicitar corrección"). En vez de que
+   .acciones-fila los ponga en una sola línea con white-space:nowrap (lo que antes
+   cortaba el texto contra el borde del contenedor), esta clase los apila en columna,
+   sin afectar a .acciones-fila donde se usa sola en el resto del sistema. */
+.acciones-fila-multiple {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  white-space: normal;
+}
+
+.acciones-fila-multiple .enlace-accion {
+  margin-left: 0;
+}
