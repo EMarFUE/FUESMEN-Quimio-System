@@ -745,20 +745,19 @@ h1 {
   color: #5a7a18;
 }
 
-/* Acciones múltiples por fila (etapa 9): en el historial, algunas filas ahora tienen
-   más de un enlace de acción ("Reimprimir" + "Solicitar corrección"). En vez de que
-   .acciones-fila los ponga en una sola línea con white-space:nowrap (lo que antes
-   cortaba el texto contra el borde del contenedor), esta clase los apila en columna,
-   sin afectar a .acciones-fila donde se usa sola en el resto del sistema. */
-.acciones-fila-multiple {
+/* Grupo de acciones dentro de una celda (etapa 9): en vez de aplicar flex directamente
+   a la celda (<td>) -que puede dar un ancho de columna inconsistente en algunos
+   navegadores, por cómo interactúa flexbox con el layout de tablas-, el flex se aplica
+   a un <div> normal adentro de la celda. La celda en sí queda con .acciones-fila sin
+   modificar, igual que en el resto del sistema. */
+.grupo-acciones {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
-  white-space: normal;
 }
 
-.acciones-fila-multiple .enlace-accion {
+.grupo-acciones .enlace-accion {
   margin-left: 0;
   text-align: right;
 }

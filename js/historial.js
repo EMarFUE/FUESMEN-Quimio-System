@@ -352,10 +352,10 @@ function filaEntregaHistorial(id, d) {
     <td>${tipo}${estadoBadge}</td>
     <td>${tratamiento}</td>
     <td>${numero}</td>
-    <td class="acciones-fila acciones-fila-multiple"></td>
+    <td class="acciones-fila"><div class="grupo-acciones"></div></td>
   `;
 
-  const celdaAcciones = tr.querySelector(".acciones-fila");
+  const celdaAcciones = tr.querySelector(".grupo-acciones");
 
   const enlaceReimprimir = document.createElement("a");
   enlaceReimprimir.className = "enlace-accion";
@@ -391,10 +391,10 @@ function filaEgresoHistorial(id, d) {
     <td>${d.deposito || ""}</td>
     <td>ciclo ${d.ciclo ?? "—"} / sesión ${d.sesion ?? "—"}</td>
     <td>${origen}${estadoBadge}</td>
-    <td class="acciones-fila acciones-fila-multiple"></td>
+    <td class="acciones-fila"><div class="grupo-acciones"></div></td>
   `;
 
-  const celdaAcciones = tr.querySelector(".acciones-fila");
+  const celdaAcciones = tr.querySelector(".grupo-acciones");
 
   if (puedeSolicitarCorreccion() && d.estado !== "anulada") {
     const botonCorregir = document.createElement("button");
