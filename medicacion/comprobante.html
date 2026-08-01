@@ -39,12 +39,54 @@
     #comprobante {
       display: none;
       flex-direction: column;
+      position: relative;
       min-height: 1000px;
       background: #fff;
       max-width: 720px;
       margin: 0 auto;
       padding: 24px 30px 20px;
       border: 1px solid var(--color-borde);
+    }
+
+    /* ─── Marca de agua "ANULADO" (etapa 9, ronda 2) ───
+       Se muestra únicamente cuando la entrega quedó anulada por una corrección
+       aprobada. No reemplaza ni oculta ningún dato del comprobante original: es una
+       capa visual encima, para que quien lo reimprima no lo confunda con uno vigente. */
+    .comp-marca-agua {
+      display: none;
+      position: absolute;
+      top: 42%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-25deg);
+      font-size: 68px;
+      font-weight: 800;
+      letter-spacing: 6px;
+      color: rgba(161, 61, 61, 0.25);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 5;
+    }
+
+    .comp-aviso-anulado {
+      display: none;
+      background: #fdecec;
+      border-left: 3px solid #a13d3d;
+      color: #7a2b2b;
+      padding: 6px 10px;
+      font-size: 10.5px;
+      margin-bottom: 10px;
+    }
+
+    .comp-aviso-corrige {
+      display: none;
+      background: #f5f7fa;
+      border-left: 3px solid var(--color-primario);
+      color: var(--color-muted);
+      padding: 6px 10px;
+      font-size: 10.5px;
+      margin-bottom: 10px;
     }
 
     /* ─── Encabezado compartido ─── */
@@ -258,6 +300,16 @@
 
   <div id="comprobante">
 
+    <div class="comp-marca-agua" id="comp-marca-agua">ANULADO</div>
+
+    <!-- Avisos de anulación/reemplazo (etapa 9, ronda 2). Ninguno de los dos modifica
+         los datos originales del comprobante; solo agregan contexto de qué pasó después. -->
+    <div class="comp-aviso-anulado" id="comp-aviso-anulado">
+      Este comprobante fue <strong>anulado</strong> el <span id="comp-fecha-anulacion"></span>.
+      <span id="comp-reemplazo-info"></span>
+    </div>
+    <div class="comp-aviso-corrige" id="comp-aviso-corrige"></div>
+
     <!-- ── Encabezado compartido ── -->
     <div class="comp-encabezado">
       <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" />
@@ -440,6 +492,24 @@
           `;
           tbody.appendChild(tr);
         });
+
+        // Anulado (etapa 9, ronda 2): marca de agua + aviso, sin tocar ningún otro dato.
+        if (d.estado === "anulada") {
+          document.getElementById("comp-marca-agua").style.display = "block";
+          document.getElementById("comp-aviso-anulado").style.display = "block";
+          document.getElementById("comp-fecha-anulacion").textContent = formatearFechaHora(d.anuladaEn);
+          document.getElementById("comp-reemplazo-info").textContent = d.reemplazadoPorNumero
+            ? `Fue reemplazado por el comprobante N.° ${d.reemplazadoPorNumero}.`
+            : "";
+        }
+
+        // Si este comprobante es en sí mismo el reemplazo de una corrección, lo indica
+        // (dato agregado al aprobar la corrección, ver correcciones.js).
+        if (d.numeroComprobanteReemplazado) {
+          const aviso = document.getElementById("comp-aviso-corrige");
+          aviso.style.display = "block";
+          aviso.textContent = `Este comprobante corrige al N.° ${d.numeroComprobanteReemplazado}.`;
+        }
 
         // Sesión (solo si es carga combinada)
         if (d.egresoVinculadoId && d.ciclo && d.sesion) {

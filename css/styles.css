@@ -819,3 +819,21 @@ h1 {
   background: var(--color-accent-soft);
   color: #1f5c85;
 }
+
+.badge-pendiente {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-color: var(--color-accent-soft);
+}
+
+.badge-aprobada {
+  background: var(--color-accent-secondary-soft);
+  color: #3b6d11;
+  border-color: var(--color-accent-secondary-soft);
+}
+
+.badge-rechazada {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  border-color: var(--color-danger-soft);
+}

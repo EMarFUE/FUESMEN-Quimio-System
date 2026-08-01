@@ -18,11 +18,22 @@
 // CORREGIDOS. Cuando ambos coinciden (por ejemplo, una corrección que solo cambia la
 // cantidad), calcularAjustesStock() los consolida en un único ajuste neto sobre el mismo
 // documento, en vez de escribirlo dos veces.
+//
+// Listado (agregado tras la primera ronda de pruebas): dos pestañas, "Pendientes" —sin
+// paginar, se espera bajo volumen— y "Todas" —paginada de a 25, igual criterio que
+// historial.js—, ambas ordenadas de más reciente a más antigua. "Pendientes" ordena en
+// el navegador en vez de pedírselo a Firestore, a propósito: así solo necesita el índice
+// simple de "estado" que Firestore crea solo, sin sumar un índice compuesto más.
 
 let usuarioActualCorrecciones = null;
 let datosUsuarioActualCorrecciones = null;
-let correccionesPendientesCache = [];
+let correccionesCache = [];
+let filtroActivoCorrecciones = "pendientes"; // "pendientes" | "todas"
+let ultimoDocCorrecciones = null;
+let hayMasCorrecciones = false;
 let procesando = false;
+
+const TAMANO_PAGINA_CORRECCIONES = 25;
 
 function normalizarTexto(texto) {
   return (texto || "")
@@ -44,6 +55,11 @@ function formatearFechaHora(timestamp) {
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit"
   });
+}
+
+function milisegundos(timestamp) {
+  if (!timestamp) return 0;
+  return timestamp.toMillis ? timestamp.toMillis() : new Date(timestamp).getTime();
 }
 
 // Mismo formato que usa entregas.js para el comprobante original (ej. "2026-0134").
@@ -75,41 +91,104 @@ async function iniciarCorrecciones(user, datosUsuario) {
   usuarioActualCorrecciones = user;
   datosUsuarioActualCorrecciones = datosUsuario;
   configurarCierreModalRevision();
-  await cargarPendientes();
+  configurarTabsCorrecciones();
+  await cargarPendientesTab();
 }
 
-// --- Listado de solicitudes pendientes ---
+// --- Pestañas ---
 
-async function cargarPendientes() {
+function configurarTabsCorrecciones() {
+  document.querySelectorAll("#filtro-tabs-correcciones .filtro-tab").forEach((boton) => {
+    boton.addEventListener("click", () => cambiarFiltroCorrecciones(boton.dataset.filtro));
+  });
+}
+
+function cambiarFiltroCorrecciones(filtro) {
+  if (filtro === filtroActivoCorrecciones) return;
+  filtroActivoCorrecciones = filtro;
+  document.querySelectorAll("#filtro-tabs-correcciones .filtro-tab").forEach((boton) => {
+    boton.classList.toggle("activo", boton.dataset.filtro === filtro);
+  });
+  if (filtro === "pendientes") cargarPendientesTab();
+  else cargarPrimeraPaginaTodas();
+}
+
+// --- Pestaña "Pendientes": sin paginar, ordenado en el navegador ---
+
+async function cargarPendientesTab() {
+  document.getElementById("zona-cargar-mas-correcciones").style.display = "none";
   const tbody = document.getElementById("cuerpo-tabla-correcciones");
-  tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-muted);">Cargando...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);">Cargando...</td></tr>`;
   try {
-    const snapshot = await db.collection("correcciones")
-      .where("estado", "==", "pendiente")
-      .orderBy("solicitadoEn", "asc")
-      .get();
-    correccionesPendientesCache = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    renderizarListaPendientes();
+    const snap = await db.collection("correcciones").where("estado", "==", "pendiente").get();
+    correccionesCache = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    correccionesCache.sort((a, b) => milisegundos(b.solicitadoEn) - milisegundos(a.solicitadoEn));
+    renderizarListaCorrecciones();
   } catch (error) {
     console.error("Error al cargar correcciones pendientes:", error);
-    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-danger);padding:16px 6px;">
-      No se pudo cargar el listado. Si es la primera vez que se usa esta pantalla, puede faltar
-      crear un índice en Firestore (estado + solicitadoEn) — abrí la consola del navegador (F12):
-      el error trae un enlace directo para crearlo con un clic.
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-danger);padding:16px 6px;">
+      No se pudo cargar el listado. Reintentá en unos segundos.
     </td></tr>`;
   }
 }
 
-function renderizarListaPendientes() {
+// --- Pestaña "Todas": paginada de a 25, igual criterio que historial.js ---
+
+async function cargarPrimeraPaginaTodas() {
+  ultimoDocCorrecciones = null;
+  correccionesCache = [];
+  const tbody = document.getElementById("cuerpo-tabla-correcciones");
+  tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);">Cargando...</td></tr>`;
+  try {
+    const snap = await db.collection("correcciones")
+      .orderBy("solicitadoEn", "desc")
+      .limit(TAMANO_PAGINA_CORRECCIONES)
+      .get();
+    procesarPaginaTodas(snap);
+  } catch (error) {
+    console.error("Error al cargar el historial de correcciones:", error);
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-danger);padding:16px 6px;">
+      No se pudo cargar el listado. Reintentá en unos segundos.
+    </td></tr>`;
+  }
+}
+
+async function cargarMasCorrecciones() {
+  if (filtroActivoCorrecciones !== "todas" || !ultimoDocCorrecciones) return;
+  try {
+    const snap = await db.collection("correcciones")
+      .orderBy("solicitadoEn", "desc")
+      .startAfter(ultimoDocCorrecciones)
+      .limit(TAMANO_PAGINA_CORRECCIONES)
+      .get();
+    procesarPaginaTodas(snap);
+  } catch (error) {
+    console.error("Error al cargar más correcciones:", error);
+  }
+}
+
+function procesarPaginaTodas(snap) {
+  const docs = snap.docs;
+  correccionesCache = correccionesCache.concat(docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+  hayMasCorrecciones = docs.length === TAMANO_PAGINA_CORRECCIONES;
+  if (docs.length > 0) ultimoDocCorrecciones = docs[docs.length - 1];
+  renderizarListaCorrecciones();
+  document.getElementById("zona-cargar-mas-correcciones").style.display = hayMasCorrecciones ? "block" : "none";
+}
+
+// --- Render del listado ---
+
+function renderizarListaCorrecciones() {
   const tbody = document.getElementById("cuerpo-tabla-correcciones");
   tbody.innerHTML = "";
 
-  if (correccionesPendientesCache.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-muted);padding:16px 6px;">No hay solicitudes pendientes.</td></tr>`;
+  if (correccionesCache.length === 0) {
+    const texto = filtroActivoCorrecciones === "pendientes" ? "No hay solicitudes pendientes." : "Todavía no se registró ninguna solicitud.";
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);padding:16px 6px;">${texto}</td></tr>`;
     return;
   }
 
-  correccionesPendientesCache.forEach((c) => tbody.appendChild(filaPendiente(c)));
+  correccionesCache.forEach((c) => tbody.appendChild(filaCorreccion(c)));
 }
 
 function etiquetaOrigen(coleccion) {
@@ -125,24 +204,31 @@ function etiquetaTipo(correccion) {
     : '<span class="badge">anulación</span>';
 }
 
-function filaPendiente(c) {
+function etiquetaEstado(estado) {
+  if (estado === "aprobada") return '<span class="badge badge-aprobada">aprobada</span>';
+  if (estado === "rechazada") return '<span class="badge badge-rechazada">rechazada</span>';
+  return '<span class="badge badge-pendiente">pendiente</span>';
+}
+
+function filaCorreccion(c) {
   const tr = document.createElement("tr");
   const d = c.datosOriginales || {};
   const paciente = d.paciente || {};
   tr.innerHTML = `
-    <td>${formatearFechaHora(c.solicitadoEn)}</td>
+    <td>${formatearFechaHora(c.solicitadoEn)}<br><span style="color:var(--color-muted);font-size:12px;">${(c.solicitadoPor && c.solicitadoPor.nombre) || "—"}</span></td>
     <td>${etiquetaOrigen(c.coleccionOrigen)}</td>
     <td>${etiquetaTipo(c)}</td>
     <td>${paciente.apellido || ""}, ${paciente.nombre || ""}<br><span style="color:var(--color-muted);font-size:12px;">${d.deposito || ""}</span></td>
-    <td>${(c.solicitadoPor && c.solicitadoPor.nombre) || "—"}</td>
-    <td style="max-width:220px;">${c.motivo || ""}</td>
+    <td>${etiquetaEstado(c.estado)}</td>
+    <td style="max-width:200px;">${c.motivo || ""}</td>
+    <td style="max-width:200px;">${c.comentarioResolucion || "—"}</td>
     <td class="acciones-fila"></td>
   `;
   const celda = tr.querySelector(".acciones-fila");
   const boton = document.createElement("button");
   boton.type = "button";
   boton.className = "enlace-accion";
-  boton.textContent = "Revisar";
+  boton.textContent = c.estado === "pendiente" ? "Revisar" : "Ver detalle";
   boton.addEventListener("click", () => abrirRevisionCorreccion(c.id));
   celda.appendChild(boton);
   return tr;
@@ -221,17 +307,23 @@ function cerrarRevisionCorreccion() {
 }
 
 async function abrirRevisionCorreccion(id) {
-  const correccion = correccionesPendientesCache.find((c) => c.id === id);
+  const correccion = correccionesCache.find((c) => c.id === id);
   if (!correccion) return;
 
   const panel = document.getElementById("panel-revision-correccion");
   const contenedor = document.getElementById("modal-panel-revision");
   panel.style.display = "flex";
-  contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">Calculando el efecto sobre el stock…</div>`;
 
+  // Ya resuelta: detalle de solo lectura, sin recalcular stock (ese cálculo ya no
+  // representa nada real una vez aplicado) ni botones de acción.
+  if (correccion.estado !== "pendiente") {
+    renderizarModalSoloLectura(correccion);
+    return;
+  }
+
+  contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">Calculando el efecto sobre el stock…</div>`;
   const ajustes = calcularAjustesStock(correccion);
   const previews = await cargarPreviewsStock(ajustes);
-
   renderizarModalRevision(correccion, ajustes, previews);
 }
 
@@ -363,6 +455,37 @@ function renderizarModalRevision(correccion, ajustes, previews) {
   `;
 }
 
+function renderizarModalSoloLectura(correccion) {
+  const contenedor = document.getElementById("modal-panel-revision");
+  const vinculado = !!correccion.documentoVinculadoId;
+  const bloqueComparacion = correccion.tipo === "correccion" && !vinculado
+    ? renderComparacionDatos(correccion)
+    : renderResumenOriginal(correccion);
+
+  contenedor.innerHTML = `
+    <div class="modal-encabezado">
+      <button type="button" class="modal-cerrar" onclick="cerrarRevisionCorreccion()" aria-label="Cerrar">×</button>
+    </div>
+    <div class="titulo-bloque" style="margin-top:0;">${etiquetaOrigen(correccion.coleccionOrigen)} ${etiquetaTipo(correccion)} ${etiquetaEstado(correccion.estado)}</div>
+    <div style="font-size:13px;color:var(--color-muted);margin-bottom:10px;">
+      Solicitado por <strong>${(correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—"}</strong>
+      el ${formatearFechaHora(correccion.solicitadoEn)}
+    </div>
+    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${correccion.motivo || "—"}</div>
+
+    ${bloqueComparacion}
+
+    <div style="font-size:13px;color:var(--color-muted);margin-top:14px;border-top:1px solid var(--color-border);padding-top:12px;">
+      Resuelto por <strong>${(correccion.resueltoPor && correccion.resueltoPor.nombre) || "—"}</strong>
+      el ${formatearFechaHora(correccion.resueltoEn)}
+      ${correccion.comentarioResolucion ? `<br><strong>Comentario:</strong> ${correccion.comentarioResolucion}` : ""}
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <button type="button" class="boton-secundario" style="width:auto;" onclick="cerrarRevisionCorreccion()">Cerrar</button>
+    </div>
+  `;
+}
+
 // --- Rechazo: solo cambia el estado de la solicitud ---
 
 async function rechazarCorreccion(id) {
@@ -378,8 +501,7 @@ async function rechazarCorreccion(id) {
     });
 
     cerrarRevisionCorreccion();
-    correccionesPendientesCache = correccionesPendientesCache.filter((c) => c.id !== id);
-    renderizarListaPendientes();
+    await recargarTabActual();
     mostrarMensajeGeneral("Solicitud rechazada. No se modificó ningún dato ni stock.", "exito");
   } catch (error) {
     console.error("Error al rechazar la corrección:", error);
@@ -391,7 +513,7 @@ async function rechazarCorreccion(id) {
 
 // --- Aprobación: acá es donde se toca el stock de verdad ---
 
-function armarDatosReemplazo(coleccion, datosCorregidos, adminInfo, correccionId, documentoOrigenId) {
+function armarDatosReemplazo(coleccion, datosCorregidos, adminInfo, correccionId, documentoOrigenId, numeroComprobanteReemplazado) {
   const base = {
     deposito: datosCorregidos.deposito,
     paciente: datosCorregidos.paciente,
@@ -404,6 +526,10 @@ function armarDatosReemplazo(coleccion, datosCorregidos, adminInfo, correccionId
   if (coleccion === "entregas") {
     base.esDonacion = !!datosCorregidos.esDonacion;
     base.quienEntrega = datosCorregidos.quienEntrega;
+    // Referencia cruzada para el comprobante impreso (ver comprobante.html): permite
+    // mostrar "este comprobante corrige al N.° X" sin tener que leer el documento
+    // original al imprimir. No afecta stock ni ninguna otra lógica.
+    base.numeroComprobanteReemplazado = numeroComprobanteReemplazado || null;
   } else {
     base.ciclo = datosCorregidos.ciclo;
     base.sesion = datosCorregidos.sesion;
@@ -415,7 +541,7 @@ async function aprobarCorreccion(id) {
   if (procesando) return;
   procesando = true;
 
-  const correccion = correccionesPendientesCache.find((c) => c.id === id);
+  const correccion = correccionesCache.find((c) => c.id === id);
   if (!correccion) { procesando = false; return; }
 
   try {
@@ -485,7 +611,8 @@ async function aprobarCorreccion(id) {
     if (correccion.tipo === "correccion" && correccion.datosCorregidos) {
       nuevoRef = db.collection(correccion.coleccionOrigen).doc();
       const datosReemplazo = armarDatosReemplazo(
-        correccion.coleccionOrigen, correccion.datosCorregidos, adminInfo, id, correccion.documentoOrigenId
+        correccion.coleccionOrigen, correccion.datosCorregidos, adminInfo, id, correccion.documentoOrigenId,
+        snapOrigen.data().numeroComprobante
       );
       batch.set(nuevoRef, datosReemplazo);
 
@@ -512,12 +639,17 @@ async function aprobarCorreccion(id) {
     if (nuevoRef && contadorRef) {
       const contadorSnap = await contadorRef.get();
       const numeroCorrelativo = contadorSnap.data()[anioComprobante];
-      await nuevoRef.update({ numeroComprobante: formatearNumeroComprobante(anioComprobante, numeroCorrelativo) });
+      const numeroNuevo = formatearNumeroComprobante(anioComprobante, numeroCorrelativo);
+      await nuevoRef.update({ numeroComprobante: numeroNuevo });
+      // Referencia cruzada en el sentido inverso, para que comprobante.html pueda avisar
+      // "fue reemplazado por el N.° X" al reimprimir el comprobante anulado. Es la misma
+      // idea que numeroComprobanteReemplazado en el documento nuevo, pero no se puede
+      // escribir en el mismo batch: el número recién se conoce después del commit.
+      await refOrigen.update({ reemplazadoPorNumero: numeroNuevo, reemplazadoPorId: nuevoRef.id });
     }
 
     cerrarRevisionCorreccion();
-    correccionesPendientesCache = correccionesPendientesCache.filter((c) => c.id !== id);
-    renderizarListaPendientes();
+    await recargarTabActual();
     mostrarMensajeGeneral("Corrección aprobada. El stock ya está actualizado.", "exito");
   } catch (error) {
     console.error("Error al aprobar la corrección:", error);
@@ -525,4 +657,12 @@ async function aprobarCorreccion(id) {
   } finally {
     procesando = false;
   }
+}
+
+// Después de aprobar o rechazar, se recarga la pestaña activa desde Firestore en vez de
+// parchear el cache local — es una acción poco frecuente, y así el listado nunca puede
+// desincronizarse de lo que realmente quedó guardado.
+async function recargarTabActual() {
+  if (filtroActivoCorrecciones === "pendientes") await cargarPendientesTab();
+  else await cargarPrimeraPaginaTodas();
 }

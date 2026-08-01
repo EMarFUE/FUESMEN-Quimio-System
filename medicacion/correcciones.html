@@ -22,28 +22,38 @@
 
     <div id="mensaje-general-correcciones" class="mensaje-info" style="display:none;"></div>
 
-    <p style="font-size:13.5px;color:var(--color-muted);margin-top:-6px;margin-bottom:20px;">
-      Solicitudes de anulación o corrección de entregas y tratamientos, pendientes de tu aprobación.
-      Ninguna de ellas afecta el stock hasta que la apruebes acá.
+    <p style="font-size:13.5px;color:var(--color-muted);margin-top:-6px;margin-bottom:16px;">
+      Solicitudes de anulación o corrección de entregas y tratamientos. Ninguna afecta el stock
+      hasta que la aprobás. Las ya resueltas quedan igual en "Todas", con su estado.
     </p>
+
+    <div class="filtro-tabs" id="filtro-tabs-correcciones">
+      <button type="button" class="filtro-tab activo" data-filtro="pendientes">Pendientes</button>
+      <button type="button" class="filtro-tab" data-filtro="todas">Todas</button>
+    </div>
 
     <div style="overflow-x:auto;">
       <table class="tabla">
         <thead>
           <tr>
-            <th>Fecha</th>
+            <th>Fecha / solicitó</th>
             <th>Origen</th>
             <th>Tipo</th>
             <th>Paciente / depósito</th>
-            <th>Solicitó</th>
+            <th>Estado</th>
             <th>Motivo</th>
+            <th>Comentario</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="cuerpo-tabla-correcciones">
-          <tr><td colspan="7" style="color:var(--color-muted);">Cargando...</td></tr>
+          <tr><td colspan="8" style="color:var(--color-muted);">Cargando...</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <div id="zona-cargar-mas-correcciones" style="text-align:center;margin-top:8px;display:none;">
+      <button type="button" class="boton-secundario" id="boton-cargar-mas-correcciones" onclick="cargarMasCorrecciones()">Cargar más</button>
     </div>
 
     <!-- Panel de revisión: mismo patrón de superposición modal que ya usa historial.html
