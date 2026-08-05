@@ -118,7 +118,7 @@ function cambiarFiltroCorrecciones(filtro) {
 async function cargarPendientesTab() {
   document.getElementById("zona-cargar-mas-correcciones").style.display = "none";
   const tbody = document.getElementById("cuerpo-tabla-correcciones");
-  tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-muted);">Cargando...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-muted);">Cargando...</td></tr>`;
   try {
     const snap = await db.collection("correcciones").where("estado", "==", "pendiente").get();
     correccionesCache = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -126,7 +126,7 @@ async function cargarPendientesTab() {
     renderizarListaCorrecciones();
   } catch (error) {
     console.error("Error al cargar correcciones pendientes:", error);
-    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-danger);padding:16px 6px;">
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-danger);padding:16px 6px;">
       No se pudo cargar el listado. Reintentá en unos segundos.
     </td></tr>`;
   }
@@ -138,7 +138,7 @@ async function cargarPrimeraPaginaTodas() {
   ultimoDocCorrecciones = null;
   correccionesCache = [];
   const tbody = document.getElementById("cuerpo-tabla-correcciones");
-  tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-muted);">Cargando...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-muted);">Cargando...</td></tr>`;
   try {
     const snap = await db.collection("correcciones")
       .orderBy("solicitadoEn", "desc")
@@ -147,7 +147,7 @@ async function cargarPrimeraPaginaTodas() {
     await procesarPaginaTodas(snap);
   } catch (error) {
     console.error("Error al cargar el historial de correcciones:", error);
-    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-danger);padding:16px 6px;">
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-danger);padding:16px 6px;">
       No se pudo cargar el listado. Reintentá en unos segundos.
     </td></tr>`;
   }
@@ -186,7 +186,7 @@ function renderizarListaCorrecciones() {
 
   if (correccionesCache.length === 0) {
     const texto = filtroActivoCorrecciones === "pendientes" ? "No hay solicitudes pendientes." : "Todavía no se registró ninguna solicitud.";
-    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-muted);padding:16px 6px;">${texto}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--color-muted);padding:16px 6px;">${texto}</td></tr>`;
     return;
   }
 
@@ -246,15 +246,16 @@ function filaCorreccion(c) {
   const tr = document.createElement("tr");
   const d = c.datosOriginales || {};
   const paciente = d.paciente || {};
+  const comentarioLinea = c.comentarioResolucion
+    ? `<br><span style="color:var(--color-muted);font-size:12px;">💬 ${c.comentarioResolucion}</span>`
+    : "";
   tr.innerHTML = `
     <td>${formatearFechaHora(c.solicitadoEn)}<br><span style="color:var(--color-muted);font-size:12px;">${(c.solicitadoPor && c.solicitadoPor.nombre) || "—"}</span></td>
-    <td>${etiquetaOrigen(c.coleccionOrigen)}</td>
-    <td>${etiquetaTipo(c)}</td>
+    <td>${etiquetaOrigen(c.coleccionOrigen)}<br>${etiquetaTipo(c)}</td>
     <td>${paciente.apellido || ""}, ${paciente.nombre || ""}<br><span style="color:var(--color-muted);font-size:12px;">${d.deposito || ""}</span></td>
     <td>${celdaComprobante(c)}</td>
     <td>${etiquetaEstado(c.estado)}</td>
-    <td style="max-width:200px;">${c.motivo || ""}</td>
-    <td style="max-width:200px;">${c.comentarioResolucion || "—"}</td>
+    <td style="max-width:220px;">${c.motivo || ""}${comentarioLinea}</td>
     <td class="acciones-fila"></td>
   `;
   const celda = tr.querySelector(".acciones-fila");
