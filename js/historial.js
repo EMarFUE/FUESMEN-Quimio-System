@@ -405,6 +405,18 @@ function filaEgresoHistorial(id, d) {
     celdaAcciones.appendChild(botonCorregir);
   }
 
+  // Los tratamientos no tienen comprobante para reimprimir (a diferencia de las
+  // entregas, que muestran el sello de anulado en comprobante.html). Este es el
+  // equivalente para egresos: un detalle de solo lectura de qué corrección lo anuló.
+  if (d.estado === "anulada") {
+    const botonDetalle = document.createElement("button");
+    botonDetalle.type = "button";
+    botonDetalle.className = "enlace-accion";
+    botonDetalle.textContent = "Ver detalle";
+    botonDetalle.addEventListener("click", () => abrirDetalleCorreccionEgreso(d));
+    celdaAcciones.appendChild(botonDetalle);
+  }
+
   return tr;
 }
 
@@ -607,6 +619,113 @@ function cerrarSolicitudCorreccion() {
   document.getElementById("modal-panel-correccion").innerHTML = "";
   panelDatosOriginales = null;
   correccionPacienteSeleccionado = null;
+}
+
+// --- Ver detalle de una corrección ya resuelta, sobre un tratamiento anulado ---
+// Reutiliza el mismo modal de "solicitar corrección" en modo solo lectura: no hay
+// comprobante para un tratamiento (a diferencia de una entrega), así que este es el
+// único lugar donde se puede consultar qué corrección lo anuló y con qué datos.
+
+function formatearCantidadDetalle(n) {
+  return (Number(n) || 0).toLocaleString("es-AR", { maximumFractionDigits: 3 });
+}
+
+function resumenMedicamentosDetalle(medicamentos) {
+  return (medicamentos || [])
+    .map((m) => `${m.droga}${m.marca ? " — " + m.marca : ""}: ${formatearCantidadDetalle(m.cantidad)} ${m.unidadMedidaLabel || m.unidadMedida}`)
+    .join("<br>") || "—";
+}
+
+async function abrirDetalleCorreccionEgreso(d) {
+  const panel = document.getElementById("panel-solicitud-correccion");
+  panel.dataset.modo = "detalle";
+  panel.style.display = "flex";
+  const contenedor = document.getElementById("modal-panel-correccion");
+  contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">Cargando…</div>`;
+
+  if (!d.anuladaPorCorreccionId) {
+    contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">No se encontró la solicitud que originó esta anulación.</div>`;
+    return;
+  }
+
+  try {
+    const snap = await db.collection("correcciones").doc(d.anuladaPorCorreccionId).get();
+    if (!snap.exists) {
+      contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">La solicitud original ya no está disponible.</div>`;
+      return;
+    }
+    renderizarDetalleCorreccionEgreso(snap.data());
+  } catch (error) {
+    console.error("Error al cargar el detalle de la corrección:", error);
+    contenedor.innerHTML = `<div style="padding:20px;color:var(--color-danger);">No se pudo cargar el detalle. Reintentá en unos segundos.</div>`;
+  }
+}
+
+function renderizarDetalleCorreccionEgreso(correccion) {
+  const contenedor = document.getElementById("modal-panel-correccion");
+  const vinculado = !!correccion.documentoVinculadoId;
+  const o = correccion.datosOriginales || {};
+  const n = correccion.datosCorregidos || {};
+  const pO = o.paciente || {};
+
+  let bloqueComparacion;
+  if (correccion.tipo === "correccion" && !vinculado) {
+    const pN = n.paciente || {};
+    bloqueComparacion = `
+      <div class="titulo-bloque">comparación</div>
+      <div class="fila-2" style="font-size:13px;line-height:1.7;margin-bottom:10px;">
+        <div>
+          <div style="color:var(--color-muted);font-weight:600;margin-bottom:4px;">Original</div>
+          <strong>Depósito:</strong> ${o.deposito || "—"}<br>
+          <strong>Paciente:</strong> ${pO.apellido || ""}, ${pO.nombre || ""}<br>
+          <strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>
+          <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(o.medicamentos)}
+        </div>
+        <div>
+          <div style="color:var(--color-accent);font-weight:600;margin-bottom:4px;">Corregido</div>
+          <strong>Depósito:</strong> ${n.deposito || "—"}<br>
+          <strong>Paciente:</strong> ${pN.apellido || ""}, ${pN.nombre || ""}<br>
+          <strong>Ciclo / sesión:</strong> ${n.ciclo ?? "—"} / ${n.sesion ?? "—"}<br>
+          <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(n.medicamentos)}
+        </div>
+      </div>
+    `;
+  } else {
+    bloqueComparacion = `
+      <div class="titulo-bloque">datos del tratamiento</div>
+      <div style="font-size:13px;line-height:1.7;margin-bottom:6px;">
+        <strong>Depósito:</strong> ${o.deposito || "—"}<br>
+        <strong>Paciente:</strong> ${pO.apellido || ""}, ${pO.nombre || ""}<br>
+        <strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>
+        <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(o.medicamentos)}
+      </div>
+      ${vinculado ? `<div style="font-size:12.5px;color:var(--color-muted);margin-bottom:10px;">Anulado junto con el comprobante de entrega vinculado (uso inmediato). No se modificó stock.</div>` : ""}
+    `;
+  }
+
+  contenedor.innerHTML = `
+    <div class="modal-encabezado">
+      <button type="button" class="modal-cerrar" onclick="cerrarSolicitudCorreccion()" aria-label="Cerrar">×</button>
+    </div>
+    <div class="titulo-bloque" style="margin-top:0;">
+      ${correccion.tipo === "correccion" ? '<span class="badge">corrección</span>' : '<span class="badge">anulación</span>'}
+      ${vinculado ? ' <span class="badge">en pareja</span>' : ""}
+    </div>
+    <div style="font-size:13px;color:var(--color-muted);margin-bottom:10px;">
+      Solicitado por <strong>${(correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—"}</strong>
+      el ${formatearFechaHora(correccion.solicitadoEn)}
+    </div>
+    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${correccion.motivo || "—"}</div>
+    ${bloqueComparacion}
+    <div style="font-size:13px;color:var(--color-muted);margin-top:14px;border-top:1px solid var(--color-border);padding-top:12px;">
+      Resuelto por <strong>${(correccion.resueltoPor && correccion.resueltoPor.nombre) || "—"}</strong>
+      el ${formatearFechaHora(correccion.resueltoEn)}
+      ${correccion.comentarioResolucion ? `<br><strong>Comentario:</strong> ${correccion.comentarioResolucion}` : ""}
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <button type="button" class="boton-secundario" style="width:auto;" onclick="cerrarSolicitudCorreccion()">Cerrar</button>
+    </div>
+  `;
 }
 
 function recortarDatosParaCorreccion(coleccion, datos) {

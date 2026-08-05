@@ -118,7 +118,7 @@ function cambiarFiltroCorrecciones(filtro) {
 async function cargarPendientesTab() {
   document.getElementById("zona-cargar-mas-correcciones").style.display = "none";
   const tbody = document.getElementById("cuerpo-tabla-correcciones");
-  tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);">Cargando...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-muted);">Cargando...</td></tr>`;
   try {
     const snap = await db.collection("correcciones").where("estado", "==", "pendiente").get();
     correccionesCache = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -126,7 +126,7 @@ async function cargarPendientesTab() {
     renderizarListaCorrecciones();
   } catch (error) {
     console.error("Error al cargar correcciones pendientes:", error);
-    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-danger);padding:16px 6px;">
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-danger);padding:16px 6px;">
       No se pudo cargar el listado. Reintentá en unos segundos.
     </td></tr>`;
   }
@@ -138,16 +138,16 @@ async function cargarPrimeraPaginaTodas() {
   ultimoDocCorrecciones = null;
   correccionesCache = [];
   const tbody = document.getElementById("cuerpo-tabla-correcciones");
-  tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);">Cargando...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-muted);">Cargando...</td></tr>`;
   try {
     const snap = await db.collection("correcciones")
       .orderBy("solicitadoEn", "desc")
       .limit(TAMANO_PAGINA_CORRECCIONES)
       .get();
-    procesarPaginaTodas(snap);
+    await procesarPaginaTodas(snap);
   } catch (error) {
     console.error("Error al cargar el historial de correcciones:", error);
-    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-danger);padding:16px 6px;">
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-danger);padding:16px 6px;">
       No se pudo cargar el listado. Reintentá en unos segundos.
     </td></tr>`;
   }
@@ -161,17 +161,19 @@ async function cargarMasCorrecciones() {
       .startAfter(ultimoDocCorrecciones)
       .limit(TAMANO_PAGINA_CORRECCIONES)
       .get();
-    procesarPaginaTodas(snap);
+    await procesarPaginaTodas(snap);
   } catch (error) {
     console.error("Error al cargar más correcciones:", error);
   }
 }
 
-function procesarPaginaTodas(snap) {
+async function procesarPaginaTodas(snap) {
   const docs = snap.docs;
-  correccionesCache = correccionesCache.concat(docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+  const nuevos = docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  correccionesCache = correccionesCache.concat(nuevos);
   hayMasCorrecciones = docs.length === TAMANO_PAGINA_CORRECCIONES;
   if (docs.length > 0) ultimoDocCorrecciones = docs[docs.length - 1];
+  await enriquecerConNumerosDeReemplazo(nuevos);
   renderizarListaCorrecciones();
   document.getElementById("zona-cargar-mas-correcciones").style.display = hayMasCorrecciones ? "block" : "none";
 }
@@ -184,7 +186,7 @@ function renderizarListaCorrecciones() {
 
   if (correccionesCache.length === 0) {
     const texto = filtroActivoCorrecciones === "pendientes" ? "No hay solicitudes pendientes." : "Todavía no se registró ninguna solicitud.";
-    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);padding:16px 6px;">${texto}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--color-muted);padding:16px 6px;">${texto}</td></tr>`;
     return;
   }
 
@@ -210,6 +212,36 @@ function etiquetaEstado(estado) {
   return '<span class="badge badge-pendiente">pendiente</span>';
 }
 
+// Completa, para las correcciones aprobadas sobre entregas, el número de comprobante
+// que se generó al aplicar la corrección — dato que no viaja en el documento de la
+// corrección (se conoce recién después del commit del batch, ver aprobarCorreccion),
+// pero sí queda escrito en el documento de la entrega original (reemplazadoPorNumero).
+// Una lectura puntual por fila, y solo para el subconjunto que puede tenerlo: no hace
+// falta ningún cambio en firestore.rules, la lectura de "entregas" ya es abierta.
+async function enriquecerConNumerosDeReemplazo(lista) {
+  const candidatas = lista.filter((c) =>
+    c.coleccionOrigen === "entregas" && c.tipo === "correccion" && c.estado === "aprobada" && c._numeroReemplazo === undefined
+  );
+  await Promise.all(candidatas.map(async (c) => {
+    try {
+      const snap = await db.collection("entregas").doc(c.documentoOrigenId).get();
+      c._numeroReemplazo = snap.exists ? (snap.data().reemplazadoPorNumero || null) : null;
+    } catch (error) {
+      console.error("Error al leer el número de comprobante de reemplazo:", error);
+      c._numeroReemplazo = null;
+    }
+  }));
+}
+
+function celdaComprobante(c) {
+  if (c.coleccionOrigen !== "entregas") return '<span style="color:var(--color-muted);">no aplica</span>';
+  const original = (c.datosOriginales && c.datosOriginales.numeroComprobante) || "—";
+  if (c._numeroReemplazo) {
+    return `${original}<br><span style="color:var(--color-muted);font-size:12px;">→ ${c._numeroReemplazo}</span>`;
+  }
+  return original;
+}
+
 function filaCorreccion(c) {
   const tr = document.createElement("tr");
   const d = c.datosOriginales || {};
@@ -219,6 +251,7 @@ function filaCorreccion(c) {
     <td>${etiquetaOrigen(c.coleccionOrigen)}</td>
     <td>${etiquetaTipo(c)}</td>
     <td>${paciente.apellido || ""}, ${paciente.nombre || ""}<br><span style="color:var(--color-muted);font-size:12px;">${d.deposito || ""}</span></td>
+    <td>${celdaComprobante(c)}</td>
     <td>${etiquetaEstado(c.estado)}</td>
     <td style="max-width:200px;">${c.motivo || ""}</td>
     <td style="max-width:200px;">${c.comentarioResolucion || "—"}</td>
