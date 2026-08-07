@@ -15,6 +15,56 @@ let medicamentosCacheEntregas = [];
 let pacienteSeleccionado = null;
 let contadorFilasMedicamento = 0;
 let guardando = false;
+let temporizadorBusquedaDocumento = null;
+
+// --- Cache de pacientes en localStorage (etapa 10) ---
+// El listado de pacientes activos (~2.600 hoy) no cambia seguido: lo nuevo que
+// aparece son altas puntuales, no modificaciones al resto. Por eso el cache no
+// vence por minutos, sino por día: se guarda una vez y se reutiliza mientras sea
+// de hoy, sin importar cuántas veces se recargue la página o cuántas pestañas
+// estén abiertas en la misma computadora (localStorage se comparte entre ellas).
+// Ver conversación de la etapa 10 para el detalle de esta decisión.
+const CACHE_PACIENTES_KEY = "cache_pacientes_activos";
+
+function fechaLocalHoy() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function leerCachePacientes() {
+  try {
+    const crudo = localStorage.getItem(CACHE_PACIENTES_KEY);
+    if (!crudo) return null;
+    const datos = JSON.parse(crudo);
+    if (datos.fecha !== fechaLocalHoy()) return null; // es de un día anterior: se descarta
+    return datos.pacientes;
+  } catch (error) {
+    console.warn("No se pudo leer el cache de pacientes:", error);
+    return null;
+  }
+}
+
+function guardarCachePacientes(pacientes) {
+  try {
+    localStorage.setItem(CACHE_PACIENTES_KEY, JSON.stringify({ fecha: fechaLocalHoy(), pacientes }));
+  } catch (error) {
+    // No debe romper el flujo si el navegador bloquea localStorage (navegación
+    // privada, cuota llena, etc.): simplemente se sigue sin cache.
+    console.warn("No se pudo guardar el cache de pacientes:", error);
+  }
+}
+
+function agregarPacienteACache(paciente) {
+  try {
+    const actuales = leerCachePacientes() || [];
+    if (actuales.some((p) => p.id === paciente.id)) return;
+    actuales.push(paciente);
+    guardarCachePacientes(actuales);
+  } catch (error) {
+    console.warn("No se pudo actualizar el cache de pacientes:", error);
+  }
+}
 
 function normalizarTexto(texto) {
   return (texto || "")
@@ -77,8 +127,14 @@ async function iniciarEntregas(user, datosUsuario) {
 }
 
 async function cargarPacientesEntregas() {
+  const enCache = leerCachePacientes();
+  if (enCache) {
+    pacientesCacheEntregas = enCache;
+    return;
+  }
   const snapshot = await db.collection("pacientes").where("activo", "==", true).get();
   pacientesCacheEntregas = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  guardarCachePacientes(pacientesCacheEntregas);
 }
 
 async function cargarMedicamentosEntregas() {
@@ -146,6 +202,11 @@ function buscarPaciente(texto) {
 
   if (encontrados.length === 0) {
     sinResultados.style.display = "block";
+    // Si lo tipeado es un número de documento completo, puede ser un paciente dado
+    // de alta hoy en otra computadora: el cache local (de hoy, pero de esta máquina)
+    // todavía no lo tendría. Se busca puntual contra Firestore, sin traer toda la
+    // colección (ver conversación de la etapa 10).
+    buscarPacientePorDocumentoEnSegundoPlano(digitos);
     return;
   }
   sinResultados.style.display = "none";
@@ -158,6 +219,56 @@ function buscarPaciente(texto) {
     div.querySelector("button").addEventListener("click", () => seleccionarPaciente(p.id));
     cont.appendChild(div);
   });
+}
+
+// Espera una pequeña pausa sin tecleo antes de consultar, para no lanzar una
+// búsqueda por cada dígito nuevo mientras la persona todavía está escribiendo.
+function buscarPacientePorDocumentoEnSegundoPlano(digitos) {
+  clearTimeout(temporizadorBusquedaDocumento);
+  if (digitos.length < 7 || digitos.length > 9) return; // no es un documento completo
+
+  temporizadorBusquedaDocumento = setTimeout(async () => {
+    const digitosActuales = soloDigitos(document.getElementById("campo-buscar-paciente").value);
+    if (digitosActuales !== digitos) return; // el texto ya cambió: esta búsqueda quedó vieja
+
+    try {
+      const snapshot = await db.collection("pacientes")
+        .where("numeroDocumento", "==", digitos)
+        .where("activo", "==", true)
+        .get();
+      if (snapshot.empty) return;
+
+      snapshot.docs.forEach((doc) => {
+        const p = { id: doc.id, ...doc.data() };
+        if (!pacientesCacheEntregas.some((existente) => existente.id === p.id)) {
+          pacientesCacheEntregas.push(p);
+          agregarPacienteACache(p);
+        }
+      });
+
+      buscarPaciente(document.getElementById("campo-buscar-paciente").value);
+    } catch (error) {
+      console.error("Error al buscar paciente por documento:", error);
+    }
+  }, 500);
+}
+
+// Enlace manual "actualizar listado", para el caso de búsqueda por apellido/nombre
+// que no está resuelto por la búsqueda automática (esa solo aplica a documento).
+function actualizarListadoPacientes() {
+  const boton = document.getElementById("boton-actualizar-pacientes");
+  if (boton) { boton.disabled = true; boton.textContent = "actualizando..."; }
+
+  db.collection("pacientes").where("activo", "==", true).get()
+    .then((snapshot) => {
+      pacientesCacheEntregas = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      guardarCachePacientes(pacientesCacheEntregas);
+      buscarPaciente(document.getElementById("campo-buscar-paciente").value);
+    })
+    .catch((error) => console.error("Error al actualizar el listado de pacientes:", error))
+    .finally(() => {
+      if (boton) { boton.disabled = false; boton.textContent = "actualizar listado"; }
+    });
 }
 
 function seleccionarPaciente(id) {
@@ -238,6 +349,7 @@ async function altaRapidaPaciente() {
 
     const nuevo = { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial: "", activo: true };
     pacientesCacheEntregas.push(nuevo);
+    agregarPacienteACache(nuevo);
     seleccionarPaciente(id);
   } catch (error) {
     console.error("Error al dar de alta al paciente:", error);
@@ -471,6 +583,17 @@ async function guardarEntrega() {
       datosEntrega.egresoVinculadoId = egresoRef.id;
       datosEntrega.ciclo = ciclo;
       datosEntrega.sesion = sesion;
+      // No lleva "clavesStock": una carga combinada nunca toca stock (la misma
+      // cantidad entra y sale en el mismo acto), así que no debe aparecer en la
+      // auditoría de movimientos de ninguna fila de stock (ver etapa 10).
+    } else {
+      // Campo agregado en la etapa 10 para poder auditar el stock: reutiliza el
+      // mismo formato de ID que ya usa el documento de "stock" para cada línea,
+      // así una consulta "array-contains" encuentra directo los movimientos de
+      // una droga + unidad + depósito puntual, sin traer toda la colección.
+      datosEntrega.clavesStock = medicamentos.map(
+        (linea) => `${linea.medicamentoId}_${linea.unidadMedida}_${slugDeposito(deposito)}`
+      );
     }
     batch.set(entregaRef, datosEntrega);
 

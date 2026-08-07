@@ -39,10 +39,17 @@
           <th>Unidad</th>
           <th>Depósito</th>
           <th>Cantidad</th>
+          <th></th>
         </tr>
       </thead>
       <tbody id="cuerpo-tabla-stock"></tbody>
     </table>
+
+    <!-- Auditoría de movimientos (etapa 10): mismo patrón de superposición modal
+         que ya usan historial.html y correcciones.html. -->
+    <div id="panel-auditoria-stock" class="overlay-modal" style="display:none;">
+      <div class="modal-panel" id="modal-panel-auditoria" style="max-width:760px;"></div>
+    </div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>

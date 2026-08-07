@@ -78,6 +78,52 @@ let panelDatosOriginales = null; // datos del documento que se está corrigiendo
 let correccionPacienteSeleccionado = null;
 let contadorFilasMedCorreccion = 0;
 let enviandoCorreccion = false;
+let temporizadorBusquedaDocumentoHistorial = null;
+
+// --- Cache de pacientes en localStorage (etapa 10) ---
+// Misma clave y mismo criterio que entregas.js/egresos.js: vence por día, no por
+// minutos, y se comparte entre las pestañas abiertas en la misma computadora. Acá
+// además alimenta la búsqueda interna del panel de corrección (buscarPacienteCorreccion),
+// que ya usaba pacientesCacheHistorial sin ningún cambio adicional.
+const CACHE_PACIENTES_KEY = "cache_pacientes_activos";
+
+function fechaLocalHoy() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function leerCachePacientes() {
+  try {
+    const crudo = localStorage.getItem(CACHE_PACIENTES_KEY);
+    if (!crudo) return null;
+    const datos = JSON.parse(crudo);
+    if (datos.fecha !== fechaLocalHoy()) return null;
+    return datos.pacientes;
+  } catch (error) {
+    console.warn("No se pudo leer el cache de pacientes:", error);
+    return null;
+  }
+}
+
+function guardarCachePacientes(pacientes) {
+  try {
+    localStorage.setItem(CACHE_PACIENTES_KEY, JSON.stringify({ fecha: fechaLocalHoy(), pacientes }));
+  } catch (error) {
+    console.warn("No se pudo guardar el cache de pacientes:", error);
+  }
+}
+
+function agregarPacienteACache(paciente) {
+  try {
+    const actuales = leerCachePacientes() || [];
+    if (actuales.some((p) => p.id === paciente.id)) return;
+    actuales.push(paciente);
+    guardarCachePacientes(actuales);
+  } catch (error) {
+    console.warn("No se pudo actualizar el cache de pacientes:", error);
+  }
+}
 
 function normalizarTexto(texto) {
   return (texto || "")
@@ -432,8 +478,14 @@ async function cargarPacientesHistorialSiHaceFalta() {
   campo.placeholder = "Cargando listado de pacientes…";
 
   try {
-    const snapshot = await db.collection("pacientes").where("activo", "==", true).get();
-    pacientesCacheHistorial = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const enCache = leerCachePacientes();
+    if (enCache) {
+      pacientesCacheHistorial = enCache;
+    } else {
+      const snapshot = await db.collection("pacientes").where("activo", "==", true).get();
+      pacientesCacheHistorial = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      guardarCachePacientes(pacientesCacheHistorial);
+    }
   } catch (error) {
     console.error("Error al cargar pacientes:", error);
     pacientesCacheHistorial = [];
@@ -464,6 +516,7 @@ function buscarPacienteHistorial(texto) {
 
   if (encontrados.length === 0) {
     sinResultados.style.display = "block";
+    buscarPacientePorDocumentoEnSegundoPlanoHistorial(digitos);
     return;
   }
   sinResultados.style.display = "none";
@@ -476,6 +529,55 @@ function buscarPacienteHistorial(texto) {
     div.querySelector("button").addEventListener("click", () => seleccionarPacienteHistorial(p));
     cont.appendChild(div);
   });
+}
+
+// Mismo criterio que entregas.js/egresos.js: si lo tipeado es un documento
+// completo, se busca puntual en Firestore por si no está en el cache de hoy.
+function buscarPacientePorDocumentoEnSegundoPlanoHistorial(digitos) {
+  clearTimeout(temporizadorBusquedaDocumentoHistorial);
+  if (digitos.length < 7 || digitos.length > 9) return;
+
+  temporizadorBusquedaDocumentoHistorial = setTimeout(async () => {
+    const digitosActuales = soloDigitos(document.getElementById("campo-buscar-paciente-historial").value);
+    if (digitosActuales !== digitos) return;
+
+    try {
+      const snapshot = await db.collection("pacientes")
+        .where("numeroDocumento", "==", digitos)
+        .where("activo", "==", true)
+        .get();
+      if (snapshot.empty) return;
+
+      snapshot.docs.forEach((doc) => {
+        const p = { id: doc.id, ...doc.data() };
+        if (pacientesCacheHistorial && !pacientesCacheHistorial.some((existente) => existente.id === p.id)) {
+          pacientesCacheHistorial.push(p);
+          agregarPacienteACache(p);
+        }
+      });
+
+      buscarPacienteHistorial(document.getElementById("campo-buscar-paciente-historial").value);
+    } catch (error) {
+      console.error("Error al buscar paciente por documento:", error);
+    }
+  }, 500);
+}
+
+// Enlace manual "actualizar listado", para la búsqueda por apellido/nombre.
+function actualizarListadoPacientesHistorial() {
+  const boton = document.getElementById("boton-actualizar-pacientes-historial");
+  if (boton) { boton.disabled = true; boton.textContent = "actualizando..."; }
+
+  db.collection("pacientes").where("activo", "==", true).get()
+    .then((snapshot) => {
+      pacientesCacheHistorial = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      guardarCachePacientes(pacientesCacheHistorial);
+      buscarPacienteHistorial(document.getElementById("campo-buscar-paciente-historial").value);
+    })
+    .catch((error) => console.error("Error al actualizar el listado de pacientes:", error))
+    .finally(() => {
+      if (boton) { boton.disabled = false; boton.textContent = "actualizar listado"; }
+    });
 }
 
 function seleccionarPacienteHistorial(p) {

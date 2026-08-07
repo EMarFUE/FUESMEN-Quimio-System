@@ -15,6 +15,53 @@ let contadorFilasMedicamento = 0;
 let guardando = false;
 let pendingEgresoData = null;
 let rolActualEgresos = null;
+let temporizadorBusquedaDocumento = null;
+
+// --- Cache de pacientes en localStorage (etapa 10) ---
+// Mismo criterio que entregas.js: el cache vence por día, no por minutos, porque
+// el listado de pacientes activos casi no cambia (lo que aparece son altas
+// puntuales, no modificaciones al resto). Usa la misma clave que entregas.js e
+// historial.js a propósito, para que las pestañas abiertas en una misma
+// computadora compartan una sola lectura real por día en vez de una cada una.
+const CACHE_PACIENTES_KEY = "cache_pacientes_activos";
+
+function fechaLocalHoy() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function leerCachePacientes() {
+  try {
+    const crudo = localStorage.getItem(CACHE_PACIENTES_KEY);
+    if (!crudo) return null;
+    const datos = JSON.parse(crudo);
+    if (datos.fecha !== fechaLocalHoy()) return null;
+    return datos.pacientes;
+  } catch (error) {
+    console.warn("No se pudo leer el cache de pacientes:", error);
+    return null;
+  }
+}
+
+function guardarCachePacientes(pacientes) {
+  try {
+    localStorage.setItem(CACHE_PACIENTES_KEY, JSON.stringify({ fecha: fechaLocalHoy(), pacientes }));
+  } catch (error) {
+    console.warn("No se pudo guardar el cache de pacientes:", error);
+  }
+}
+
+function agregarPacienteACache(paciente) {
+  try {
+    const actuales = leerCachePacientes() || [];
+    if (actuales.some((p) => p.id === paciente.id)) return;
+    actuales.push(paciente);
+    guardarCachePacientes(actuales);
+  } catch (error) {
+    console.warn("No se pudo actualizar el cache de pacientes:", error);
+  }
+}
 
 function normalizarTexto(texto) {
   return (texto || "")
@@ -91,8 +138,14 @@ async function iniciarEgresos(user, datosUsuario) {
 }
 
 async function cargarPacientesEgresos() {
+  const enCache = leerCachePacientes();
+  if (enCache) {
+    pacientesCacheEgresos = enCache;
+    return;
+  }
   const snapshot = await db.collection("pacientes").where("activo", "==", true).get();
   pacientesCacheEgresos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  guardarCachePacientes(pacientesCacheEgresos);
 }
 
 async function cargarMedicamentosEgresos() {
@@ -137,6 +190,7 @@ function buscarPaciente(texto) {
 
   if (encontrados.length === 0) {
     sinResultados.style.display = "block";
+    buscarPacientePorDocumentoEnSegundoPlano(digitos);
     return;
   }
   sinResultados.style.display = "none";
@@ -149,6 +203,56 @@ function buscarPaciente(texto) {
     div.querySelector("button").addEventListener("click", () => seleccionarPaciente(p.id));
     cont.appendChild(div);
   });
+}
+
+// Mismo criterio que entregas.js: si lo tipeado es un documento completo, se
+// intenta encontrarlo puntual en Firestore por si se dio de alta hoy en otra
+// computadora y el cache local todavía no lo tiene.
+function buscarPacientePorDocumentoEnSegundoPlano(digitos) {
+  clearTimeout(temporizadorBusquedaDocumento);
+  if (digitos.length < 7 || digitos.length > 9) return;
+
+  temporizadorBusquedaDocumento = setTimeout(async () => {
+    const digitosActuales = soloDigitos(document.getElementById("campo-buscar-paciente").value);
+    if (digitosActuales !== digitos) return;
+
+    try {
+      const snapshot = await db.collection("pacientes")
+        .where("numeroDocumento", "==", digitos)
+        .where("activo", "==", true)
+        .get();
+      if (snapshot.empty) return;
+
+      snapshot.docs.forEach((doc) => {
+        const p = { id: doc.id, ...doc.data() };
+        if (!pacientesCacheEgresos.some((existente) => existente.id === p.id)) {
+          pacientesCacheEgresos.push(p);
+          agregarPacienteACache(p);
+        }
+      });
+
+      buscarPaciente(document.getElementById("campo-buscar-paciente").value);
+    } catch (error) {
+      console.error("Error al buscar paciente por documento:", error);
+    }
+  }, 500);
+}
+
+// Enlace manual "actualizar listado", para la búsqueda por apellido/nombre.
+function actualizarListadoPacientes() {
+  const boton = document.getElementById("boton-actualizar-pacientes");
+  if (boton) { boton.disabled = true; boton.textContent = "actualizando..."; }
+
+  db.collection("pacientes").where("activo", "==", true).get()
+    .then((snapshot) => {
+      pacientesCacheEgresos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      guardarCachePacientes(pacientesCacheEgresos);
+      buscarPaciente(document.getElementById("campo-buscar-paciente").value);
+    })
+    .catch((error) => console.error("Error al actualizar el listado de pacientes:", error))
+    .finally(() => {
+      if (boton) { boton.disabled = false; boton.textContent = "actualizar listado"; }
+    });
 }
 
 function seleccionarPaciente(id) {
@@ -226,6 +330,7 @@ async function altaRapidaPaciente() {
 
     const nuevo = { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial: "", activo: true };
     pacientesCacheEgresos.push(nuevo);
+    agregarPacienteACache(nuevo);
     seleccionarPaciente(id);
   } catch (error) {
     console.error("Error al dar de alta al paciente:", error);
@@ -457,6 +562,12 @@ async function guardarEgresoReal(datos) {
         unidadMedidaLabel: m.unidadMedidaLabel,
         cantidad: m.cantidad
       })),
+      // Campo agregado en la etapa 10, mismo criterio que entregas.js: un tratamiento
+      // cargado desde esta pantalla siempre descuenta stock de verdad (a diferencia
+      // de la carga combinada), así que siempre lleva "clavesStock".
+      clavesStock: datos.medicamentos.map(
+        (m) => `${m.medicamentoId}_${m.unidadMedida}_${slugDeposito(datos.deposito)}`
+      ),
       creadoPor: { uid: usuarioActualEgresos.uid, nombre: datosUsuarioActualEgresos.nombre || usuarioActualEgresos.email },
       creadoEn: firebase.firestore.FieldValue.serverTimestamp()
     });

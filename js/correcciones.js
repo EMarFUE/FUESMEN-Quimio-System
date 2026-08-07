@@ -552,6 +552,13 @@ function armarDatosReemplazo(coleccion, datosCorregidos, adminInfo, correccionId
     deposito: datosCorregidos.deposito,
     paciente: datosCorregidos.paciente,
     medicamentos: datosCorregidos.medicamentos,
+    // Campo agregado en la etapa 10, mismo criterio que entregas.js/egresos.js: el
+    // documento de reemplazo siempre toca stock de verdad (con los datos ya
+    // corregidos), así que siempre lleva "clavesStock" — nunca es una carga
+    // combinada, ese caso no llega hasta acá (ver calcularAjustesStock más arriba).
+    clavesStock: (datosCorregidos.medicamentos || []).map(
+      (m) => `${m.medicamentoId}_${m.unidadMedida}_${slugDeposito(datosCorregidos.deposito)}`
+    ),
     creadoPor: adminInfo,
     creadoEn: firebase.firestore.FieldValue.serverTimestamp(),
     origenCorreccionId: correccionId,

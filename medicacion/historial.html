@@ -49,7 +49,10 @@
           style="margin-bottom:8px;"
         />
         <div id="resultados-busqueda-paciente-historial"></div>
-        <div id="sin-resultados-historial" style="display:none;color:var(--color-muted);font-size:13px;">No se encontraron pacientes.</div>
+        <div id="sin-resultados-historial" style="display:none;color:var(--color-muted);font-size:13px;">
+          No se encontraron pacientes.
+          <button type="button" id="boton-actualizar-pacientes-historial" class="enlace-accion" onclick="actualizarListadoPacientesHistorial()">actualizar listado</button>
+        </div>
       </div>
       <div id="paciente-seleccionado-historial" class="paciente-seleccionado" style="display:none;">
         <span id="texto-paciente-seleccionado-historial"></span>
