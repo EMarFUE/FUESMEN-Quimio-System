@@ -55,12 +55,14 @@
   <script src="../js/firebase-config.js"></script>
   <script src="../js/auth.js"></script>
   <script>
+    const ROLES_PERMITIDOS = ["administrador", "enfermeria"];
+
     requireAuth((user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
-      if (datosUsuario.rol === "administrador" || datosUsuario.rol === "enfermeria") {
+      if (ROLES_PERMITIDOS.includes(datosUsuario.rol)) {
         document.getElementById("tarjeta-entregas").style.display = "block";
         document.getElementById("tarjeta-egresos").style.display = "block";
       }

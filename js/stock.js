@@ -10,6 +10,7 @@ let rolActualStock = null;
 // (Programa Oncológico y Donaciones); el depósito de FUESMEN queda fuera de su vista,
 // tanto en el filtro como en los datos que se cargan (ver conversación de la etapa 6).
 const DEPOSITOS_RESTRINGIDOS = ["medico", "administrativo"];
+const ROLES_AUDITORIA_STOCK = ["administrador", "enfermeria"];
 
 function normalizarTextoStock(texto) {
   return (texto || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -32,7 +33,7 @@ async function iniciarStock(rol) {
 // egresos ya es abierta a cualquier autenticado en firestore.rules, así que esto
 // es una restricción de pantalla, no de datos.
 function puedeVerAuditoriaStock() {
-  return rolActualStock === "administrador" || rolActualStock === "enfermeria";
+  return ROLES_AUDITORIA_STOCK.includes(rolActualStock);
 }
 
 async function cargarStock() {

@@ -129,12 +129,14 @@
   <script src="../js/auth.js"></script>
   <script src="../js/entregas.js"></script>
   <script>
+    const ROLES_PERMITIDOS = ["administrador", "enfermeria"];
+
     requireAuth(async (user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
 
-      if (datosUsuario.rol !== "administrador" && datosUsuario.rol !== "enfermeria") {
+      if (!ROLES_PERMITIDOS.includes(datosUsuario.rol)) {
         document.getElementById("mensaje-general").className = "mensaje-info error";
         document.getElementById("mensaje-general").textContent = "Esta pantalla es exclusiva para administrador y enfermería.";
         document.getElementById("mensaje-general").style.display = "block";

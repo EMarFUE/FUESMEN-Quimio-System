@@ -283,8 +283,10 @@
       }
     }
 
+    const ROLES_PERMITIDOS = ["administrador", "enfermeria"];
+
     requireAuth(async (user, datosUsuario) => {
-      if (datosUsuario.rol !== "administrador" && datosUsuario.rol !== "enfermeria") {
+      if (!ROLES_PERMITIDOS.includes(datosUsuario.rol)) {
         document.querySelector(".contenedor").innerHTML =
           '<p style="padding:40px 0;color:var(--color-muted);">Esta herramienta requiere rol de administrador o enfermería.</p>';
         return;

@@ -434,18 +434,6 @@ function quitarFilaMedicamento(id) {
 // FieldValue.increment(1) es atómico: no puede haber colisión aunque dos entregas se guarden
 // al mismo tiempo. El número se lee DESPUÉS del commit para obtener el valor ya incrementado.
 
-async function obtenerProximoNumeroComprobante(batch) {
-  const anio = new Date().getFullYear().toString();
-  const contadorRef = db.collection("contadores").doc("comprobantes");
-  batch.set(
-    contadorRef,
-    { [anio]: firebase.firestore.FieldValue.increment(1) },
-    { merge: true }
-  );
-  // El número real se obtiene leyendo el documento después del commit (ver guardarEntrega).
-  return anio;
-}
-
 function formatearNumeroComprobante(anio, numero) {
   return `${anio}-${String(numero).padStart(4, "0")}`;
 }

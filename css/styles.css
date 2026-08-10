@@ -33,13 +33,6 @@ body {
   padding: 48px 24px;
 }
 
-.logo-institucional {
-  height: 32px;
-  width: auto;
-  display: block;
-  margin-bottom: 12px;
-}
-
 .eyebrow {
   font-size: 13px;
   color: var(--color-muted);
@@ -190,7 +183,7 @@ h1 {
   max-width: 360px;
   margin: 80px auto;
   border: 1px solid var(--color-border);
-  border-top: 3px solid var(--color-lime);
+  border-top: 3px solid var(--color-accent-secondary);
   border-radius: var(--radius);
   padding: 32px;
   background: var(--color-surface);
@@ -199,10 +192,6 @@ h1 {
 
 .tarjeta-login form {
   text-align: left;
-}
-
-.tarjeta-login .logo-institucional {
-  margin: 0 auto 20px auto;
 }
 
 .campo {
@@ -304,19 +293,6 @@ h1 {
   background: var(--color-surface);
   font-size: 14px;
   color: var(--color-muted);
-}
-
-/* Logo en encabezados */
-.header-logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.header-logo img {
-  height: 40px;
-  width: auto;
 }
 
 /* Catálogo de medicamentos (etapa 3) */
@@ -433,6 +409,11 @@ h1 {
 .mensaje-info.error {
   background: var(--color-danger-soft);
   color: var(--color-danger);
+}
+
+.mensaje-info.info {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
 /* Pacientes (etapa 4) */

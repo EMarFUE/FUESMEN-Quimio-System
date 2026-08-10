@@ -52,6 +52,7 @@ const OBRAS_SOCIALES = [
 
 const TIPOS_DOCUMENTO = ["DNI", "LC", "LE"];
 const OTRA_OBRA_SOCIAL = "OTRA";
+const ROLES_EDICION_PACIENTES = ["administrador", "enfermeria"];
 
 let pacientesCache = [];
 let rolActual = null;
@@ -59,6 +60,7 @@ let idEnEdicion = null;
 
 function normalizarTexto(texto) {
   return (texto || "")
+    .toString()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -78,7 +80,7 @@ function capitalizarPalabras(texto) {
 }
 
 function soloDigitos(texto) {
-  return (texto || "").replace(/\D/g, "");
+  return (texto || "").toString().replace(/\D/g, "");
 }
 
 function formatearNumeroDocumento(numero) {
@@ -311,7 +313,7 @@ function renderizarListado(filtro) {
     const fila = document.createElement("tr");
     if (p.activo === false) fila.className = "inactivo";
 
-    const puedeEditar = rolActual === "administrador" || rolActual === "enfermeria";
+    const puedeEditar = ROLES_EDICION_PACIENTES.includes(rolActual);
     const acciones = puedeEditar
       ? `<button class="enlace-accion" onclick="editarPaciente('${p.id}')">editar</button>
          <button class="enlace-accion peligro" onclick="cambiarEstadoPaciente('${p.id}', ${p.activo === false})">
@@ -332,6 +334,6 @@ function renderizarListado(filtro) {
 
 function aplicarPermisos(rol) {
   rolActual = rol;
-  const puedeEditar = rol === "administrador" || rol === "enfermeria";
+  const puedeEditar = ROLES_EDICION_PACIENTES.includes(rol);
   document.getElementById("tarjeta-form-paciente").style.display = puedeEditar ? "block" : "none";
 }
