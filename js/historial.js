@@ -410,6 +410,16 @@ function filaEntregaHistorial(id, d) {
   enlaceReimprimir.textContent = "Reimprimir";
   celdaAcciones.appendChild(enlaceReimprimir);
 
+  // "Ver detalle" (etapa 10, punto 4): disponible en cualquier fila, activa o
+  // anulada, a diferencia del criterio de la etapa 9 que solo lo ofrecía para
+  // tratamientos anulados. Misma función que usa filaEgresoHistorial.
+  const botonDetalle = document.createElement("button");
+  botonDetalle.type = "button";
+  botonDetalle.className = "enlace-accion";
+  botonDetalle.textContent = "Ver detalle";
+  botonDetalle.addEventListener("click", () => abrirDetalleFila("entregas", id, d));
+  celdaAcciones.appendChild(botonDetalle);
+
   if (puedeSolicitarCorreccion() && d.estado !== "anulada") {
     const botonCorregir = document.createElement("button");
     botonCorregir.type = "button";
@@ -442,6 +452,18 @@ function filaEgresoHistorial(id, d) {
 
   const celdaAcciones = tr.querySelector(".grupo-acciones");
 
+  // "Ver detalle" (etapa 10, punto 4): antes solo aparecía en tratamientos anulados,
+  // como único sustituto de un comprobante (que los egresos no tienen). Ahora está
+  // disponible en cualquier fila: en una activa arma el detalle con los datos ya
+  // denormalizados del propio documento; en una anulada, igual que antes, busca la
+  // corrección que lo anuló.
+  const botonDetalle = document.createElement("button");
+  botonDetalle.type = "button";
+  botonDetalle.className = "enlace-accion";
+  botonDetalle.textContent = "Ver detalle";
+  botonDetalle.addEventListener("click", () => abrirDetalleFila("egresos", id, d));
+  celdaAcciones.appendChild(botonDetalle);
+
   if (puedeSolicitarCorreccion() && d.estado !== "anulada") {
     const botonCorregir = document.createElement("button");
     botonCorregir.type = "button";
@@ -449,18 +471,6 @@ function filaEgresoHistorial(id, d) {
     botonCorregir.textContent = "Solicitar corrección";
     botonCorregir.addEventListener("click", () => abrirSolicitudCorreccion("egresos", id, d));
     celdaAcciones.appendChild(botonCorregir);
-  }
-
-  // Los tratamientos no tienen comprobante para reimprimir (a diferencia de las
-  // entregas, que muestran el sello de anulado en comprobante.html). Este es el
-  // equivalente para egresos: un detalle de solo lectura de qué corrección lo anuló.
-  if (d.estado === "anulada") {
-    const botonDetalle = document.createElement("button");
-    botonDetalle.type = "button";
-    botonDetalle.className = "enlace-accion";
-    botonDetalle.textContent = "Ver detalle";
-    botonDetalle.addEventListener("click", () => abrirDetalleCorreccionEgreso(d));
-    celdaAcciones.appendChild(botonDetalle);
   }
 
   return tr;
@@ -723,10 +733,22 @@ function cerrarSolicitudCorreccion() {
   correccionPacienteSeleccionado = null;
 }
 
-// --- Ver detalle de una corrección ya resuelta, sobre un tratamiento anulado ---
-// Reutiliza el mismo modal de "solicitar corrección" en modo solo lectura: no hay
-// comprobante para un tratamiento (a diferencia de una entrega), así que este es el
-// único lugar donde se puede consultar qué corrección lo anuló y con qué datos.
+// --- Ver detalle de cualquier fila (etapa 10, punto 4) ---
+// Hasta la etapa 9 esto solo existía para tratamientos anulados (sin comprobante para
+// reimprimir, era el único lugar de consulta). Ahora es una acción disponible en
+// cualquier fila, activa o anulada, de las dos colecciones:
+//
+//  - Fila ACTIVA: se arma con los datos que ya trae la propia fila (denormalizados en
+//    "entregas"/"egresos"), sin ninguna lectura extra a Firestore — salvo un caso
+//    puntual: un tratamiento cargado como "carga combinada" no guarda el número de
+//    comprobante de la entrega vinculada, así que ahí sí hace falta una lectura puntual
+//    a "entregas" para poder mostrarlo (mismo criterio ya usado en correcciones.js para
+//    resolver "reemplazadoPorNumero").
+//  - Fila ANULADA: mismo comportamiento que ya tenía esta pantalla para tratamientos
+//    desde la etapa 9 — busca en "correcciones" el documento que la anuló, vía
+//    anuladaPorCorreccionId. Ahora también corre para entregas, y el render ya no
+//    asume que la colección de origen es siempre "egresos" (agrega quién entrega y
+//    número de comprobante cuando corresponde).
 
 function formatearCantidadDetalle(n) {
   return (Number(n) || 0).toLocaleString("es-AR", { maximumFractionDigits: 3 });
@@ -738,41 +760,105 @@ function resumenMedicamentosDetalle(medicamentos) {
     .join("<br>") || "—";
 }
 
-async function abrirDetalleCorreccionEgreso(d) {
+async function abrirDetalleFila(coleccion, id, d) {
   const panel = document.getElementById("panel-solicitud-correccion");
   panel.dataset.modo = "detalle";
   panel.style.display = "flex";
   const contenedor = document.getElementById("modal-panel-correccion");
   contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">Cargando…</div>`;
 
-  if (!d.anuladaPorCorreccionId) {
-    contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">No se encontró la solicitud que originó esta anulación.</div>`;
+  if (d.estado === "anulada") {
+    if (!d.anuladaPorCorreccionId) {
+      contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">No se encontró la solicitud que originó esta anulación.</div>`;
+      return;
+    }
+    try {
+      const snap = await db.collection("correcciones").doc(d.anuladaPorCorreccionId).get();
+      if (!snap.exists) {
+        contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">La solicitud original ya no está disponible.</div>`;
+        return;
+      }
+      renderizarDetalleCorreccion(coleccion, snap.data(), d);
+    } catch (error) {
+      console.error("Error al cargar el detalle de la corrección:", error);
+      contenedor.innerHTML = `<div style="padding:20px;color:var(--color-danger);">No se pudo cargar el detalle. Reintentá en unos segundos.</div>`;
+    }
     return;
   }
 
-  try {
-    const snap = await db.collection("correcciones").doc(d.anuladaPorCorreccionId).get();
-    if (!snap.exists) {
-      contenedor.innerHTML = `<div style="padding:20px;color:var(--color-muted);">La solicitud original ya no está disponible.</div>`;
-      return;
+  let numeroComprobanteVinculado = null;
+  if (coleccion === "egresos" && d.origen === "carga-combinada" && d.entregaOrigenId) {
+    try {
+      const snapEntrega = await db.collection("entregas").doc(d.entregaOrigenId).get();
+      numeroComprobanteVinculado = snapEntrega.exists ? (snapEntrega.data().numeroComprobante || null) : null;
+    } catch (error) {
+      console.error("Error al buscar el comprobante vinculado:", error);
     }
-    renderizarDetalleCorreccionEgreso(snap.data());
-  } catch (error) {
-    console.error("Error al cargar el detalle de la corrección:", error);
-    contenedor.innerHTML = `<div style="padding:20px;color:var(--color-danger);">No se pudo cargar el detalle. Reintentá en unos segundos.</div>`;
   }
+
+  renderizarDetalleActiva(coleccion, d, numeroComprobanteVinculado);
 }
 
-function renderizarDetalleCorreccionEgreso(correccion) {
+function renderizarDetalleActiva(coleccion, d, numeroComprobanteVinculado) {
   const contenedor = document.getElementById("modal-panel-correccion");
+  const esEntrega = coleccion === "entregas";
+  const paciente = d.paciente || {};
+  const quienEntrega = d.quienEntrega || {};
+  const tieneVinculo = esEntrega ? !!d.egresoVinculadoId : (d.origen === "carga-combinada" && !!d.entregaOrigenId);
+
+  let bloqueVinculo = "";
+  if (tieneVinculo) {
+    const texto = esEntrega
+      ? `Cargada junto con un tratamiento en el mismo acto (uso inmediato) — ciclo ${d.ciclo ?? "—"} / sesión ${d.sesion ?? "—"}.`
+      : `Cargado junto con el comprobante ${numeroComprobanteVinculado ? "N.° " + numeroComprobanteVinculado : "(sin número disponible)"} en el mismo acto (uso inmediato).`;
+    bloqueVinculo = `
+      <div style="font-size:12.5px;color:var(--color-muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--color-border);">
+        ${texto} No movió stock por separado, porque la misma cantidad entró y salió en el mismo acto.
+      </div>
+    `;
+  }
+
+  const etiquetaTipo = esEntrega
+    ? (d.esDonacion ? '<span class="badge-donacion">donación</span>' : '<span class="badge-ingreso">ingreso</span>')
+    : '<span class="badge-tratamiento">tratamiento</span>';
+
+  contenedor.innerHTML = `
+    <div class="modal-encabezado">
+      <button type="button" class="modal-cerrar" onclick="cerrarSolicitudCorreccion()" aria-label="Cerrar">×</button>
+    </div>
+    <div class="titulo-bloque" style="margin-top:0;">${etiquetaTipo}</div>
+    <div style="font-size:13px;line-height:1.7;margin-bottom:10px;">
+      <strong>Depósito:</strong> ${d.deposito || "—"}<br>
+      <strong>${esEntrega ? (d.esDonacion ? "A quién pertenecía" : "A quién pertenece") : "Paciente"}:</strong>
+      ${paciente.apellido || ""}, ${paciente.nombre || ""} · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}<br>
+      ${esEntrega ? `<strong>Quién entrega:</strong> ${quienEntrega.apellido || ""}, ${quienEntrega.nombre || ""} · ${quienEntrega.documento || ""}<br>` : ""}
+      ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${d.ciclo ?? "—"} / ${d.sesion ?? "—"}<br>` : ""}
+      ${esEntrega ? `<strong>N.° de comprobante:</strong> ${d.numeroComprobante || "—"}<br>` : ""}
+      <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(d.medicamentos)}
+    </div>
+    <div style="font-size:12.5px;color:var(--color-muted);">
+      Cargado por <strong>${(d.creadoPor && d.creadoPor.nombre) || "—"}</strong> el ${formatearFechaHora(d.creadoEn)}
+    </div>
+    ${bloqueVinculo}
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <button type="button" class="boton-secundario" style="width:auto;" onclick="cerrarSolicitudCorreccion()">Cerrar</button>
+    </div>
+  `;
+}
+
+function renderizarDetalleCorreccion(coleccion, correccion, d) {
+  const contenedor = document.getElementById("modal-panel-correccion");
+  const esEntrega = coleccion === "entregas";
   const vinculado = !!correccion.documentoVinculadoId;
   const o = correccion.datosOriginales || {};
   const n = correccion.datosCorregidos || {};
   const pO = o.paciente || {};
+  const qO = o.quienEntrega || {};
 
   let bloqueComparacion;
   if (correccion.tipo === "correccion" && !vinculado) {
     const pN = n.paciente || {};
+    const qN = n.quienEntrega || {};
     bloqueComparacion = `
       <div class="titulo-bloque">comparación</div>
       <div class="fila-2" style="font-size:13px;line-height:1.7;margin-bottom:10px;">
@@ -780,30 +866,41 @@ function renderizarDetalleCorreccionEgreso(correccion) {
           <div style="color:var(--color-muted);font-weight:600;margin-bottom:4px;">Original</div>
           <strong>Depósito:</strong> ${o.deposito || "—"}<br>
           <strong>Paciente:</strong> ${pO.apellido || ""}, ${pO.nombre || ""}<br>
-          <strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>
+          ${esEntrega ? `<strong>Quién entrega:</strong> ${qO.apellido || ""}, ${qO.nombre || ""} · ${qO.documento || ""}<br>` : ""}
+          ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>` : ""}
+          ${esEntrega ? `<strong>N.° de comprobante:</strong> ${o.numeroComprobante || "—"}<br>` : ""}
           <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(o.medicamentos)}
         </div>
         <div>
           <div style="color:var(--color-accent);font-weight:600;margin-bottom:4px;">Corregido</div>
           <strong>Depósito:</strong> ${n.deposito || "—"}<br>
           <strong>Paciente:</strong> ${pN.apellido || ""}, ${pN.nombre || ""}<br>
-          <strong>Ciclo / sesión:</strong> ${n.ciclo ?? "—"} / ${n.sesion ?? "—"}<br>
+          ${esEntrega ? `<strong>Quién entrega:</strong> ${qN.apellido || ""}, ${qN.nombre || ""} · ${qN.documento || ""}<br>` : ""}
+          ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${n.ciclo ?? "—"} / ${n.sesion ?? "—"}<br>` : ""}
           <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(n.medicamentos)}
         </div>
       </div>
     `;
   } else {
     bloqueComparacion = `
-      <div class="titulo-bloque">datos del tratamiento</div>
+      <div class="titulo-bloque">datos ${esEntrega ? "de la entrega" : "del tratamiento"}</div>
       <div style="font-size:13px;line-height:1.7;margin-bottom:6px;">
         <strong>Depósito:</strong> ${o.deposito || "—"}<br>
         <strong>Paciente:</strong> ${pO.apellido || ""}, ${pO.nombre || ""}<br>
-        <strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>
+        ${esEntrega ? `<strong>Quién entrega:</strong> ${qO.apellido || ""}, ${qO.nombre || ""} · ${qO.documento || ""}<br>` : ""}
+        ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>` : ""}
+        ${esEntrega ? `<strong>N.° de comprobante:</strong> ${o.numeroComprobante || "—"}<br>` : ""}
         <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(o.medicamentos)}
       </div>
-      ${vinculado ? `<div style="font-size:12.5px;color:var(--color-muted);margin-bottom:10px;">Anulado junto con el comprobante de entrega vinculado (uso inmediato). No se modificó stock.</div>` : ""}
+      ${vinculado ? `<div style="font-size:12.5px;color:var(--color-muted);margin-bottom:10px;">Anulado junto con el ${esEntrega ? "tratamiento" : "comprobante"} vinculado (uso inmediato). No se modificó stock.</div>` : ""}
     `;
   }
+
+  // El número de reemplazo vive en el documento original ("entregas"/"egresos"), no en
+  // el documento de "correcciones" — por eso se lee de "d" (la fila) y no de "correccion".
+  const bloqueReemplazo = esEntrega && d && d.reemplazadoPorNumero
+    ? `<div style="font-size:13px;margin-top:10px;"><strong>Fue reemplazado por el comprobante N.° ${d.reemplazadoPorNumero}.</strong></div>`
+    : "";
 
   contenedor.innerHTML = `
     <div class="modal-encabezado">
@@ -812,6 +909,7 @@ function renderizarDetalleCorreccionEgreso(correccion) {
     <div class="titulo-bloque" style="margin-top:0;">
       ${correccion.tipo === "correccion" ? '<span class="badge">corrección</span>' : '<span class="badge">anulación</span>'}
       ${vinculado ? ' <span class="badge">en pareja</span>' : ""}
+      <span class="badge">anulada</span>
     </div>
     <div style="font-size:13px;color:var(--color-muted);margin-bottom:10px;">
       Solicitado por <strong>${(correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—"}</strong>
@@ -819,6 +917,7 @@ function renderizarDetalleCorreccionEgreso(correccion) {
     </div>
     <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${correccion.motivo || "—"}</div>
     ${bloqueComparacion}
+    ${bloqueReemplazo}
     <div style="font-size:13px;color:var(--color-muted);margin-top:14px;border-top:1px solid var(--color-border);padding-top:12px;">
       Resuelto por <strong>${(correccion.resueltoPor && correccion.resueltoPor.nombre) || "—"}</strong>
       el ${formatearFechaHora(correccion.resueltoEn)}
