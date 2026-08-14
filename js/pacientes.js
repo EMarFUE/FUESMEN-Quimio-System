@@ -58,6 +58,15 @@ let pacientesCache = [];
 let rolActual = null;
 let idEnEdicion = null;
 
+// Escapa texto libre antes de insertarlo con innerHTML (nombre/apellido y obra social,
+// cuando es "otra" con texto a mano). Mismo patrón ya usado en medicamentos.js desde
+// la etapa 3.
+function escaparHtml(texto) {
+  const div = document.createElement("div");
+  div.textContent = texto == null ? "" : String(texto);
+  return div.innerHTML;
+}
+
 function normalizarTexto(texto) {
   return (texto || "")
     .toString()
@@ -324,8 +333,8 @@ function renderizarListado(filtro) {
     fila.innerHTML = `
       <td>${p.tipoDocumento}</td>
       <td>${formatearNumeroDocumento(p.numeroDocumento)}</td>
-      <td>${p.apellido}, ${p.nombre}${p.activo === false ? ' <span class="badge">inactivo</span>' : ""}</td>
-      <td>${p.obraSocial ? p.obraSocial : '<span style="color:var(--color-muted);">—</span>'}</td>
+      <td>${escaparHtml(p.apellido)}, ${escaparHtml(p.nombre)}${p.activo === false ? ' <span class="badge">inactivo</span>' : ""}</td>
+      <td>${p.obraSocial ? escaparHtml(p.obraSocial) : '<span style="color:var(--color-muted);">—</span>'}</td>
       <td class="acciones-fila">${acciones}</td>
     `;
     cuerpo.appendChild(fila);

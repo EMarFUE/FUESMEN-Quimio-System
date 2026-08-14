@@ -67,6 +67,15 @@ function formatearNumeroComprobante(anio, numero) {
   return `${anio}-${String(numero).padStart(4, "0")}`;
 }
 
+// Escapa texto libre antes de insertarlo con innerHTML (nombre/apellido de paciente y
+// de quien entrega, droga/marca, motivo de la solicitud, comentario de resolución).
+// Mismo patrón ya usado en medicamentos.js desde la etapa 3.
+function escaparHtml(texto) {
+  const div = document.createElement("div");
+  div.textContent = texto == null ? "" : String(texto);
+  return div.innerHTML;
+}
+
 function formatearCantidad(n) {
   return (Number(n) || 0).toLocaleString("es-AR", { maximumFractionDigits: 3 });
 }
@@ -247,15 +256,15 @@ function filaCorreccion(c) {
   const d = c.datosOriginales || {};
   const paciente = d.paciente || {};
   const comentarioLinea = c.comentarioResolucion
-    ? `<br><span style="color:var(--color-muted);font-size:12px;">💬 ${c.comentarioResolucion}</span>`
+    ? `<br><span style="color:var(--color-muted);font-size:12px;">💬 ${escaparHtml(c.comentarioResolucion)}</span>`
     : "";
   tr.innerHTML = `
-    <td>${formatearFechaHora(c.solicitadoEn)}<br><span style="color:var(--color-muted);font-size:12px;">${(c.solicitadoPor && c.solicitadoPor.nombre) || "—"}</span></td>
+    <td>${formatearFechaHora(c.solicitadoEn)}<br><span style="color:var(--color-muted);font-size:12px;">${escaparHtml((c.solicitadoPor && c.solicitadoPor.nombre) || "—")}</span></td>
     <td>${etiquetaOrigen(c.coleccionOrigen)}<br>${etiquetaTipo(c)}</td>
-    <td>${paciente.apellido || ""}, ${paciente.nombre || ""}<br><span style="color:var(--color-muted);font-size:12px;">${d.deposito || ""}</span></td>
+    <td>${escaparHtml(paciente.apellido)}, ${escaparHtml(paciente.nombre)}<br><span style="color:var(--color-muted);font-size:12px;">${d.deposito || ""}</span></td>
     <td>${celdaComprobante(c)}</td>
     <td>${etiquetaEstado(c.estado)}</td>
-    <td style="max-width:220px;">${c.motivo || ""}${comentarioLinea}</td>
+    <td style="max-width:220px;">${escaparHtml(c.motivo)}${comentarioLinea}</td>
     <td class="acciones-fila"></td>
   `;
   const celda = tr.querySelector(".acciones-fila");
@@ -363,7 +372,7 @@ async function abrirRevisionCorreccion(id) {
 
 function resumenMedicamentos(medicamentos) {
   return (medicamentos || [])
-    .map((m) => `${m.droga}${m.marca ? " — " + m.marca : ""}: ${formatearCantidad(m.cantidad)} ${m.unidadMedidaLabel || m.unidadMedida}`)
+    .map((m) => `${escaparHtml(m.droga)}${m.marca ? " — " + escaparHtml(m.marca) : ""}: ${formatearCantidad(m.cantidad)} ${m.unidadMedidaLabel || m.unidadMedida}`)
     .join("<br>") || "—";
 }
 
@@ -377,8 +386,8 @@ function renderResumenOriginal(correccion) {
     <div style="font-size:13px;line-height:1.7;margin-bottom:6px;">
       <strong>Depósito:</strong> ${d.deposito || "—"}<br>
       <strong>${esEntrega ? (d.esDonacion ? "A quién pertenecía" : "A quién pertenece") : "Paciente"}:</strong>
-      ${paciente.apellido || ""}, ${paciente.nombre || ""} · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}<br>
-      ${esEntrega ? `<strong>Quién entrega:</strong> ${quienEntrega.apellido || ""}, ${quienEntrega.nombre || ""} · ${quienEntrega.documento || ""}<br>` : ""}
+      ${escaparHtml(paciente.apellido)}, ${escaparHtml(paciente.nombre)} · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}<br>
+      ${esEntrega ? `<strong>Quién entrega:</strong> ${escaparHtml(quienEntrega.apellido)}, ${escaparHtml(quienEntrega.nombre)} · ${quienEntrega.documento || ""}<br>` : ""}
       ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${d.ciclo ?? "—"} / ${d.sesion ?? "—"}<br>` : ""}
       <strong>Medicamentos:</strong><br>${resumenMedicamentos(d.medicamentos)}
     </div>
@@ -398,16 +407,16 @@ function renderComparacionDatos(correccion) {
       <div>
         <div style="color:var(--color-muted);font-weight:600;margin-bottom:4px;">Original</div>
         <strong>Depósito:</strong> ${o.deposito || "—"}<br>
-        <strong>Paciente:</strong> ${pO.apellido || ""}, ${pO.nombre || ""}<br>
-        ${esEntrega ? `<strong>Quién entrega:</strong> ${qO.apellido || ""}, ${qO.nombre || ""} · ${qO.documento || ""}<br>` : ""}
+        <strong>Paciente:</strong> ${escaparHtml(pO.apellido)}, ${escaparHtml(pO.nombre)}<br>
+        ${esEntrega ? `<strong>Quién entrega:</strong> ${escaparHtml(qO.apellido)}, ${escaparHtml(qO.nombre)} · ${qO.documento || ""}<br>` : ""}
         ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>` : ""}
         <strong>Medicamentos:</strong><br>${resumenMedicamentos(o.medicamentos)}
       </div>
       <div>
         <div style="color:var(--color-accent);font-weight:600;margin-bottom:4px;">Corregido</div>
         <strong>Depósito:</strong> ${n.deposito || "—"}<br>
-        <strong>Paciente:</strong> ${pN.apellido || ""}, ${pN.nombre || ""}<br>
-        ${esEntrega ? `<strong>Quién entrega:</strong> ${qN.apellido || ""}, ${qN.nombre || ""} · ${qN.documento || ""}<br>` : ""}
+        <strong>Paciente:</strong> ${escaparHtml(pN.apellido)}, ${escaparHtml(pN.nombre)}<br>
+        ${esEntrega ? `<strong>Quién entrega:</strong> ${escaparHtml(qN.apellido)}, ${escaparHtml(qN.nombre)} · ${qN.documento || ""}<br>` : ""}
         ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${n.ciclo ?? "—"} / ${n.sesion ?? "—"}<br>` : ""}
         <strong>Medicamentos:</strong><br>${resumenMedicamentos(n.medicamentos)}
       </div>
@@ -440,7 +449,7 @@ function renderizarModalRevision(correccion, ajustes, previews) {
       const textoDespues = despues == null ? "—" : formatearCantidad(despues);
       const negativo = despues != null && despues < 0;
       return `<tr>
-        <td>${a.droga}${a.marca ? " — " + a.marca : ""}</td>
+        <td>${escaparHtml(a.droga)}${a.marca ? " — " + escaparHtml(a.marca) : ""}</td>
         <td>${a.deposito}</td>
         <td>${a.unidadMedidaLabel || a.unidadMedida}</td>
         <td>${textoActual}</td>
@@ -467,10 +476,10 @@ function renderizarModalRevision(correccion, ajustes, previews) {
     </div>
     <div class="titulo-bloque" style="margin-top:0;">${etiquetaOrigen(correccion.coleccionOrigen)} ${etiquetaTipo(correccion)}</div>
     <div style="font-size:13px;color:var(--color-muted);margin-bottom:10px;">
-      Solicitado por <strong>${(correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—"}</strong>
+      Solicitado por <strong>${escaparHtml((correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—")}</strong>
       el ${formatearFechaHora(correccion.solicitadoEn)}
     </div>
-    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${correccion.motivo || "—"}</div>
+    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${escaparHtml(correccion.motivo || "—")}</div>
 
     ${bloqueComparacion}
     ${bloqueEfecto}
@@ -502,17 +511,17 @@ function renderizarModalSoloLectura(correccion) {
     </div>
     <div class="titulo-bloque" style="margin-top:0;">${etiquetaOrigen(correccion.coleccionOrigen)} ${etiquetaTipo(correccion)} ${etiquetaEstado(correccion.estado)}</div>
     <div style="font-size:13px;color:var(--color-muted);margin-bottom:10px;">
-      Solicitado por <strong>${(correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—"}</strong>
+      Solicitado por <strong>${escaparHtml((correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—")}</strong>
       el ${formatearFechaHora(correccion.solicitadoEn)}
     </div>
-    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${correccion.motivo || "—"}</div>
+    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${escaparHtml(correccion.motivo || "—")}</div>
 
     ${bloqueComparacion}
 
     <div style="font-size:13px;color:var(--color-muted);margin-top:14px;border-top:1px solid var(--color-border);padding-top:12px;">
-      Resuelto por <strong>${(correccion.resueltoPor && correccion.resueltoPor.nombre) || "—"}</strong>
+      Resuelto por <strong>${escaparHtml((correccion.resueltoPor && correccion.resueltoPor.nombre) || "—")}</strong>
       el ${formatearFechaHora(correccion.resueltoEn)}
-      ${correccion.comentarioResolucion ? `<br><strong>Comentario:</strong> ${correccion.comentarioResolucion}` : ""}
+      ${correccion.comentarioResolucion ? `<br><strong>Comentario:</strong> ${escaparHtml(correccion.comentarioResolucion)}` : ""}
     </div>
     <div style="display:flex;justify-content:flex-end;margin-top:16px;">
       <button type="button" class="boton-secundario" style="width:auto;" onclick="cerrarRevisionCorreccion()">Cerrar</button>

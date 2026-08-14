@@ -95,6 +95,14 @@ function slugDeposito(deposito) {
   return normalizarTexto(deposito).replace(/\s+/g, "-");
 }
 
+// Escapa texto libre antes de insertarlo con innerHTML (nombre/apellido de paciente,
+// droga/marca del catálogo). Mismo patrón ya usado en medicamentos.js desde la etapa 3.
+function escaparHtml(texto) {
+  const div = document.createElement("div");
+  div.textContent = texto == null ? "" : String(texto);
+  return div.innerHTML;
+}
+
 function mostrarMensajeGeneral(texto, tipo) {
   const el = document.getElementById("mensaje-general");
   el.textContent = texto;
@@ -214,7 +222,7 @@ function buscarPaciente(texto) {
   encontrados.slice(0, 8).forEach((p) => {
     const div = document.createElement("div");
     div.className = "resultado-busqueda";
-    div.innerHTML = `<span>${p.apellido}, ${p.nombre} · ${p.tipoDocumento} ${p.numeroDocumento}</span>
+    div.innerHTML = `<span>${escaparHtml(p.apellido)}, ${escaparHtml(p.nombre)} · ${p.tipoDocumento} ${p.numeroDocumento}</span>
       <button type="button" class="enlace-accion" data-id="${p.id}">usar</button>`;
     div.querySelector("button").addEventListener("click", () => seleccionarPaciente(p.id));
     cont.appendChild(div);
@@ -290,7 +298,7 @@ function renderizarPacienteSeleccionado() {
   cont.style.display = "flex";
   const esDonacion = esDonacionSegunDeposito();
   document.getElementById("texto-paciente-seleccionado").innerHTML =
-    `<strong>${pacienteSeleccionado.apellido}, ${pacienteSeleccionado.nombre}</strong> · ${pacienteSeleccionado.tipoDocumento} ${pacienteSeleccionado.numeroDocumento}` +
+    `<strong>${escaparHtml(pacienteSeleccionado.apellido)}, ${escaparHtml(pacienteSeleccionado.nombre)}</strong> · ${pacienteSeleccionado.tipoDocumento} ${pacienteSeleccionado.numeroDocumento}` +
     (esDonacion ? ` <span class="badge" style="margin-left:8px;">dueño anterior</span>` : "");
 }
 
@@ -392,7 +400,7 @@ function agregarFilaMedicamento() {
   div.id = id;
 
   const opcionesMedicamento = medicamentosCacheEntregas
-    .map((m) => `<option value="${m.id}">${m.droga}${m.marca ? " — " + m.marca : ""}</option>`)
+    .map((m) => `<option value="${m.id}">${escaparHtml(m.droga)}${m.marca ? " — " + escaparHtml(m.marca) : ""}</option>`)
     .join("");
   const opcionesUnidad = UNIDADES_MEDIDA.map((u) => `<option value="${u.value}">${u.label}</option>`).join("");
 

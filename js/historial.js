@@ -155,6 +155,15 @@ function formatearFechaHora(timestamp) {
   });
 }
 
+// Escapa texto libre antes de insertarlo con innerHTML (nombre/apellido de paciente y
+// de quien entrega, droga/marca, motivo, comentario de resolución). Mismo patrón ya
+// usado en medicamentos.js desde la etapa 3.
+function escaparHtml(texto) {
+  const div = document.createElement("div");
+  div.textContent = texto == null ? "" : String(texto);
+  return div.innerHTML;
+}
+
 function mostrarMensajeGeneralHistorial(texto, tipo) {
   const el = document.getElementById("mensaje-general-historial");
   el.textContent = texto;
@@ -393,7 +402,7 @@ function filaEntregaHistorial(id, d) {
 
   tr.innerHTML = `
     <td>${fecha}</td>
-    <td>${paciente.apellido || ""}, ${paciente.nombre || ""}<br><span style="color:var(--color-muted);font-size:12px;">${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}</span></td>
+    <td>${escaparHtml(paciente.apellido)}, ${escaparHtml(paciente.nombre)}<br><span style="color:var(--color-muted);font-size:12px;">${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}</span></td>
     <td>${d.deposito || ""}</td>
     <td>${tipo}${estadoBadge}</td>
     <td>${tratamiento}</td>
@@ -443,7 +452,7 @@ function filaEgresoHistorial(id, d) {
 
   tr.innerHTML = `
     <td>${fecha}</td>
-    <td>${paciente.apellido || ""}, ${paciente.nombre || ""}<br><span style="color:var(--color-muted);font-size:12px;">${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}</span></td>
+    <td>${escaparHtml(paciente.apellido)}, ${escaparHtml(paciente.nombre)}<br><span style="color:var(--color-muted);font-size:12px;">${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}</span></td>
     <td>${d.deposito || ""}</td>
     <td>ciclo ${d.ciclo ?? "—"} / sesión ${d.sesion ?? "—"}</td>
     <td>${origen}${estadoBadge}</td>
@@ -534,7 +543,7 @@ function buscarPacienteHistorial(texto) {
   encontrados.slice(0, 8).forEach((p) => {
     const div = document.createElement("div");
     div.className = "resultado-busqueda";
-    div.innerHTML = `<span>${p.apellido}, ${p.nombre} · ${p.tipoDocumento} ${p.numeroDocumento}</span>
+    div.innerHTML = `<span>${escaparHtml(p.apellido)}, ${escaparHtml(p.nombre)} · ${p.tipoDocumento} ${p.numeroDocumento}</span>
       <button type="button" class="enlace-accion" data-id="${p.id}">usar</button>`;
     div.querySelector("button").addEventListener("click", () => seleccionarPacienteHistorial(p));
     cont.appendChild(div);
@@ -601,7 +610,7 @@ function seleccionarPacienteHistorial(p) {
   const cont = document.getElementById("paciente-seleccionado-historial");
   cont.style.display = "flex";
   document.getElementById("texto-paciente-seleccionado-historial").innerHTML =
-    `<strong>${p.apellido}, ${p.nombre}</strong> · ${p.tipoDocumento} ${p.numeroDocumento}`;
+    `<strong>${escaparHtml(p.apellido)}, ${escaparHtml(p.nombre)}</strong> · ${p.tipoDocumento} ${p.numeroDocumento}`;
 
   cargarPaginaHistorial(true);
 }
@@ -756,7 +765,7 @@ function formatearCantidadDetalle(n) {
 
 function resumenMedicamentosDetalle(medicamentos) {
   return (medicamentos || [])
-    .map((m) => `${m.droga}${m.marca ? " — " + m.marca : ""}: ${formatearCantidadDetalle(m.cantidad)} ${m.unidadMedidaLabel || m.unidadMedida}`)
+    .map((m) => `${escaparHtml(m.droga)}${m.marca ? " — " + escaparHtml(m.marca) : ""}: ${formatearCantidadDetalle(m.cantidad)} ${m.unidadMedidaLabel || m.unidadMedida}`)
     .join("<br>") || "—";
 }
 
@@ -830,14 +839,14 @@ function renderizarDetalleActiva(coleccion, d, numeroComprobanteVinculado) {
     <div style="font-size:13px;line-height:1.7;margin-bottom:10px;">
       <strong>Depósito:</strong> ${d.deposito || "—"}<br>
       <strong>${esEntrega ? (d.esDonacion ? "A quién pertenecía" : "A quién pertenece") : "Paciente"}:</strong>
-      ${paciente.apellido || ""}, ${paciente.nombre || ""} · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}<br>
-      ${esEntrega ? `<strong>Quién entrega:</strong> ${quienEntrega.apellido || ""}, ${quienEntrega.nombre || ""} · ${quienEntrega.documento || ""}<br>` : ""}
+      ${escaparHtml(paciente.apellido)}, ${escaparHtml(paciente.nombre)} · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""}<br>
+      ${esEntrega ? `<strong>Quién entrega:</strong> ${escaparHtml(quienEntrega.apellido)}, ${escaparHtml(quienEntrega.nombre)} · ${quienEntrega.documento || ""}<br>` : ""}
       ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${d.ciclo ?? "—"} / ${d.sesion ?? "—"}<br>` : ""}
       ${esEntrega ? `<strong>N.° de comprobante:</strong> ${d.numeroComprobante || "—"}<br>` : ""}
       <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(d.medicamentos)}
     </div>
     <div style="font-size:12.5px;color:var(--color-muted);">
-      Cargado por <strong>${(d.creadoPor && d.creadoPor.nombre) || "—"}</strong> el ${formatearFechaHora(d.creadoEn)}
+      Cargado por <strong>${escaparHtml((d.creadoPor && d.creadoPor.nombre) || "—")}</strong> el ${formatearFechaHora(d.creadoEn)}
     </div>
     ${bloqueVinculo}
     <div style="display:flex;justify-content:flex-end;margin-top:16px;">
@@ -865,8 +874,8 @@ function renderizarDetalleCorreccion(coleccion, correccion, d) {
         <div>
           <div style="color:var(--color-muted);font-weight:600;margin-bottom:4px;">Original</div>
           <strong>Depósito:</strong> ${o.deposito || "—"}<br>
-          <strong>Paciente:</strong> ${pO.apellido || ""}, ${pO.nombre || ""}<br>
-          ${esEntrega ? `<strong>Quién entrega:</strong> ${qO.apellido || ""}, ${qO.nombre || ""} · ${qO.documento || ""}<br>` : ""}
+          <strong>Paciente:</strong> ${escaparHtml(pO.apellido)}, ${escaparHtml(pO.nombre)}<br>
+          ${esEntrega ? `<strong>Quién entrega:</strong> ${escaparHtml(qO.apellido)}, ${escaparHtml(qO.nombre)} · ${qO.documento || ""}<br>` : ""}
           ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>` : ""}
           ${esEntrega ? `<strong>N.° de comprobante:</strong> ${o.numeroComprobante || "—"}<br>` : ""}
           <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(o.medicamentos)}
@@ -874,8 +883,8 @@ function renderizarDetalleCorreccion(coleccion, correccion, d) {
         <div>
           <div style="color:var(--color-accent);font-weight:600;margin-bottom:4px;">Corregido</div>
           <strong>Depósito:</strong> ${n.deposito || "—"}<br>
-          <strong>Paciente:</strong> ${pN.apellido || ""}, ${pN.nombre || ""}<br>
-          ${esEntrega ? `<strong>Quién entrega:</strong> ${qN.apellido || ""}, ${qN.nombre || ""} · ${qN.documento || ""}<br>` : ""}
+          <strong>Paciente:</strong> ${escaparHtml(pN.apellido)}, ${escaparHtml(pN.nombre)}<br>
+          ${esEntrega ? `<strong>Quién entrega:</strong> ${escaparHtml(qN.apellido)}, ${escaparHtml(qN.nombre)} · ${qN.documento || ""}<br>` : ""}
           ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${n.ciclo ?? "—"} / ${n.sesion ?? "—"}<br>` : ""}
           <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(n.medicamentos)}
         </div>
@@ -886,8 +895,8 @@ function renderizarDetalleCorreccion(coleccion, correccion, d) {
       <div class="titulo-bloque">datos ${esEntrega ? "de la entrega" : "del tratamiento"}</div>
       <div style="font-size:13px;line-height:1.7;margin-bottom:6px;">
         <strong>Depósito:</strong> ${o.deposito || "—"}<br>
-        <strong>Paciente:</strong> ${pO.apellido || ""}, ${pO.nombre || ""}<br>
-        ${esEntrega ? `<strong>Quién entrega:</strong> ${qO.apellido || ""}, ${qO.nombre || ""} · ${qO.documento || ""}<br>` : ""}
+        <strong>Paciente:</strong> ${escaparHtml(pO.apellido)}, ${escaparHtml(pO.nombre)}<br>
+        ${esEntrega ? `<strong>Quién entrega:</strong> ${escaparHtml(qO.apellido)}, ${escaparHtml(qO.nombre)} · ${qO.documento || ""}<br>` : ""}
         ${!esEntrega ? `<strong>Ciclo / sesión:</strong> ${o.ciclo ?? "—"} / ${o.sesion ?? "—"}<br>` : ""}
         ${esEntrega ? `<strong>N.° de comprobante:</strong> ${o.numeroComprobante || "—"}<br>` : ""}
         <strong>Medicamentos:</strong><br>${resumenMedicamentosDetalle(o.medicamentos)}
@@ -912,16 +921,16 @@ function renderizarDetalleCorreccion(coleccion, correccion, d) {
       <span class="badge">anulada</span>
     </div>
     <div style="font-size:13px;color:var(--color-muted);margin-bottom:10px;">
-      Solicitado por <strong>${(correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—"}</strong>
+      Solicitado por <strong>${escaparHtml((correccion.solicitadoPor && correccion.solicitadoPor.nombre) || "—")}</strong>
       el ${formatearFechaHora(correccion.solicitadoEn)}
     </div>
-    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${correccion.motivo || "—"}</div>
+    <div style="font-size:13px;margin-bottom:14px;"><strong>Motivo:</strong> ${escaparHtml(correccion.motivo || "—")}</div>
     ${bloqueComparacion}
     ${bloqueReemplazo}
     <div style="font-size:13px;color:var(--color-muted);margin-top:14px;border-top:1px solid var(--color-border);padding-top:12px;">
-      Resuelto por <strong>${(correccion.resueltoPor && correccion.resueltoPor.nombre) || "—"}</strong>
+      Resuelto por <strong>${escaparHtml((correccion.resueltoPor && correccion.resueltoPor.nombre) || "—")}</strong>
       el ${formatearFechaHora(correccion.resueltoEn)}
-      ${correccion.comentarioResolucion ? `<br><strong>Comentario:</strong> ${correccion.comentarioResolucion}` : ""}
+      ${correccion.comentarioResolucion ? `<br><strong>Comentario:</strong> ${escaparHtml(correccion.comentarioResolucion)}` : ""}
     </div>
     <div style="display:flex;justify-content:flex-end;margin-top:16px;">
       <button type="button" class="boton-secundario" style="width:auto;" onclick="cerrarSolicitudCorreccion()">Cerrar</button>
@@ -1120,14 +1129,14 @@ function renderFormularioCorreccionEntrega(datos) {
     <input type="text" id="corr-buscar-paciente" class="campo-busqueda-pacientes" placeholder="Buscar por apellido, nombre o documento" autocomplete="off" />
     <div id="corr-resultados-paciente"></div>
     <div class="paciente-seleccionado">
-      <span id="corr-texto-paciente"><strong>${paciente.apellido || ""}, ${paciente.nombre || ""}</strong> · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""} <span style="color:var(--color-muted);">(sin cambios, salvo que busques otro arriba)</span></span>
+      <span id="corr-texto-paciente"><strong>${escaparHtml(paciente.apellido)}, ${escaparHtml(paciente.nombre)}</strong> · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""} <span style="color:var(--color-muted);">(sin cambios, salvo que busques otro arriba)</span></span>
     </div>
 
     <div class="titulo-bloque" style="margin-top:14px;">quién entrega</div>
     <div class="fila-3">
-      <div class="campo" style="margin-bottom:0;"><label>Nombre</label><input type="text" id="corr-entrega-nombre" value="${quienEntrega.nombre || ""}" /></div>
-      <div class="campo" style="margin-bottom:0;"><label>Apellido</label><input type="text" id="corr-entrega-apellido" value="${quienEntrega.apellido || ""}" /></div>
-      <div class="campo" style="margin-bottom:0;"><label>Documento</label><input type="text" id="corr-entrega-documento" inputmode="numeric" value="${quienEntrega.documento || ""}" /></div>
+      <div class="campo" style="margin-bottom:0;"><label>Nombre</label><input type="text" id="corr-entrega-nombre" value="${escaparHtml(quienEntrega.nombre)}" /></div>
+      <div class="campo" style="margin-bottom:0;"><label>Apellido</label><input type="text" id="corr-entrega-apellido" value="${escaparHtml(quienEntrega.apellido)}" /></div>
+      <div class="campo" style="margin-bottom:0;"><label>Documento</label><input type="text" id="corr-entrega-documento" inputmode="numeric" value="${escaparHtml(quienEntrega.documento)}" /></div>
     </div>
 
     <div class="titulo-bloque" style="margin-top:14px;">medicamentos corregidos</div>
@@ -1162,14 +1171,14 @@ function buscarPacienteCorreccion(texto) {
   encontrados.slice(0, 8).forEach((p) => {
     const div = document.createElement("div");
     div.className = "resultado-busqueda";
-    div.innerHTML = `<span>${p.apellido}, ${p.nombre} · ${p.tipoDocumento} ${p.numeroDocumento}</span>
+    div.innerHTML = `<span>${escaparHtml(p.apellido)}, ${escaparHtml(p.nombre)} · ${p.tipoDocumento} ${p.numeroDocumento}</span>
       <button type="button" class="enlace-accion" data-id="${p.id}">usar</button>`;
     div.querySelector("button").addEventListener("click", () => {
       correccionPacienteSeleccionado = { ...p };
       document.getElementById("corr-buscar-paciente").value = "";
       cont.innerHTML = "";
       document.getElementById("corr-texto-paciente").innerHTML =
-        `<strong>${p.apellido}, ${p.nombre}</strong> · ${p.tipoDocumento} ${p.numeroDocumento}`;
+        `<strong>${escaparHtml(p.apellido)}, ${escaparHtml(p.nombre)}</strong> · ${p.tipoDocumento} ${p.numeroDocumento}`;
     });
     cont.appendChild(div);
   });
@@ -1183,7 +1192,7 @@ function agregarFilaMedicamentoCorreccion(datosLinea) {
   div.id = id;
 
   const opcionesMedicamento = medicamentosCacheHistorial
-    .map((m) => `<option value="${m.id}" ${datosLinea && datosLinea.medicamentoId === m.id ? "selected" : ""}>${m.droga}${m.marca ? " — " + m.marca : ""}</option>`)
+    .map((m) => `<option value="${m.id}" ${datosLinea && datosLinea.medicamentoId === m.id ? "selected" : ""}>${escaparHtml(m.droga)}${m.marca ? " — " + escaparHtml(m.marca) : ""}</option>`)
     .join("");
   const opcionesUnidad = UNIDADES_MEDIDA_CORRECCION
     .map((u) => `<option value="${u.value}" ${datosLinea && datosLinea.unidadMedida === u.value ? "selected" : ""}>${u.label}</option>`)
@@ -1324,7 +1333,7 @@ async function renderFormularioCorreccionEgreso(datos) {
     <input type="text" id="corr-buscar-paciente" class="campo-busqueda-pacientes" placeholder="Buscar por apellido, nombre o documento" autocomplete="off" />
     <div id="corr-resultados-paciente"></div>
     <div class="paciente-seleccionado">
-      <span id="corr-texto-paciente"><strong>${paciente.apellido || ""}, ${paciente.nombre || ""}</strong> · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""} <span style="color:var(--color-muted);">(sin cambios, salvo que busques otro arriba)</span></span>
+      <span id="corr-texto-paciente"><strong>${escaparHtml(paciente.apellido)}, ${escaparHtml(paciente.nombre)}</strong> · ${paciente.tipoDocumento || ""} ${paciente.numeroDocumento || ""} <span style="color:var(--color-muted);">(sin cambios, salvo que busques otro arriba)</span></span>
     </div>
 
     <div class="titulo-bloque" style="margin-top:14px;">medicamentos corregidos</div>
@@ -1365,7 +1374,7 @@ function agregarFilaMedicamentoCorreccionEgreso(datosLinea) {
   const opcionesMedicamento =
     `<option value="">Elegir...</option>` +
     medicamentosCacheHistorial
-      .map((m) => `<option value="${m.id}" ${datosLinea && datosLinea.medicamentoId === m.id ? "selected" : ""}>${m.droga}${m.marca ? " — " + m.marca : ""}</option>`)
+      .map((m) => `<option value="${m.id}" ${datosLinea && datosLinea.medicamentoId === m.id ? "selected" : ""}>${escaparHtml(m.droga)}${m.marca ? " — " + escaparHtml(m.marca) : ""}</option>`)
       .join("");
 
   div.innerHTML = `

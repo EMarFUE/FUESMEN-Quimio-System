@@ -134,7 +134,7 @@
     requireAuth(async (user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
-        `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
 
       if (!ROLES_PERMITIDOS.includes(datosUsuario.rol)) {
         document.getElementById("mensaje-general").className = "mensaje-info error";

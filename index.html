@@ -47,10 +47,18 @@
   <script src="js/firebase-config.js"></script>
   <script src="js/auth.js"></script>
   <script>
+    // Escapa texto libre antes de insertarlo con innerHTML (nombre del usuario logueado).
+    // Mismo patrón ya usado en medicamentos.js desde la etapa 3.
+    function escaparHtml(texto) {
+      const div = document.createElement("div");
+      div.textContent = texto == null ? "" : String(texto);
+      return div.innerHTML;
+    }
+
     requireAuth((user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
-        `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
     });
   </script>
 </body>

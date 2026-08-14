@@ -16,6 +16,15 @@ function normalizarTextoStock(texto) {
   return (texto || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
+// Escapa texto libre antes de insertarlo con innerHTML (droga/marca del catálogo,
+// nombre/apellido de paciente en la auditoría de movimientos). Mismo patrón ya usado
+// en medicamentos.js desde la etapa 3.
+function escaparHtml(texto) {
+  const div = document.createElement("div");
+  div.textContent = texto == null ? "" : String(texto);
+  return div.innerHTML;
+}
+
 async function iniciarStock(rol) {
   rolActualStock = rol;
   if (DEPOSITOS_RESTRINGIDOS.includes(rolActualStock)) {
@@ -88,8 +97,8 @@ function renderizarTablaStock() {
     .map(
       (item) => `
         <tr>
-          <td>${item.droga || ""}</td>
-          <td>${item.marca ? item.marca : '<span style="color:var(--color-muted);">—</span>'}</td>
+          <td>${escaparHtml(item.droga)}</td>
+          <td>${item.marca ? escaparHtml(item.marca) : '<span style="color:var(--color-muted);">—</span>'}</td>
           <td>${item.unidadMedidaLabel || item.unidadMedida || ""}</td>
           <td>${item.deposito || ""}</td>
           <td>${formatearCantidad(item.cantidad)}</td>
@@ -216,7 +225,7 @@ function renderizarAuditoriaStock(item, movimientos) {
       const referencia = m.coleccion === "entregas"
         ? (m.numeroComprobante ? `N.° ${m.numeroComprobante}` : `ID ${m.id.slice(0, 8)}`)
         : `ciclo ${m.ciclo ?? "—"} / sesión ${m.sesion ?? "—"}`;
-      const paciente = `${m.paciente.apellido || ""}, ${m.paciente.nombre || ""}`;
+      const paciente = `${escaparHtml(m.paciente.apellido)}, ${escaparHtml(m.paciente.nombre)}`;
       const signoTexto = m.signo > 0 ? "+" : "−";
 
       if (m.anulada) {
@@ -251,7 +260,7 @@ function renderizarAuditoriaStock(item, movimientos) {
     </div>
     <div class="titulo-bloque" style="margin-top:0;">movimientos de stock</div>
     <div style="font-size:13px;color:var(--color-muted);margin-bottom:14px;">
-      ${item.droga || ""}${item.marca ? " — " + item.marca : ""} · ${item.unidadMedidaLabel || item.unidadMedida || ""} · ${item.deposito || ""}
+      ${escaparHtml(item.droga)}${item.marca ? " — " + escaparHtml(item.marca) : ""} · ${item.unidadMedidaLabel || item.unidadMedida || ""} · ${item.deposito || ""}
     </div>
     <div style="overflow-x:auto;">
       <table class="tabla">

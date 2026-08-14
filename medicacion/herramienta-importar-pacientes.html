@@ -116,6 +116,14 @@
       return (texto || "").toString().replace(/\D/g, "");
     }
 
+    // Escapa texto libre antes de insertarlo con innerHTML (nombre/apellido leídos del
+    // Excel). Mismo patrón ya usado en medicamentos.js desde la etapa 3.
+    function escaparHtml(texto) {
+      const div = document.createElement("div");
+      div.textContent = texto == null ? "" : String(texto);
+      return div.innerHTML;
+    }
+
     let filasProcesadas = []; // { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial, estado }
 
     document.getElementById("input-excel").addEventListener("change", onArchivoSeleccionado);
@@ -236,7 +244,7 @@
       if (invalidos.length > 0) {
         document.getElementById("detalle-invalidos").style.display = "block";
         document.getElementById("lista-invalidos").innerHTML = invalidos
-          .map(f => `<div>${f.apellido}, ${f.nombre} · ${f.tipoDocumento} ${f.numeroDocumento} (${f.numeroDocumento.length} dígitos)</div>`)
+          .map(f => `<div>${escaparHtml(f.apellido)}, ${escaparHtml(f.nombre)} · ${f.tipoDocumento} ${f.numeroDocumento} (${f.numeroDocumento.length} dígitos)</div>`)
           .join("");
       } else {
         document.getElementById("detalle-invalidos").style.display = "none";

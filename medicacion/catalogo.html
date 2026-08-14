@@ -83,7 +83,7 @@
     requireAuth((user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
-        `Hola, <strong>${datosUsuario.nombre || user.email}</strong> · rol: <strong>${rolLabel}</strong>`;
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
       iniciarCatalogo(datosUsuario);
     }, "../login.html");
   </script>

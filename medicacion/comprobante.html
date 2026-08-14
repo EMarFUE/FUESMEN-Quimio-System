@@ -439,6 +439,16 @@
       return `${num.toLocaleString("es-AR", { maximumFractionDigits: 3 })} ${unidadLabel}`;
     }
 
+    // Escapa texto libre antes de insertarlo con innerHTML (droga/marca en la tabla de
+    // medicamentos). Mismo patrón ya usado en medicamentos.js desde la etapa 3. El resto
+    // del comprobante ya usa .textContent para paciente y quién entrega, que es seguro
+    // por diseño y no necesita esta función.
+    function escaparHtml(texto) {
+      const div = document.createElement("div");
+      div.textContent = texto == null ? "" : String(texto);
+      return div.innerHTML;
+    }
+
     async function cargarComprobante(entregaId) {
       try {
         const doc = await db.collection("entregas").doc(entregaId).get();
@@ -486,8 +496,8 @@
         d.medicamentos.forEach((m) => {
           const tr = document.createElement("tr");
           tr.innerHTML = `
-            <td>${m.droga}</td>
-            <td>${m.marca || '<span style="color:#999;">—</span>'}</td>
+            <td>${escaparHtml(m.droga)}</td>
+            <td>${m.marca ? escaparHtml(m.marca) : '<span style="color:#999;">—</span>'}</td>
             <td>${formatearCantidad(m.cantidad, m.unidadMedidaLabel)}</td>
           `;
           tbody.appendChild(tr);
