@@ -1,14 +1,16 @@
 // Lógica de la pantalla "Cupos por porcentaje" del módulo de Turnero (etapa T0).
 // Colección "turneroCupos", ID de documento = "<slug-sede>-<dia>" (ej. "emilio-civit-lunes").
-// Depende de "turneroMedicos" para saber qué médicos atienden cada sede/día.
+// Depende de "turneroMedicos" para saber qué médicos atienden cada sede/día, y de
+// "turneroSedes" para saber si el cupo está activado en cada sede (campo
+// "usaCuposPorcentaje", editable desde la pantalla de Sedes y sillones).
 // Pantalla exclusiva de administrador (ver punto 16 del alcance de Turnero).
 //
-// Nota de alcance: el motor de turnos (etapas T3/T4) hoy solo va a leer y aplicar cupos
-// de Emilio Civit, porque el alcance del módulo dice explícitamente que Entre Ríos no
-// tiene atadura de día ni cupo por porcentaje. Esta pantalla permite igual cargar una
-// configuración de cupos para Entre Ríos, por si en el futuro se decide usarla — hasta
-// que esa decisión se tome explícitamente, cualquier cupo de Entre Ríos queda guardado
-// pero sin efecto real sobre la carga de turnos.
+// Importante: qué sede usa cupo por porcentaje NO está fijo en este código — es el
+// campo "usaCuposPorcentaje" de cada documento de "turneroSedes". Hoy solo Emilio Civit
+// lo tiene activado (así lo define el alcance), pero el día que se quiera habilitar en
+// Entre Ríos alcanza con tildar el checkbox correspondiente en Sedes y sillones, sin
+// que haga falta tocar código. El motor de turnos de las etapas T3/T4 va a leer ese
+// mismo campo para decidir si aplica el cupo o no.
 
 const DIAS_SEMANA_CUPOS = ["lunes", "martes", "miercoles", "jueves", "viernes"];
 const DIAS_LABEL_CUPOS = {
@@ -43,6 +45,7 @@ const CUPOS_INICIALES_CIVIT = {
 let medicosCacheCupos = [];
 let cuposCache = {};        // id -> { sedeId, dia, cupos: {medicoId: porcentaje} }, ya guardados en Firestore
 let combosPendientes = [];  // [{sedeId, dia}] agregados en esta sesión y todavía no guardados
+let sedesFlagCache = {};    // sedeId -> true/false, leído de turneroSedes.usaCuposPorcentaje
 
 function escaparHtml(texto) {
   const div = document.createElement("div");
@@ -60,11 +63,20 @@ function mostrarMensajeCupos(texto, tipo) {
 
 async function iniciarCupos() {
   try {
-    const snapshotMedicos = await db.collection("turneroMedicos").get();
+    const [snapshotMedicos, snapshotSedes] = await Promise.all([
+      db.collection("turneroMedicos").get(),
+      db.collection("turneroSedes").get()
+    ]);
     medicosCacheCupos = snapshotMedicos.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    sedesFlagCache = {};
+    SEDES_CUPOS.forEach(s => { sedesFlagCache[s.id] = false; }); // default si la sede todavía no tiene el campo
+    snapshotSedes.docs.forEach(doc => {
+      sedesFlagCache[doc.id] = doc.data().usaCuposPorcentaje === true;
+    });
   } catch (error) {
-    console.error("Error al cargar médicos:", error);
-    mostrarMensajeCupos("No se pudieron cargar los médicos.", "error");
+    console.error("Error al cargar médicos o sedes:", error);
+    mostrarMensajeCupos("No se pudieron cargar los médicos o las sedes.", "error");
     return;
   }
 
@@ -77,10 +89,30 @@ async function iniciarCupos() {
     return;
   }
 
+  actualizarTextoEstadoSedes();
+  poblarSelectSedes();
   document.getElementById("bloque-agregar").style.display = "block";
   document.getElementById("boton-cargar-seed").addEventListener("click", cargarSeedCupos);
   document.getElementById("form-agregar-cupo").addEventListener("submit", onAgregarCupo);
   cargarCupos();
+}
+
+function actualizarTextoEstadoSedes() {
+  const activas = SEDES_CUPOS.filter(s => sedesFlagCache[s.id]).map(s => s.nombre);
+  const inactivas = SEDES_CUPOS.filter(s => !sedesFlagCache[s.id]).map(s => s.nombre);
+  const texto = document.getElementById("texto-estado-sedes");
+
+  let mensaje = "";
+  if (activas.length) mensaje += `Cupo por porcentaje activado en: ${activas.join(", ")}. `;
+  if (inactivas.length) mensaje += `Desactivado en: ${inactivas.join(", ")} (se puede cargar igual, pero no tiene efecto hasta que lo actives en Sedes y sillones).`;
+  texto.textContent = mensaje;
+}
+
+function poblarSelectSedes() {
+  const select = document.getElementById("select-sede-cupo");
+  select.innerHTML = SEDES_CUPOS.map(s =>
+    `<option value="${s.id}">${escaparHtml(s.nombre)}${sedesFlagCache[s.id] ? "" : " (inactivo)"}</option>`
+  ).join("");
 }
 
 async function cargarCupos() {
@@ -178,11 +210,17 @@ function renderizarCupos() {
     const id = idCupo(sedeId, dia);
     const medicos = medicosDeCombo(sedeId, dia);
     const titulo = `${nombreSede(sedeId)} · ${DIAS_LABEL_CUPOS[dia]}`;
+    const badgeEstado = sedesFlagCache[sedeId]
+      ? `<span class="badge badge-aprobada">cupo activo en esta sede</span>`
+      : `<span class="badge">cupo inactivo en esta sede</span>`;
 
     if (medicos.length === 0) {
       return `
         <div class="tarjeta-sede">
-          <h3 style="margin:0 0 8px;">${titulo}</h3>
+          <div class="tarjeta-sede-encabezado">
+            <h3 style="margin:0;">${titulo}</h3>
+            ${badgeEstado}
+          </div>
           <p style="color:var(--color-muted); font-size:13px; margin:0;">Ningún médico tiene ese día cargado en esta sede todavía.</p>
         </div>
       `;
@@ -203,7 +241,7 @@ function renderizarCupos() {
     return `
       <div class="tarjeta-sede">
         <div class="tarjeta-sede-encabezado">
-          <h3>${titulo}</h3>
+          <h3>${titulo} ${badgeEstado}</h3>
           <span id="suma-${id}" class="resumen-suma"></span>
         </div>
         ${filas}

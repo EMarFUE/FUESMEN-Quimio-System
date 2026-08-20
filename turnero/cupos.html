@@ -22,14 +22,15 @@
 
     <div id="mensaje-cupos" class="mensaje-info" style="display:none;"></div>
 
+    <p id="texto-estado-sedes" style="color:var(--color-muted); font-size:13px; margin-bottom:16px;">
+      Cargando estado de las sedes...
+    </p>
     <p style="color:var(--color-muted); font-size:13px; margin-bottom:16px;">
-      Por diseño del sistema, hoy el cupo por porcentaje solo se usa en Emilio Civit — en
-      Entre Ríos no hay atadura de día ni cupo. Esta pantalla permite igual cargar una
-      configuración para Entre Ríos por si en el futuro se decide usarla; hasta que eso se
-      defina explícitamente, el motor de turnos no la va a tener en cuenta. El porcentaje de
-      cada médico es un techo duro sobre el tiempo total de sillones de ese día (backup
-      incluido); los porcentajes de los médicos que atienden cada combinación de sede y día
-      deben sumar 100%.
+      El porcentaje de cada médico es un techo duro sobre el tiempo total de sillones de ese
+      día (backup incluido); los porcentajes de los médicos que atienden cada combinación de
+      sede y día deben sumar 100%. Podés cargar la configuración de una sede aunque tenga el
+      cupo desactivado — no tiene efecto sobre la carga de turnos hasta que la actives en
+      <a href="sedes.html">Sedes y sillones</a>.
     </p>
 
     <div id="bloque-sin-medicos" class="placeholder-modulo" style="display:none;">
@@ -50,10 +51,7 @@
       <form id="form-agregar-cupo" class="fila-3" style="align-items:end;">
         <div class="campo" style="margin-bottom:0;">
           <label for="select-sede-cupo">Sede</label>
-          <select id="select-sede-cupo">
-            <option value="emilio-civit">Emilio Civit</option>
-            <option value="entre-rios">Entre Ríos</option>
-          </select>
+          <select id="select-sede-cupo"></select>
         </div>
         <div class="campo" style="margin-bottom:0;">
           <label for="select-dia-cupo">Día</label>
