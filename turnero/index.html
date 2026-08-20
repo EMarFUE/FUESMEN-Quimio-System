@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Turnero · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; Turnero</div>
+        <h1 style="margin-bottom:0;">Turnero</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="bloque-admin" style="display:none;">
+      <div class="titulo-bloque">Datos maestros</div>
+      <div class="tarjetas">
+        <a class="tarjeta" href="sedes.html">
+          <div class="tarjeta-icono">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/></svg>
+          </div>
+          <div class="tarjeta-titulo">sedes y sillones</div>
+          <div class="tarjeta-texto">Horarios de atención, sillones y sillón backup por sede.</div>
+          <div class="tarjeta-enlace">Entrar →</div>
+        </a>
+        <a class="tarjeta" href="protocolos.html">
+          <div class="tarjeta-icono">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6l3 3v15h-12v-15z"/><path d="M9 12h6"/><path d="M9 16h6"/></svg>
+          </div>
+          <div class="tarjeta-titulo">protocolos</div>
+          <div class="tarjeta-texto">Catálogo de protocolos y su duración en minutos.</div>
+          <div class="tarjeta-enlace">Entrar →</div>
+        </a>
+        <a class="tarjeta" href="medicos.html">
+          <div class="tarjeta-icono">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>
+          </div>
+          <div class="tarjeta-titulo">médicos</div>
+          <div class="tarjeta-texto">Médicos tratantes y los días que atienden por sede.</div>
+          <div class="tarjeta-enlace">Entrar →</div>
+        </a>
+        <a class="tarjeta" href="cupos.html">
+          <div class="tarjeta-icono">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          </div>
+          <div class="tarjeta-titulo">cupos por porcentaje</div>
+          <div class="tarjeta-texto">Techo de ocupación por médico y día, solo Emilio Civit.</div>
+          <div class="tarjeta-enlace">Entrar →</div>
+        </a>
+      </div>
+    </div>
+
+    <div id="bloque-no-admin" class="placeholder-modulo" style="display:none;">
+      El módulo de turnero está en construcción. Todavía solo se cargaron los datos maestros
+      (sedes, protocolos, médicos y cupos); la carga de turnos se habilita en las próximas etapas.
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script>
+    // Escapa texto libre antes de insertarlo con innerHTML (nombre del usuario logueado).
+    // Mismo patrón ya usado en medicamentos.js desde la etapa 3.
+    function escaparHtml(texto) {
+      const div = document.createElement("div");
+      div.textContent = texto == null ? "" : String(texto);
+      return div.innerHTML;
+    }
+
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol === "administrador") {
+        document.getElementById("bloque-admin").style.display = "block";
+      } else {
+        document.getElementById("bloque-no-admin").style.display = "block";
+      }
+    }, "../login.html");
+  </script>
+</body>
+</html>

@@ -818,3 +818,141 @@ h1 {
   color: var(--color-danger);
   border-color: var(--color-danger-soft);
 }
+
+/* Turnero — datos maestros (T0) */
+
+.tarjeta-sede {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  background: var(--color-surface);
+  margin-bottom: 20px;
+}
+
+.tarjeta-sede-encabezado {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tarjeta-sede-encabezado h3 {
+  margin: 0;
+}
+
+.fila-horario {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 560px) {
+  .fila-horario {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lista-sillones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chip-sillon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  background: var(--color-bg);
+}
+
+.chip-sillon.backup {
+  border-color: var(--color-accent-secondary);
+  background: var(--color-accent-secondary-soft);
+  color: #3b6d11;
+}
+
+.chip-sillon button {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+  font-family: var(--font);
+}
+
+.grid-dias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 4px;
+}
+
+.grid-dias label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.grid-dias input {
+  width: auto;
+}
+
+.tabla-medicos th,
+.tabla-medicos td {
+  text-align: center;
+}
+
+.tabla-medicos th:first-child,
+.tabla-medicos td:first-child {
+  text-align: left;
+}
+
+.input-porcentaje {
+  width: 64px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: var(--font);
+  text-align: right;
+}
+
+.input-porcentaje:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.resumen-suma {
+  font-size: 13px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.resumen-suma.ok {
+  color: #3b6d11;
+}
+
+.resumen-suma.error {
+  color: var(--color-danger);
+}
+
+.boton-seed {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--color-bg);
+  text-align: center;
+  margin-bottom: 20px;
+}

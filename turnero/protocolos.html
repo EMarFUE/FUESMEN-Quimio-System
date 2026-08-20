@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Protocolos · Turnero</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Turnero</a> &gt; Protocolos</div>
+        <h1 style="margin-bottom:0;">Protocolos</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-protocolos" class="mensaje-info" style="display:none;"></div>
+
+    <div class="encabezado-modulo">
+      <h3 style="margin:0;">Nuevo protocolo</h3>
+      <label class="boton-secundario" style="cursor:pointer;">
+        Importar desde Excel
+        <input type="file" id="input-excel-protocolos" accept=".xlsx,.xls" style="display:none;" />
+      </label>
+    </div>
+
+    <div class="tarjeta-formulario">
+      <form id="form-protocolo">
+        <div class="grid-form-catalogo">
+          <div class="campo">
+            <label for="input-nombre-protocolo">Protocolo / droga</label>
+            <input type="text" id="input-nombre-protocolo" placeholder="Ej. FOLFOX" required />
+          </div>
+          <div class="campo">
+            <label for="input-duracion-protocolo">Duración (minutos)</label>
+            <input type="number" id="input-duracion-protocolo" min="5" step="5" placeholder="Ej. 120" required />
+          </div>
+        </div>
+        <button type="submit" class="boton-principal" style="width:auto; padding:10px 18px;">Guardar protocolo</button>
+      </form>
+    </div>
+
+    <div id="previa-importacion-protocolos" class="tarjeta-importacion" style="display:none;">
+      <div style="font-weight:600; font-size:14px; margin-bottom:12px;">
+        Previsualización de importación · <span id="nombre-archivo-importacion-protocolos"></span>
+      </div>
+      <table class="tabla" style="margin-bottom:16px;">
+        <thead>
+          <tr><th>Protocolo</th><th>Duración (min.)</th><th>Estado</th></tr>
+        </thead>
+        <tbody id="cuerpo-tabla-previa-protocolos"></tbody>
+      </table>
+      <button id="boton-confirmar-importacion-protocolos" class="boton-principal" style="width:auto; padding:10px 18px;">Confirmar importación</button>
+    </div>
+
+    <h3 style="margin:24px 0 10px;">Protocolos cargados</h3>
+    <div class="campo" style="max-width:320px;">
+      <input type="text" id="input-buscar-protocolo" class="campo-busqueda-pacientes" placeholder="Buscar protocolo..." style="margin-bottom:12px;" />
+    </div>
+    <table class="tabla">
+      <thead>
+        <tr><th>Protocolo</th><th>Duración</th><th></th></tr>
+      </thead>
+      <tbody id="cuerpo-tabla-protocolos"></tbody>
+    </table>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="../js/turnero-protocolos.js"></script>
+  <script>
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol !== "administrador") {
+        document.body.innerHTML = `<div class="pantalla-error"><p>Esta pantalla es exclusiva del administrador.</p><a href="index.html">Volver a Turnero</a></div>`;
+        return;
+      }
+
+      iniciarProtocolos();
+    }, "../login.html");
+  </script>
+</body>
+</html>

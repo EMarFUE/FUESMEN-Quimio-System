@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cupos por porcentaje · Turnero</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Turnero</a> &gt; Cupos por porcentaje</div>
+        <h1 style="margin-bottom:0;">Cupos por porcentaje</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-cupos" class="mensaje-info" style="display:none;"></div>
+
+    <p style="color:var(--color-muted); font-size:13px; margin-bottom:16px;">
+      Solo aplica a Emilio Civit. El porcentaje de cada médico es un techo duro sobre el
+      tiempo total de sillones de ese día (backup incluido); los porcentajes de los médicos
+      que atienden cada día deben sumar 100%.
+    </p>
+
+    <div id="bloque-sin-medicos" class="placeholder-modulo" style="display:none;">
+      Todavía no hay médicos cargados con días en Emilio Civit. Cargá primero el catálogo de
+      <a href="medicos.html">médicos</a> para poder configurar los cupos.
+    </div>
+
+    <div id="bloque-seed" class="boton-seed" style="display:none;">
+      <p style="margin:0 0 12px; color:var(--color-muted); font-size:13.5px;">
+        Todavía no hay cupos cargados. Los porcentajes de referencia son el ejemplo que
+        quedó anotado en el alcance del módulo — se pueden editar después de cargarlos.
+      </p>
+      <button id="boton-cargar-seed" class="boton-principal" style="width:auto; padding:10px 18px;">Cargar cupos de referencia</button>
+    </div>
+
+    <div id="contenedor-cupos"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/turnero-cupos.js"></script>
+  <script>
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol !== "administrador") {
+        document.body.innerHTML = `<div class="pantalla-error"><p>Esta pantalla es exclusiva del administrador.</p><a href="index.html">Volver a Turnero</a></div>`;
+        return;
+      }
+
+      iniciarCupos();
+    }, "../login.html");
+  </script>
+</body>
+</html>
