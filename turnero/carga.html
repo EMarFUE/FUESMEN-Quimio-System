@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Carga de turno · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Turnero</a> &gt; Carga de turno</div>
+        <h1 style="margin-bottom:0;margin-top:8px;">Carga de turno</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-general" class="mensaje-info" style="display:none;"></div>
+
+    <div id="contenido-carga" style="display:none;">
+    <div class="tarjeta-formulario">
+
+      <div class="titulo-bloque">A quién pertenece</div>
+      <div id="paciente-seleccionado" class="paciente-seleccionado" style="display:none;">
+        <span id="texto-paciente-seleccionado"></span>
+        <button type="button" class="enlace-accion peligro" onclick="quitarPacienteSeleccionado()">quitar</button>
+      </div>
+      <div id="bloque-busqueda-paciente">
+        <div class="campo">
+          <input type="text" id="campo-buscar-paciente" placeholder="Buscar por apellido, nombre o documento" />
+        </div>
+        <div id="resultados-busqueda-paciente"></div>
+        <div id="sin-resultados" style="display:none;font-size:13px;color:var(--color-muted);margin-bottom:8px;">
+          No se encontró ningún paciente. Podés darlo de alta:
+          <button type="button" class="enlace-accion" onclick="mostrarAltaRapida()">dar de alta</button>
+          <button type="button" id="boton-actualizar-pacientes" class="enlace-accion" onclick="actualizarListadoPacientes()">actualizar listado</button>
+        </div>
+        <div id="bloque-alta-rapida" class="bloque-alta-rapida" style="display:none;">
+          <div class="fila-3">
+            <div class="campo" style="margin-bottom:0;">
+              <label>Tipo de documento</label>
+              <select id="alta-tipo-documento">
+                <option value="DNI">DNI</option>
+                <option value="LC">Libreta cívica</option>
+                <option value="LE">Libreta de enrolamiento</option>
+              </select>
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label>Número de documento</label>
+              <input type="text" id="alta-numero-documento" inputmode="numeric" placeholder="Sin puntos ni espacios" />
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label>&nbsp;</label>
+              <button type="button" class="boton-principal" onclick="altaRapidaPaciente()">Guardar paciente</button>
+            </div>
+          </div>
+          <div class="fila-2">
+            <div class="campo" style="margin-bottom:0;">
+              <label>Nombre</label>
+              <input type="text" id="alta-nombre" />
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label>Apellido</label>
+              <input type="text" id="alta-apellido" />
+            </div>
+          </div>
+          <div id="mensaje-alta-rapida" class="mensaje-info error" style="display:none;margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:8px;">Médico tratante</div>
+      <div class="fila-2">
+        <div class="campo" style="margin-bottom:0;">
+          <label>Médico</label>
+          <select id="campo-medico"></select>
+        </div>
+        <div class="campo" style="margin-bottom:0;">
+          <label>Sede</label>
+          <div id="sede-automatica-info" style="display:none;padding-top:8px;">
+            <span class="badge" id="badge-sede-automatica"></span>
+          </div>
+          <div id="aviso-sede-indefinida" style="display:none;font-size:12.5px;color:var(--color-muted);margin-bottom:6px;">
+            Este médico no tiene días cargados en ninguna sede. Elegí la sede a mano.
+          </div>
+          <select id="campo-sede-manual" style="display:none;"></select>
+        </div>
+      </div>
+      <div class="campo" id="bloque-medico-otro" style="display:none;">
+        <label>Nombre del profesional</label>
+        <input type="text" id="campo-medico-otro-nombre" placeholder="Nombre y apellido" />
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:8px;">Protocolo(s)</div>
+      <div id="lista-protocolos"></div>
+      <button type="button" class="enlace-accion" onclick="agregarFilaProtocolo()" style="margin-bottom:12px;">+ agregar otro protocolo</button>
+
+      <label class="check-linea">
+        <input type="checkbox" id="campo-premedicacion" />
+        Premedicación / control de signos vitales (+30 min fijos)
+      </label>
+
+      <div id="resumen-duracion" class="resumen-suma ok" style="margin:0 0 20px;"></div>
+
+      <div class="titulo-bloque">Ciclo y sesión</div>
+      <div class="fila-2">
+        <div class="campo" style="margin-bottom:0;">
+          <label>Ciclo</label>
+          <input type="number" id="campo-ciclo" min="1" step="1" placeholder="1" />
+        </div>
+        <div class="campo" style="margin-bottom:0;">
+          <label>Sesión</label>
+          <input type="number" id="campo-sesion" min="1" step="1" placeholder="1" />
+        </div>
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:20px;">Fecha y horario</div>
+      <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:10px;">
+        Todavía sin buscador de huecos: se cargan libremente. El sistema los va a sugerir automáticamente a partir de la Etapa T3.
+      </div>
+      <div class="fila-2">
+        <div class="campo" style="margin-bottom:0;">
+          <label>Fecha</label>
+          <input type="date" id="campo-fecha" />
+        </div>
+        <div class="campo" style="margin-bottom:0;">
+          <label>Horario</label>
+          <input type="time" id="campo-horario" />
+        </div>
+      </div>
+
+      <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Guardar turno</button>
+    </div>
+    </div><!-- /contenido-carga -->
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/turnero-carga.js"></script>
+  <script>
+    requireAuth(async (user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol === "administrativo") {
+        document.getElementById("mensaje-general").className = "mensaje-info error";
+        document.getElementById("mensaje-general").textContent = "Esta pantalla es exclusiva para administrador, enfermería y médico.";
+        document.getElementById("mensaje-general").style.display = "block";
+        return;
+      }
+
+      document.getElementById("contenido-carga").style.display = "block";
+      await iniciarCargaTurno(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>

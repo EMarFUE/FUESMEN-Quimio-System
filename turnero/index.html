@@ -20,8 +20,22 @@
       </div>
     </div>
 
+    <div id="bloque-carga" style="display:none;">
+      <div class="titulo-bloque">Turnos</div>
+      <div class="tarjetas">
+        <a class="tarjeta" href="carga.html">
+          <div class="tarjeta-icono">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M12 15v6"/><path d="M9 18h6"/></svg>
+          </div>
+          <div class="tarjeta-titulo">cargar turno</div>
+          <div class="tarjeta-texto">Paciente, médico tratante, protocolo(s) y ciclo/sesión. Todavía sin buscador de huecos: fecha y horario se eligen libremente.</div>
+          <div class="tarjeta-enlace">Entrar →</div>
+        </a>
+      </div>
+    </div>
+
     <div id="bloque-admin" style="display:none;">
-      <div class="titulo-bloque">Datos maestros</div>
+      <div class="titulo-bloque" style="margin-top:20px;">Datos maestros</div>
       <div class="tarjetas">
         <a class="tarjeta" href="sedes.html">
           <div class="tarjeta-icono">
@@ -59,8 +73,9 @@
     </div>
 
     <div id="bloque-no-admin" class="placeholder-modulo" style="display:none;">
-      El módulo de turnero está en construcción. Todavía solo se cargaron los datos maestros
-      (sedes, protocolos, médicos y cupos); la carga de turnos se habilita en las próximas etapas.
+      El módulo de turnero está en construcción. Enfermería, médicos y administrador ya pueden
+      cargar turnos; todavía no existe una vista de consulta para el rol administrativo
+      (llega en una etapa posterior).
     </div>
   </div>
 
@@ -84,7 +99,10 @@
         `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
 
       if (datosUsuario.rol === "administrador") {
+        document.getElementById("bloque-carga").style.display = "block";
         document.getElementById("bloque-admin").style.display = "block";
+      } else if (datosUsuario.rol === "enfermeria" || datosUsuario.rol === "medico") {
+        document.getElementById("bloque-carga").style.display = "block";
       } else {
         document.getElementById("bloque-no-admin").style.display = "block";
       }
