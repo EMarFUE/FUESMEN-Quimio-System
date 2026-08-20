@@ -29,6 +29,22 @@ function escaparHtml(texto) {
   return div.innerHTML;
 }
 
+// Quita tildes, espacios extra y pasa a minúscula. Mismo criterio que medicamentos.js
+// y turnero-protocolos.js, usado acá para generar el ID de documento del médico nuevo.
+function normalizarTexto(texto) {
+  return (texto || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function slugMedico(nombre) {
+  return normalizarTexto(nombre).replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
+
 function mostrarMensajeMedicos(texto, tipo) {
   const contenedor = document.getElementById("mensaje-medicos");
   contenedor.textContent = texto;
@@ -39,7 +55,42 @@ function mostrarMensajeMedicos(texto, tipo) {
 
 function iniciarMedicos() {
   document.getElementById("boton-cargar-seed").addEventListener("click", cargarSeedMedicos);
+  document.getElementById("form-nuevo-medico").addEventListener("submit", onAgregarMedico);
   cargarMedicos();
+}
+
+async function onAgregarMedico(evento) {
+  evento.preventDefault();
+  const input = document.getElementById("input-nombre-medico");
+  const nombre = input.value.trim();
+
+  if (!nombre) {
+    mostrarMensajeMedicos("El nombre del médico es obligatorio.", "error");
+    return;
+  }
+
+  const id = slugMedico(nombre);
+  if (!id) {
+    mostrarMensajeMedicos("Ese nombre no es válido.", "error");
+    return;
+  }
+  if (medicosCache.some(m => m.id === id)) {
+    mostrarMensajeMedicos("Ya existe un médico con ese nombre.", "error");
+    return;
+  }
+
+  try {
+    await db.collection("turneroMedicos").doc(id).set({
+      nombre,
+      diasPorSede: { [SEDE_CIVIT]: [], [SEDE_ENTRE_RIOS]: [] }
+    });
+    input.value = "";
+    mostrarMensajeMedicos(`Médico agregado. Tildá sus días en las tablas de abajo.`, "exito");
+    cargarMedicos();
+  } catch (error) {
+    console.error("Error al agregar médico:", error);
+    mostrarMensajeMedicos("No se pudo agregar el médico.", "error");
+  }
 }
 
 async function cargarMedicos() {

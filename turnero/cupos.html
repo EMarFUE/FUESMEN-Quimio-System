@@ -23,22 +23,50 @@
     <div id="mensaje-cupos" class="mensaje-info" style="display:none;"></div>
 
     <p style="color:var(--color-muted); font-size:13px; margin-bottom:16px;">
-      Solo aplica a Emilio Civit. El porcentaje de cada médico es un techo duro sobre el
-      tiempo total de sillones de ese día (backup incluido); los porcentajes de los médicos
-      que atienden cada día deben sumar 100%.
+      Por diseño del sistema, hoy el cupo por porcentaje solo se usa en Emilio Civit — en
+      Entre Ríos no hay atadura de día ni cupo. Esta pantalla permite igual cargar una
+      configuración para Entre Ríos por si en el futuro se decide usarla; hasta que eso se
+      defina explícitamente, el motor de turnos no la va a tener en cuenta. El porcentaje de
+      cada médico es un techo duro sobre el tiempo total de sillones de ese día (backup
+      incluido); los porcentajes de los médicos que atienden cada combinación de sede y día
+      deben sumar 100%.
     </p>
 
     <div id="bloque-sin-medicos" class="placeholder-modulo" style="display:none;">
-      Todavía no hay médicos cargados con días en Emilio Civit. Cargá primero el catálogo de
+      Todavía no hay médicos con días cargados en ninguna sede. Cargá primero el catálogo de
       <a href="medicos.html">médicos</a> para poder configurar los cupos.
     </div>
 
     <div id="bloque-seed" class="boton-seed" style="display:none;">
       <p style="margin:0 0 12px; color:var(--color-muted); font-size:13.5px;">
-        Todavía no hay cupos cargados. Los porcentajes de referencia son el ejemplo que
-        quedó anotado en el alcance del módulo — se pueden editar después de cargarlos.
+        Todavía no hay cupos cargados. Los porcentajes de referencia son el ejemplo de Emilio
+        Civit que quedó anotado en el alcance del módulo — se pueden editar después de cargarlos.
       </p>
-      <button id="boton-cargar-seed" class="boton-principal" style="width:auto; padding:10px 18px;">Cargar cupos de referencia</button>
+      <button id="boton-cargar-seed" class="boton-principal" style="width:auto; padding:10px 18px;">Cargar cupos de referencia (Emilio Civit)</button>
+    </div>
+
+    <div id="bloque-agregar" class="tarjeta-formulario" style="display:none;">
+      <div class="titulo-bloque" style="margin-bottom:12px;">Agregar cupo</div>
+      <form id="form-agregar-cupo" class="fila-3" style="align-items:end;">
+        <div class="campo" style="margin-bottom:0;">
+          <label for="select-sede-cupo">Sede</label>
+          <select id="select-sede-cupo">
+            <option value="emilio-civit">Emilio Civit</option>
+            <option value="entre-rios">Entre Ríos</option>
+          </select>
+        </div>
+        <div class="campo" style="margin-bottom:0;">
+          <label for="select-dia-cupo">Día</label>
+          <select id="select-dia-cupo">
+            <option value="lunes">Lunes</option>
+            <option value="martes">Martes</option>
+            <option value="miercoles">Miércoles</option>
+            <option value="jueves">Jueves</option>
+            <option value="viernes">Viernes</option>
+          </select>
+        </div>
+        <button type="submit" class="boton-secundario">+ Agregar cupo</button>
+      </form>
     </div>
 
     <div id="contenedor-cupos"></div>
