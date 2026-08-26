@@ -13,6 +13,54 @@ const ROLES_MEDICO_OTRO = ["administrador", "enfermeria"];
 const PREMEDICACION_MINUTOS = 30;
 const TOPE_DIAS_TURNO = 60;
 
+// Catálogo de obras sociales (reutilizado de pacientes.js)
+const OBRAS_SOCIALES = [
+  "ACLISA",
+  "ACONCAGUA MEDICINA PREVENTIVA S.A",
+  "ASOC MUTUAL 20 DE OCTUBRE",
+  "PAPSI - ASOC. COOP HOSP CENTRAL PAPSI",
+  "POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES",
+  "ASOCIACION MUTUAL SANCOR",
+  "BOREAL - COBERTURA DE SALUD (BOREAL)",
+  "PAMI - INSSJP - COIR SR",
+  "CONFERENCIA EPISCOPAL ARGENTINA",
+  "DAMSU-DPT.AS.ME.SO.U",
+  "DASUTEN",
+  "DELTA S.A.",
+  "GALENO ARGENTINA S.A.",
+  "GERENCIAMIENTO MEDICO SA",
+  "HOSPITAL TEODORO SCHESTAKOW",
+  "IOSFA",
+  "ITER MEDICINA SA",
+  "MEDICUS SA",
+  "MEDIFE ASOCIACION CIVIL",
+  "MUTUAL DEL PERSONAL DE AGUA Y ENERGIA",
+  "OBRA SOCIAL DE PETROLEROS",
+  "OBRA SOCIAL DEL PERSONAL DE FARMACIAS",
+  "OBRA SOCIAL DEL PODER JUDICIAL DE LA NACION",
+  "OBRA SOCIAL UNION PERS DE LA UNION PERS CIVIL DE LA NACION",
+  "OMINT",
+  "OSDE ORGANIZ DE SS DIRECTOS EMPRESARIOS",
+  "OSDEPYM",
+  "OSEP",
+  "OSPELSYM",
+  "OSPIA DELEG MENDOZA",
+  "OSPJERA",
+  "OSPSA - PERS.SANID.ARG",
+  "OSSEG",
+  "OSTES",
+  "PARTICULAR",
+  "POLICIA FED ARGENTINA",
+  "PREVENCION SALUD SA",
+  "PROFE - MENDOZA",
+  "ROI SA",
+  "SER SALUD PRESTACIONES SA",
+  "SISTEMA DE COBERTURA INT. DE SALUD SA",
+  "SUMA SALUD",
+  "SWISS MEDICAL SA",
+  "VISITAR SRL"
+];
+
 let usuarioActualCarga = null;
 let datosUsuarioActualCarga = null;
 let rolActualCarga = null;
@@ -386,6 +434,17 @@ function quitarPacienteSeleccionado() {
 function mostrarAltaRapida() {
   document.getElementById("bloque-alta-rapida").style.display = "block";
   document.getElementById("mensaje-alta-rapida").style.display = "none";
+  
+  // Poblar select de obra social si aún no está poblado
+  const selectOS = document.getElementById("alta-obra-social");
+  if (selectOS.children.length === 1) { // Solo el <option value="">Elegir obra social</option>
+    OBRAS_SOCIALES.forEach((os) => {
+      const option = document.createElement("option");
+      option.value = os;
+      option.textContent = os;
+      selectOS.appendChild(option);
+    });
+  }
 }
 
 async function altaRapidaPaciente() {
@@ -393,6 +452,7 @@ async function altaRapidaPaciente() {
   const numeroDocumento = soloDigitos(document.getElementById("alta-numero-documento").value);
   const nombre = capitalizarPalabras(document.getElementById("alta-nombre").value);
   const apellido = capitalizarPalabras(document.getElementById("alta-apellido").value);
+  const obraSocial = document.getElementById("alta-obra-social").value;
   const mensajeEl = document.getElementById("mensaje-alta-rapida");
 
   const mostrarError = (texto) => {
@@ -406,6 +466,10 @@ async function altaRapidaPaciente() {
   }
   if (numeroDocumento.length < 7 || numeroDocumento.length > 9) {
     mostrarError("El número de documento debe tener entre 7 y 9 dígitos.");
+    return;
+  }
+  if (!obraSocial) {
+    mostrarError("La obra social es obligatoria.");
     return;
   }
 
@@ -422,11 +486,11 @@ async function altaRapidaPaciente() {
       numeroDocumento,
       nombre,
       apellido,
-      obraSocial: "",
+      obraSocial: obraSocial,
       activo: true
     });
 
-    const pacienteNuevo = { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial: "", activo: true };
+    const pacienteNuevo = { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial, activo: true };
     pacientesCacheCarga.push(pacienteNuevo);
     agregarPacienteACache(pacienteNuevo);
     seleccionarPaciente(id);
@@ -436,6 +500,7 @@ async function altaRapidaPaciente() {
     document.getElementById("alta-numero-documento").value = "";
     document.getElementById("alta-nombre").value = "";
     document.getElementById("alta-apellido").value = "";
+    document.getElementById("alta-obra-social").value = "";
   } catch (error) {
     if (error.code === "permission-denied") {
       mostrarError("No tenés permisos para crear pacientes.");
@@ -551,15 +616,9 @@ function agregarFilaProtocolo() {
   botonQuitar.style.marginTop = "8px";
   botonQuitar.addEventListener("click", () => quitarFilaProtocolo(id));
 
-  const div = document.createElement("div");
-  div.style.display = "flex";
-  div.style.flexDirection = "column";
-  div.style.gap = "4px";
-  div.appendChild(inputBusqueda);
-  div.appendChild(resultados);
-  div.appendChild(botonQuitar);
-
-  fila.appendChild(div);
+  fila.appendChild(inputBusqueda);
+  fila.appendChild(resultados);
+  fila.appendChild(botonQuitar);
   lista.appendChild(fila);
 
   protocolosSeleccionados[id] = null;
@@ -743,7 +802,7 @@ async function intentarGuardarTurno() {
   });
 }
 
-// Etapa T3: buscar huecos y mostrar opciones al usuario
+// Etapa T3: buscar huecos y guardar automáticamente con el mejor
 async function buscarYMostrarHuecos(datosBasicos) {
   buscandoHuecos = true;
   document.getElementById("boton-guardar-turno").disabled = true;
@@ -764,7 +823,9 @@ async function buscarYMostrarHuecos(datosBasicos) {
     ultimaBusquedaHuecos = resultado;
 
     if (resultado.exito && resultado.huecosEncontrados && resultado.huecosEncontrados.length > 0) {
-      mostrarOpcionesHuecos(resultado.huecosEncontrados, datosBasicos);
+      // El sistema elige automáticamente el mejor hueco (el primero de la lista, que está ordenado por mejor ajuste)
+      const mejorHueco = resultado.huecosEncontrados[0];
+      await guardarTurnoConHueco(datosBasicos, mejorHueco, null);
     } else {
       mostrarOpcioneSobreturno(resultado, datosBasicos);
     }
@@ -777,76 +838,7 @@ async function buscarYMostrarHuecos(datosBasicos) {
   }
 }
 
-// Mostrar opciones de huecos encontrados
-function mostrarOpcionesHuecos(huecos, datosBasicos) {
-  const contenido = document.getElementById("contenido-carga");
-  
-  // Crear modal/bloque para seleccionar hueco
-  let modal = document.getElementById("modal-huecos");
-  if (!modal) {
-    modal = document.createElement("div");
-    modal.id = "modal-huecos";
-    modal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.5);
-      display: none;
-      z-index: 1000;
-      overflow-y: auto;
-    `;
-    document.body.appendChild(modal);
-  }
 
-  modal.innerHTML = `
-    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
-      <h2 style="margin-top: 0;">Huecos disponibles</h2>
-      <p style="color: var(--color-muted); font-size: 14px;">Se encontraron ${huecos.length} opción(es). Las mejores están arriba (menos tiempo desperdiciado).</p>
-      <div id="lista-huecos" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;"></div>
-      <button type="button" class="boton-secundario" onclick="cerrarModalHuecos()">Cancelar (elegir otra fecha)</button>
-    </div>
-  `;
-
-  const listaHuecos = modal.querySelector("#lista-huecos");
-  huecos.forEach((hueco, idx) => {
-    const card = document.createElement("div");
-    card.style.cssText = `
-      border: 1px solid #ddd;
-      padding: 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: background 0.2s;
-    `;
-    card.onmouseover = () => card.style.background = "#f9f9f9";
-    card.onmouseout = () => card.style.background = "transparent";
-
-    const avisoTolerancia = hueco.superaTolerancia 
-      ? `<div style="color: #d4a017; font-size: 12px; margin-bottom: 8px;">⚠️ Esta fecha supera el margen de 5 días sugerido.</div>`
-      : "";
-
-    card.innerHTML = `
-      ${avisoTolerancia}
-      <div style="font-weight: bold; margin-bottom: 4px;">${hueco.fechaLegible}</div>
-      <div style="font-size: 14px; color: var(--color-muted);">
-        ${hueco.horaInicio} – ${hueco.horaFin} | ${hueco.sedeNombre} | Sillón ${hueco.sillon}
-      </div>
-    `;
-
-    card.addEventListener("click", () => seleccionarHuecoYGuardar(hueco, datosBasicos));
-    listaHuecos.appendChild(card);
-  });
-
-  modal.style.display = "block";
-  mostrarMensajeGeneral("Seleccioná uno de los huecos disponibles.", "exito");
-}
-
-function cerrarModalHuecos() {
-  const modal = document.getElementById("modal-huecos");
-  if (modal) modal.style.display = "none";
-  document.getElementById("boton-guardar-turno").disabled = false;
-}
 
 // Mostrar opción de sobreturno cuando no hay huecos
 function mostrarOpcioneSobreturno(resultadoBusqueda, datosBasicos) {
@@ -921,11 +913,7 @@ function cerrarModalSobreturno() {
   document.getElementById("boton-guardar-turno").disabled = false;
 }
 
-function seleccionarHuecoYGuardar(hueco, datosBasicos) {
-  huecoSeleccionado = hueco;
-  cerrarModalHuecos();
-  guardarTurnoConHueco(datosBasicos, hueco, null);
-}
+
 
 function guardarConSobreturno(tipoSobreturno, datosBasicos) {
   cerrarModalSobreturno();
@@ -1019,6 +1007,5 @@ function resetearFormularioCarga() {
   document.getElementById("fecha-calculada-info").style.display = "none";
   renderizarModoFecha();
 
-  huecoSeleccionado = null;
   actualizarResumenDuracion();
 }

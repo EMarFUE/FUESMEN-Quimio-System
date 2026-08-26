@@ -69,6 +69,12 @@
               <input type="text" id="alta-apellido" />
             </div>
           </div>
+          <div class="campo">
+            <label>Obra social</label>
+            <select id="alta-obra-social">
+              <option value="">Elegir obra social</option>
+            </select>
+          </div>
           <div id="mensaje-alta-rapida" class="mensaje-info error" style="display:none;margin-top:10px;"></div>
         </div>
       </div>
@@ -120,10 +126,9 @@
 
       <div class="titulo-bloque" style="margin-top:20px;">Fecha y horario</div>
       <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:10px;">
-        Para la fecha, el sistema va a intentar ubicar el turno el día que eligas y, si no hay lugar, 
-        va a extender la búsqueda automáticamente hasta encontrar el primer hueco real dentro de 10 días 
-        (con opción de elegir otra fecha, forzar un sobreturno, o simplemente seleccionar uno de los 
-        huecos alternativos que el motor sugiere).
+        Para la fecha, el sistema va a intentar ubicar el turno el día que eligas. Si hay lugar disponible,
+        se guardará automáticamente en el mejor hueco encontrado (el que menos tiempo desperdicia). 
+        Si no hay lugar en los próximos 10 días, se te ofrecerá la opción de cargar como sobreturno.
       </div>
 
       <div id="bloque-dias-turno" class="campo" style="margin-bottom:14px;">
@@ -150,7 +155,7 @@
         ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada. Vos no lo elegís acá.
       </div>
 
-      <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Guardar turno y buscar disponibilidad</button>
+      <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Buscar disponibilidad y guardar turno</button>
     </div>
     </div><!-- /contenido-carga -->
   </div>
