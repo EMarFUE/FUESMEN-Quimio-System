@@ -120,17 +120,35 @@
 
       <div class="titulo-bloque" style="margin-top:20px;">Fecha y horario</div>
       <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:10px;">
-        Todavía sin buscador de huecos: se cargan libremente. El sistema los va a sugerir automáticamente a partir de la Etapa T3.
+        El horario todavía se carga libre: el sistema lo va a sugerir junto con el sillón a partir
+        de la Etapa T3. Para la fecha, el sistema va a intentar ubicar el turno el día calculado y,
+        si no hay lugar, va a extender la búsqueda automáticamente hasta encontrar el primer hueco
+        real, avisando si eso supera el margen sugerido de 5 días (con opción de elegir otra fecha
+        a mano o forzar un sobreturno) — esa búsqueda es motor de la Etapa T3, todavía no construida.
       </div>
-      <div class="fila-2">
-        <div class="campo" style="margin-bottom:0;">
-          <label>Fecha</label>
-          <input type="date" id="campo-fecha" />
+
+      <div id="bloque-dias-turno" class="campo" style="margin-bottom:14px;">
+        <label>¿En cuántos días es el turno?</label>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <input type="number" id="campo-dias-turno" min="0" step="1" placeholder="Ej: 12" style="max-width:110px;" />
+          <button type="button" class="enlace-accion" onclick="alternarModoFecha()">elegir fecha exacta en el calendario</button>
         </div>
-        <div class="campo" style="margin-bottom:0;">
-          <label>Horario</label>
-          <input type="time" id="campo-horario" />
+        <div id="fecha-calculada-info" style="margin-top:8px;display:none;">
+          <span class="badge" id="badge-fecha-calculada"></span>
         </div>
+      </div>
+
+      <div id="bloque-fecha-manual" class="campo" style="display:none;margin-bottom:14px;">
+        <label>Fecha exacta</label>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <input type="date" id="campo-fecha" style="max-width:200px;" />
+          <button type="button" class="enlace-accion" onclick="alternarModoFecha()">volver a calcular por días</button>
+        </div>
+      </div>
+
+      <div class="campo" style="margin-bottom:0;">
+        <label>Horario</label>
+        <input type="time" id="campo-horario" style="max-width:150px;" />
       </div>
 
       <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Guardar turno</button>
