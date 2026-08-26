@@ -131,6 +131,7 @@
         <label>¿En cuántos días es el turno? (0 a 60)</label>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <input type="number" id="campo-dias-turno" min="0" step="1" placeholder="Ej: 12" style="max-width:110px;" />
+          <button type="button" class="enlace-accion" onclick="usarTurnoHoy()">hoy</button>
           <button type="button" class="enlace-accion" onclick="alternarModoFecha()">elegir fecha exacta en el calendario</button>
         </div>
         <div id="fecha-calculada-info" style="margin-top:8px;display:none;">

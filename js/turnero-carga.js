@@ -98,6 +98,11 @@ function alternarModoFecha() {
   renderizarModoFecha();
 }
 
+function usarTurnoHoy() {
+  document.getElementById("campo-dias-turno").value = "0";
+  actualizarFechaCalculada();
+}
+
 function renderizarModoFecha() {
   const bloqueDias = document.getElementById("bloque-dias-turno");
   const bloqueManual = document.getElementById("bloque-fecha-manual");
