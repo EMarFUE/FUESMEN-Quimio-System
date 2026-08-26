@@ -66,7 +66,7 @@ function fechaISO(objetoDate) {
   return `${y}-${m}-${d}`;
 }
 
-function formatearFechaLegible(fechaObjeto) {
+function formatearFechaLegibleMotor(fechaObjeto) {
   // "martes 8 de septiembre de 2026"
   const formateador = new Intl.DateTimeFormat("es-AR", {
     weekday: "long",
@@ -185,7 +185,7 @@ async function buscarHuecosEnSede(
             sedeId,
             sedeNombre,
             fecha: fechaISO(fechaActual),
-            fechaLegible: formatearFechaLegible(fechaActual),
+            fechaLegible: formatearFechaLegibleMotor(fechaActual),
             horaInicio: stringDesdeMinuto(minutoActual),
             horaFin: stringDesdeMinuto(minutoActual + duracionNormalizada),
             minutoInicioBloqueNormalizado: minutoActual,
@@ -329,7 +329,7 @@ if (typeof module !== "undefined" && module.exports) {
     stringDesdeMinuto,
     fechaDesdeISO,
     fechaISO,
-    formatearFechaLegible,
+    formatearFechaLegible: formatearFechaLegibleMotor,
     GRANO_MINUTOS,
     TOPE_DIAS_BUSQUEDA
   };

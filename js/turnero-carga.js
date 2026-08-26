@@ -15,7 +15,8 @@ const PREMEDICACION_MINUTOS = 30;
 const TOPE_DIAS_TURNO = 60;
 
 // Catálogo de obras sociales (reutilizado de pacientes.js)
-const OBRA_SOCIAL_POP = "POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES";
+// Nota: OBRA_SOCIAL_POP ya está declarada en turnero-motor.js (se carga antes que este
+// archivo y comparten el mismo scope global del navegador). No redeclarar acá.
 const OBRAS_SOCIALES = [
   "ACLISA",
   "ACONCAGUA MEDICINA PREVENTIVA S.A",
