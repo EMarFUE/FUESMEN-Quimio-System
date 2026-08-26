@@ -1,6 +1,8 @@
-// Lógica de la pantalla "Carga de turno" del módulo de Turnero (Etapa T1).
-// Formulario base sin motor de huecos: fecha y horario se guardan libremente, a modo
-// de placeholder funcional (el buscador de huecos llega en la Etapa T3).
+// Lógica de la pantalla "Carga de turno" del módulo de Turnero (Etapas T1-T2).
+// T1: formulario base. T2: la fecha ya no se tipea libre — se calcula a partir de
+// "en cuántos días" (con alternancia a fecha exacta por calendario). El horario sigue
+// siendo libre, placeholder hasta que exista el motor de huecos (Etapa T3), que además
+// va a ser el que efectivamente busque sillón para la fecha calculada acá.
 // No depende de egresos.js, entregas.js ni de los turnero-*.js de T0: cada pantalla
 // mantiene sus propias funciones, mismo criterio de independencia ya usado en el resto
 // del sistema.
@@ -11,6 +13,7 @@ const SEDE_CIVIT_NOMBRE = "Emilio Civit";
 const SEDE_ENTRE_RIOS_NOMBRE = "Entre Ríos";
 const ROLES_MEDICO_OTRO = ["administrador", "enfermeria"];
 const PREMEDICACION_MINUTOS = 30;
+const TOPE_DIAS_TURNO = 60;
 
 let usuarioActualCarga = null;
 let datosUsuarioActualCarga = null;
@@ -27,6 +30,11 @@ let contadorFilasProtocolo = 0;
 let guardandoTurno = false;
 let temporizadorBusquedaDocumentoCarga = null;
 
+// Etapa T2: modo de carga de la fecha del turno. "dias" (por defecto) calcula la
+// fecha a partir de "en cuántos días" desde hoy; "calendario" permite elegir una
+// fecha exacta a mano con el <input type="date"> de siempre.
+let modoFechaTurno = "dias";
+
 // --- Cache de pacientes en localStorage ---
 // Misma clave que entregas.js, egresos.js e historial.js a propósito, para que las
 // pestañas abiertas en una misma computadora compartan una sola lectura real por día.
@@ -36,6 +44,74 @@ function fechaLocalHoy() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// --- Cálculo de fecha a partir de "en cuántos días" (Etapa T2) ---
+
+function fechaObjetoDesdeDiasHoy(dias) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + dias);
+  return d;
+}
+
+function fechaISODesdeObjeto(fecha) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${fecha.getFullYear()}-${pad(fecha.getMonth() + 1)}-${pad(fecha.getDate())}`;
+}
+
+function formatearFechaLegible(fecha) {
+  const formateador = new Intl.DateTimeFormat("es-AR", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric"
+  });
+  const texto = formateador.format(fecha);
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+// Devuelve el número de días si "campo-dias-turno" tiene un entero válido
+// (entre 0 y TOPE_DIAS_TURNO), o null si está vacío o fuera de rango.
+function leerDiasTurnoValidos() {
+  const valor = document.getElementById("campo-dias-turno").value;
+  if (valor === "") return null;
+  const numero = Number(valor);
+  if (!Number.isInteger(numero) || numero < 0 || numero > TOPE_DIAS_TURNO) return null;
+  return numero;
+}
+
+function actualizarFechaCalculada() {
+  const cont = document.getElementById("fecha-calculada-info");
+  const badge = document.getElementById("badge-fecha-calculada");
+  const dias = leerDiasTurnoValidos();
+
+  if (dias === null) {
+    cont.style.display = "none";
+    return;
+  }
+
+  const fecha = fechaObjetoDesdeDiasHoy(dias);
+  badge.textContent = `Fecha calculada: ${formatearFechaLegible(fecha)}`;
+  cont.style.display = "block";
+}
+
+function alternarModoFecha() {
+  modoFechaTurno = modoFechaTurno === "dias" ? "calendario" : "dias";
+  renderizarModoFecha();
+}
+
+function renderizarModoFecha() {
+  const bloqueDias = document.getElementById("bloque-dias-turno");
+  const bloqueManual = document.getElementById("bloque-fecha-manual");
+
+  if (modoFechaTurno === "dias") {
+    bloqueDias.style.display = "block";
+    bloqueManual.style.display = "none";
+    document.getElementById("campo-fecha").value = "";
+  } else {
+    bloqueDias.style.display = "none";
+    bloqueManual.style.display = "block";
+    document.getElementById("campo-dias-turno").value = "";
+    document.getElementById("fecha-calculada-info").style.display = "none";
+  }
 }
 
 function leerCachePacientes() {
@@ -130,6 +206,8 @@ async function iniciarCargaTurno(user, datosUsuario) {
     e.target.value = soloDigitos(e.target.value);
   });
   document.getElementById("campo-premedicacion").addEventListener("change", actualizarResumenDuracion);
+  document.getElementById("campo-dias-turno").addEventListener("input", actualizarFechaCalculada);
+  document.getElementById("campo-dias-turno").max = String(TOPE_DIAS_TURNO);
   document.getElementById("campo-fecha").min = fechaLocalHoy();
 
   // El listado de pacientes activos es, de las cuatro colecciones que usa esta pantalla,
@@ -654,12 +732,28 @@ function intentarGuardarTurno() {
     return;
   }
 
-  const fecha = document.getElementById("campo-fecha").value;
-  const horario = document.getElementById("campo-horario").value;
-  if (!fecha) {
-    mostrarMensajeGeneral("Falta elegir la fecha del turno.", "error");
-    return;
+  let fecha, diasSolicitados, fechaCalculadaDesdeDias;
+
+  if (modoFechaTurno === "dias") {
+    diasSolicitados = leerDiasTurnoValidos();
+    if (diasSolicitados === null) {
+      mostrarMensajeGeneral(`Falta indicar en cuántos días es el turno (número entero entre 0 y ${TOPE_DIAS_TURNO}).`, "error");
+      return;
+    }
+    fecha = fechaISODesdeObjeto(fechaObjetoDesdeDiasHoy(diasSolicitados));
+    fechaCalculadaDesdeDias = true;
+  } else {
+    const fechaManual = document.getElementById("campo-fecha").value;
+    if (!fechaManual) {
+      mostrarMensajeGeneral("Falta elegir la fecha del turno.", "error");
+      return;
+    }
+    fecha = fechaManual;
+    diasSolicitados = null;
+    fechaCalculadaDesdeDias = false;
   }
+
+  const horario = document.getElementById("campo-horario").value;
   if (!horario) {
     mostrarMensajeGeneral("Falta elegir el horario del turno.", "error");
     return;
@@ -683,6 +777,8 @@ function intentarGuardarTurno() {
     ciclo,
     sesion,
     fecha,
+    diasSolicitados,
+    fechaCalculadaDesdeDias,
     horario
   });
 }
@@ -713,6 +809,8 @@ async function guardarTurnoReal(datos) {
       ciclo: datos.ciclo,
       sesion: datos.sesion,
       fecha: datos.fecha,
+      diasSolicitados: datos.diasSolicitados,
+      fechaCalculadaDesdeDias: datos.fechaCalculadaDesdeDias,
       horario: datos.horario,
       // Placeholder para la Etapa T7 (reasignar/modificar/eliminar sin borrado físico).
       // Todo turno cargado en T1 nace "activo"; el resto de los valores ("cancelado",
@@ -750,7 +848,13 @@ function resetearFormularioCarga() {
   document.getElementById("campo-premedicacion").checked = false;
   document.getElementById("campo-ciclo").value = "";
   document.getElementById("campo-sesion").value = "";
+
+  modoFechaTurno = "dias";
+  document.getElementById("campo-dias-turno").value = "";
   document.getElementById("campo-fecha").value = "";
+  document.getElementById("fecha-calculada-info").style.display = "none";
+  renderizarModoFecha();
+
   document.getElementById("campo-horario").value = "";
   actualizarResumenDuracion();
 }
