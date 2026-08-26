@@ -82,18 +82,19 @@ function formatearFechaLegible(fechaObjeto) {
 
 async function determinarSedesABuscar(medicoId, obraSocial, medicosCacheLectura) {
   // Retorna array de sedeIds en el orden en que deben buscarse.
-  // Para Occhipinti: lógica especial según obra social.
-  // Para otros: la(s) sede(s) donde atiende.
+  // Para Occhipinti: lógica según obra social (Handoff_etapa_T0.md, decisión 4).
+  // - POP → únicamente Emilio Civit, sin opción de Entre Ríos.
+  // - Cualquier otra obra social → busca primero en Entre Ríos, solo si no hay
+  //   hueco ahí busca en Emilio Civit (nunca al revés, nunca en paralelo).
+  // Esto es independiente de las limitaciones por médico (atadura de día, cupo por
+  // porcentaje), que son Etapa T4 y aplican solo a Emilio Civit.
+  // Para otros médicos: la(s) sede(s) donde atiende, sin esta lógica especial.
 
   if (medicoId === SEDE_OCCHIPINTI) {
-    // Occhipinti atiende en ambas sedes, pero el orden depende de la obra social
     if (obraSocial === OBRA_SOCIAL_POP) {
-      // POP → solo Emilio Civit
       return ["emilio-civit"];
-    } else {
-      // Otra obra social → Entre Ríos primero, Emilio Civit después
-      return ["entre-rios", "emilio-civit"];
     }
+    return ["entre-rios", "emilio-civit"];
   }
 
   // Para otros médicos: leer sus sedes del caché y retornarlas en el orden

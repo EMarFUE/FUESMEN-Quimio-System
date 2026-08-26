@@ -9,11 +9,13 @@ const SEDE_CIVIT_ID = "emilio-civit";
 const SEDE_ENTRE_RIOS_ID = "entre-rios";
 const SEDE_CIVIT_NOMBRE = "Emilio Civit";
 const SEDE_ENTRE_RIOS_NOMBRE = "Entre Ríos";
+const MEDICO_OCCHIPINTI_ID = "occhipinti";
 const ROLES_MEDICO_OTRO = ["administrador", "enfermeria"];
 const PREMEDICACION_MINUTOS = 30;
 const TOPE_DIAS_TURNO = 60;
 
 // Catálogo de obras sociales (reutilizado de pacientes.js)
+const OBRA_SOCIAL_POP = "POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES";
 const OBRAS_SOCIALES = [
   "ACLISA",
   "ACONCAGUA MEDICINA PREVENTIVA S.A",
@@ -407,6 +409,11 @@ function seleccionarPaciente(id) {
   document.getElementById("sin-resultados").style.display = "none";
   document.getElementById("bloque-alta-rapida").style.display = "none";
   renderizarPacienteSeleccionado();
+  // Si ya había un médico elegido (por ejemplo Occhipinti), refrescar el bloque
+  // porque la sede automática depende de la obra social del paciente recién elegido.
+  if (document.getElementById("campo-medico").value) {
+    actualizarBloqueMedico();
+  }
 }
 
 function renderizarPacienteSeleccionado() {
@@ -429,6 +436,9 @@ function renderizarPacienteSeleccionado() {
 function quitarPacienteSeleccionado() {
   pacienteSeleccionadoCarga = null;
   renderizarPacienteSeleccionado();
+  if (document.getElementById("campo-medico").value) {
+    actualizarBloqueMedico();
+  }
 }
 
 function mostrarAltaRapida() {
@@ -578,6 +588,20 @@ function actualizarBloqueMedico() {
   const medico = medicosCacheCarga.find((m) => m.id === medicoValor);
   if (!medico) return;
 
+  if (medicoValor === MEDICO_OCCHIPINTI_ID) {
+    // Occhipinti: la sede la determina el sistema según la obra social del paciente
+    // (Handoff_etapa_T0.md, decisión 4). Nunca se elige a mano.
+    sedeAutomaticaInfo.style.display = "block";
+    if (!pacienteSeleccionadoCarga) {
+      badgeSedeAutomatica.textContent = "Se determina según la obra social del paciente";
+    } else if (pacienteSeleccionadoCarga.obraSocial === OBRA_SOCIAL_POP) {
+      badgeSedeAutomatica.textContent = "Emilio Civit (por obra social POP)";
+    } else {
+      badgeSedeAutomatica.textContent = "Entre Ríos (o Emilio Civit si no hay lugar)";
+    }
+    return;
+  }
+
   const sedesPosibles = resolverSedesPosiblesMedico(medico);
 
   if (sedesPosibles.length === 0) {
@@ -601,24 +625,21 @@ function agregarFilaProtocolo() {
   fila.id = id;
   fila.className = "fila-medicamento";
 
-  const inputBusqueda = document.createElement("input");
-  inputBusqueda.type = "text";
-  inputBusqueda.placeholder = "Escribí el nombre o parte del nombre";
-  inputBusqueda.addEventListener("input", (e) => actualizarBuscadorProtocolo(id, e.target.value));
+  fila.innerHTML = `
+    <div class="fila-medicamento-encabezado">
+      <span>protocolo ${contadorFilasProtocolo}</span>
+      <button type="button" class="enlace-accion peligro" data-quitar="${id}">quitar</button>
+    </div>
+    <div class="campo" style="margin-bottom:0;">
+      <label>Nombre del protocolo</label>
+      <input type="text" class="inp-buscar-protocolo" placeholder="Escribí el nombre o parte del nombre" />
+      <div class="resultados-protocolo"></div>
+    </div>
+  `;
 
-  const resultados = document.createElement("div");
-  resultados.className = "resultados-protocolo";
+  fila.querySelector("[data-quitar]").addEventListener("click", () => quitarFilaProtocolo(id));
+  fila.querySelector(".inp-buscar-protocolo").addEventListener("input", (e) => actualizarBuscadorProtocolo(id, e.target.value));
 
-  const botonQuitar = document.createElement("button");
-  botonQuitar.type = "button";
-  botonQuitar.className = "enlace-accion peligro";
-  botonQuitar.textContent = "quitar";
-  botonQuitar.style.marginTop = "8px";
-  botonQuitar.addEventListener("click", () => quitarFilaProtocolo(id));
-
-  fila.appendChild(inputBusqueda);
-  fila.appendChild(resultados);
-  fila.appendChild(botonQuitar);
   lista.appendChild(fila);
 
   protocolosSeleccionados[id] = null;
@@ -723,21 +744,30 @@ async function intentarGuardarTurno() {
 
   let sedeId, sedeNombre, sedeAutomatica;
   const selectSedeManual = document.getElementById("campo-sede-manual");
-  const sedesPosibles = esMedicoOtro ? [] : resolverSedesPosiblesMedico(medicosCacheCarga.find((m) => m.id === medicoValor));
 
-  if (!esMedicoOtro && sedesPosibles.length === 1) {
-    sedeId = sedesPosibles[0].id;
-    sedeNombre = sedesPosibles[0].nombre;
+  if (medicoValor === MEDICO_OCCHIPINTI_ID) {
+    // Occhipinti: la sede la determina el motor según la obra social del paciente
+    // (Handoff_etapa_T0.md, decisión 4). No se exige selección manual.
+    sedeId = null;
+    sedeNombre = null;
     sedeAutomatica = true;
   } else {
-    if (!selectSedeManual.value) {
-      mostrarMensajeGeneral("Falta elegir la sede para este turno.", "error");
-      return;
+    const sedesPosibles = esMedicoOtro ? [] : resolverSedesPosiblesMedico(medicosCacheCarga.find((m) => m.id === medicoValor));
+
+    if (!esMedicoOtro && sedesPosibles.length === 1) {
+      sedeId = sedesPosibles[0].id;
+      sedeNombre = sedesPosibles[0].nombre;
+      sedeAutomatica = true;
+    } else {
+      if (!selectSedeManual.value) {
+        mostrarMensajeGeneral("Falta elegir la sede para este turno.", "error");
+        return;
+      }
+      const sede = sedesCacheCarga.find((s) => s.id === selectSedeManual.value);
+      sedeId = sede.id;
+      sedeNombre = sede.nombre;
+      sedeAutomatica = false;
     }
-    const sede = sedesCacheCarga.find((s) => s.id === selectSedeManual.value);
-    sedeId = sede.id;
-    sedeNombre = sede.nombre;
-    sedeAutomatica = false;
   }
 
   const protocolos = Object.values(protocolosSeleccionados).filter(p => p !== null);
@@ -915,19 +945,36 @@ function cerrarModalSobreturno() {
 
 
 
-function guardarConSobreturno(tipoSobreturno, datosBasicos) {
+async function guardarConSobreturno(tipoSobreturno, datosBasicos) {
   cerrarModalSobreturno();
+
+  let sedeIdSobreturno = datosBasicos.sedeId;
+  let sedeNombreSobreturno = datosBasicos.sedeNombre;
+
+  if (datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID) {
+    // Occhipinti: incluso en sobreturno, la sede se determina según la obra social
+    // (misma regla de T0 que usa la búsqueda normal, primera opción de la lista).
+    const sedesCandidatas = await determinarSedesABuscar(
+      MEDICO_OCCHIPINTI_ID,
+      pacienteSeleccionadoCarga.obraSocial || "",
+      medicosCacheCarga
+    );
+    sedeIdSobreturno = sedesCandidatas[0];
+    const sedeDoc = sedesCacheCarga.find((s) => s.id === sedeIdSobreturno);
+    sedeNombreSobreturno = sedeDoc ? sedeDoc.nombre : sedeIdSobreturno;
+  }
+
   // Para sobreturno: crear un "hueco" fake con los datos originales del formulario
   const hueco = {
-    sedeId: datosBasicos.sedeId,
-    sedeNombre: datosBasicos.sedeNombre,
+    sedeId: sedeIdSobreturno,
+    sedeNombre: sedeNombreSobreturno,
     fecha: datosBasicos.fecha,
     fechaLegible: formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00")),
     horaInicio: "09:00", // placeholder, no se usa en sobreturno
     horaFin: "10:00", // placeholder
     sillon: 0, // 0 indica que no hay sillón asignado real
   };
-  guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno);
+  await guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno);
 }
 
 async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
@@ -947,8 +994,8 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
       medicoId: datosBasicos.medicoId,
       medicoNombre: datosBasicos.medicoNombre,
       esMedicoOtro: datosBasicos.esMedicoOtro,
-      sedeId: datosBasicos.sedeId,
-      sedeNombre: datosBasicos.sedeNombre,
+      sedeId: hueco.sedeId,
+      sedeNombre: hueco.sedeNombre,
       sedeAutomatica: datosBasicos.sedeAutomatica,
       protocolos: datosBasicos.protocolos,
       premedicacion: datosBasicos.premedicacion,
