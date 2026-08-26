@@ -120,11 +120,10 @@
 
       <div class="titulo-bloque" style="margin-top:20px;">Fecha y horario</div>
       <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:10px;">
-        El horario todavía se carga libre: el sistema lo va a sugerir junto con el sillón a partir
-        de la Etapa T3. Para la fecha, el sistema va a intentar ubicar el turno el día calculado y,
-        si no hay lugar, va a extender la búsqueda automáticamente hasta encontrar el primer hueco
-        real, avisando si eso supera el margen sugerido de 5 días (con opción de elegir otra fecha
-        a mano o forzar un sobreturno) — esa búsqueda es motor de la Etapa T3, todavía no construida.
+        Para la fecha, el sistema va a intentar ubicar el turno el día que eligas y, si no hay lugar, 
+        va a extender la búsqueda automáticamente hasta encontrar el primer hueco real dentro de 10 días 
+        (con opción de elegir otra fecha, forzar un sobreturno, o simplemente seleccionar uno de los 
+        huecos alternativos que el motor sugiere).
       </div>
 
       <div id="bloque-dias-turno" class="campo" style="margin-bottom:14px;">
@@ -147,12 +146,11 @@
         </div>
       </div>
 
-      <div class="campo" style="margin-bottom:0;">
-        <label>Horario</label>
-        <input type="time" id="campo-horario" style="max-width:150px;" />
+      <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:14px;padding:8px;background:#f9f9f9;border-radius:4px;">
+        ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada. Vos no lo elegís acá.
       </div>
 
-      <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Guardar turno</button>
+      <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Guardar turno y buscar disponibilidad</button>
     </div>
     </div><!-- /contenido-carga -->
   </div>
@@ -162,6 +160,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="../js/firebase-config.js"></script>
   <script src="../js/auth.js"></script>
+  <script src="../js/turnero-motor.js"></script>
   <script src="../js/turnero-carga.js"></script>
   <script>
     requireAuth(async (user, datosUsuario) => {

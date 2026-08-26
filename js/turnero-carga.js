@@ -1,8 +1,6 @@
-// Lógica de la pantalla "Carga de turno" del módulo de Turnero (Etapas T1-T2).
-// T1: formulario base. T2: la fecha ya no se tipea libre — se calcula a partir de
-// "en cuántos días" (con alternancia a fecha exacta por calendario). El horario sigue
-// siendo libre, placeholder hasta que exista el motor de huecos (Etapa T3), que además
-// va a ser el que efectivamente busque sillón para la fecha calculada acá.
+// Lógica de la pantalla "Carga de turno" del módulo de Turnero (Etapas T1-T3).
+// T1: formulario base. T2: calculadora de fecha. T3: motor de búsqueda de huecos.
+// Integración con turnero-motor.js para disponibilidad física pura.
 // No depende de egresos.js, entregas.js ni de los turnero-*.js de T0: cada pantalla
 // mantiene sus propias funciones, mismo criterio de independencia ya usado en el resto
 // del sistema.
@@ -29,15 +27,17 @@ let protocolosSeleccionados = {}; // filaId -> { protocoloId, nombre, duracionMi
 let contadorFilasProtocolo = 0;
 let guardandoTurno = false;
 let temporizadorBusquedaDocumentoCarga = null;
+let buscandoHuecos = false;
 
-// Etapa T2: modo de carga de la fecha del turno. "dias" (por defecto) calcula la
-// fecha a partir de "en cuántos días" desde hoy; "calendario" permite elegir una
-// fecha exacta a mano con el <input type="date"> de siempre.
+// Etapa T2: modo de carga de la fecha del turno.
 let modoFechaTurno = "dias";
 
+// Etapa T3: estado de la búsqueda y selección de hueco
+let turnosExistentes = []; // array de turnos ya cargados (para el motor)
+let ultimaBusquedaHuecos = null; // resultado del último motor.buscarHuecos()
+let huecoSeleccionado = null; // el hueco elegido por el usuario antes de guardar
+
 // --- Cache de pacientes en localStorage ---
-// Misma clave que entregas.js, egresos.js e historial.js a propósito, para que las
-// pestañas abiertas en una misma computadora compartan una sola lectura real por día.
 const CACHE_PACIENTES_KEY = "cache_pacientes_activos";
 
 function fechaLocalHoy() {
@@ -68,8 +68,6 @@ function formatearFechaLegible(fecha) {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
-// Devuelve el número de días si "campo-dias-turno" tiene un entero válido
-// (entre 0 y TOPE_DIAS_TURNO), o null si está vacío o fuera de rango.
 function leerDiasTurnoValidos() {
   const valor = document.getElementById("campo-dias-turno").value;
   if (valor === "") return null;
@@ -176,9 +174,6 @@ function idPaciente(tipoDocumento, numeroDocumento) {
   return `${tipoDocumento}-${numeroDocumento}`;
 }
 
-// Escapa texto libre antes de insertarlo con innerHTML (nombre/apellido de paciente,
-// obra social, nombre de protocolo, nombre de médico "Otro"). Mismo patrón ya usado en
-// medicamentos.js desde la etapa 3.
 function escaparHtml(texto) {
   const div = document.createElement("div");
   div.textContent = texto == null ? "" : String(texto);
@@ -215,10 +210,6 @@ async function iniciarCargaTurno(user, datosUsuario) {
   document.getElementById("campo-dias-turno").max = String(TOPE_DIAS_TURNO);
   document.getElementById("campo-fecha").min = fechaLocalHoy();
 
-  // El listado de pacientes activos es, de las cuatro colecciones que usa esta pantalla,
-  // la que más tarda en traerse. Se carga en paralelo sin bloquear el resto del formulario,
-  // mismo criterio que egresos.js: el buscador de paciente queda deshabilitado con un aviso
-  // mientras tanto.
   campoBuscarPaciente.disabled = true;
   campoBuscarPaciente.placeholder = "Cargando listado de pacientes…";
   cargarPacientesCarga().then(() => {
@@ -226,7 +217,7 @@ async function iniciarCargaTurno(user, datosUsuario) {
     campoBuscarPaciente.placeholder = "Buscar por apellido, nombre o documento";
   });
 
-  await Promise.all([cargarMedicosCarga(), cargarProtocolosCarga(), cargarSedesCarga()]);
+  await Promise.all([cargarMedicosCarga(), cargarProtocolosCarga(), cargarSedesCarga(), cargarTurnosExistentes()]);
   poblarSelectMedico();
   poblarSelectSedeManual();
   agregarFilaProtocolo();
@@ -263,7 +254,21 @@ async function cargarSedesCarga() {
   sedesCacheCarga.sort((a, b) => (a.id === SEDE_CIVIT_ID ? -1 : 1));
 }
 
-// --- Búsqueda y alta rápida de paciente (mismo patrón que egresos.js) ---
+// Etapa T3: cargar turnos existentes para que el motor valide no superposición
+async function cargarTurnosExistentes() {
+  try {
+    const snapshot = await db.collection("turnos").where("estado", "==", "activo").get();
+    turnosExistentes = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.warn("No se pudieron cargar los turnos existentes para el motor:", error);
+    turnosExistentes = [];
+  }
+}
+
+// --- Búsqueda y alta rápida de paciente ---
 
 function buscarPaciente(texto) {
   const cont = document.getElementById("resultados-busqueda-paciente");
@@ -406,236 +411,193 @@ async function altaRapidaPaciente() {
 
   const id = idPaciente(tipoDocumento, numeroDocumento);
 
-  try {
-    const existente = await db.collection("pacientes").doc(id).get();
-    if (existente.exists) {
-      mostrarError("Ya existe un paciente registrado con ese documento. Buscalo arriba en vez de darlo de alta de nuevo.");
-      return;
-    }
+  if (pacientesCacheCarga.some((p) => p.id === id)) {
+    mostrarError("Este paciente ya está registrado.");
+    return;
+  }
 
+  try {
     await db.collection("pacientes").doc(id).set({
       tipoDocumento,
       numeroDocumento,
       nombre,
       apellido,
       obraSocial: "",
-      activo: true,
-      creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      activo: true
     });
 
-    const nuevo = { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial: "", activo: true };
-    pacientesCacheCarga.push(nuevo);
-    agregarPacienteACache(nuevo);
+    const pacienteNuevo = { id, tipoDocumento, numeroDocumento, nombre, apellido, obraSocial: "", activo: true };
+    pacientesCacheCarga.push(pacienteNuevo);
+    agregarPacienteACache(pacienteNuevo);
     seleccionarPaciente(id);
+
+    document.getElementById("bloque-alta-rapida").style.display = "none";
+    document.getElementById("alta-tipo-documento").value = "DNI";
+    document.getElementById("alta-numero-documento").value = "";
+    document.getElementById("alta-nombre").value = "";
+    document.getElementById("alta-apellido").value = "";
   } catch (error) {
-    console.error("Error al dar de alta al paciente:", error);
-    mostrarError("No se pudo guardar el paciente. Reintentá en unos segundos.");
+    if (error.code === "permission-denied") {
+      mostrarError("No tenés permisos para crear pacientes.");
+    } else {
+      mostrarError("No se pudo guardar el paciente. Reintentá en unos segundos.");
+      console.error("Error:", error);
+    }
   }
 }
 
-// --- Médico tratante y sede ---
-// Para los médicos fijos, la sede se resuelve sola a partir de diasPorSede (T0): si el
-// médico tiene días cargados en una sola sede, esa es su sede y no hace falta preguntar.
-// Occhipinti (días en las dos) y cualquier médico mal cargado sin días en ninguna (0 sedes)
-// caen en el mismo caso: se pide la sede a mano. Para "Otro" siempre se pide a mano,
-// porque no hay ficha de la que derivarla. La asignación automática real para Occhipinti
-// (según obra social del paciente) es lógica del motor de huecos, todavía sin construir
-// (T3/T4) — ver Handoff_etapa_T0.md, decisión 4.
+// --- Selección de médico y sede ---
 
 function poblarSelectMedico() {
   const select = document.getElementById("campo-medico");
-  select.innerHTML = `<option value="">Elegir...</option>`;
+  select.innerHTML = '<option value="">Elegir médico</option>';
 
   medicosCacheCarga.forEach((m) => {
-    const opt = document.createElement("option");
-    opt.value = m.id;
-    opt.textContent = m.nombre;
-    select.appendChild(opt);
+    const option = document.createElement("option");
+    option.value = m.id;
+    option.textContent = m.nombre;
+    select.appendChild(option);
   });
 
-  if (ROLES_MEDICO_OTRO.includes(rolActualCarga)) {
-    const optOtro = document.createElement("option");
-    optOtro.value = "otro";
-    optOtro.textContent = "Otro (especificar)";
-    select.appendChild(optOtro);
-  }
+  const optionOtro = document.createElement("option");
+  optionOtro.value = "otro";
+  optionOtro.textContent = "Otro";
+  select.appendChild(optionOtro);
 }
 
 function poblarSelectSedeManual() {
   const select = document.getElementById("campo-sede-manual");
-  select.innerHTML = `<option value="">Elegí la sede...</option>`;
+  select.innerHTML = '<option value="">Elegir sede</option>';
+
   sedesCacheCarga.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s.id;
-    opt.textContent = s.nombre;
-    select.appendChild(opt);
+    const option = document.createElement("option");
+    option.value = s.id;
+    option.textContent = s.nombre;
+    select.appendChild(option);
   });
 }
 
-function resolverSedesPosiblesMedico(medico) {
-  if (!medico || !medico.diasPorSede) return [];
-  const sedes = [];
-  if ((medico.diasPorSede[SEDE_CIVIT_NOMBRE] || []).length > 0) {
-    sedes.push({ id: SEDE_CIVIT_ID, nombre: SEDE_CIVIT_NOMBRE });
-  }
-  if ((medico.diasPorSede[SEDE_ENTRE_RIOS_NOMBRE] || []).length > 0) {
-    sedes.push({ id: SEDE_ENTRE_RIOS_ID, nombre: SEDE_ENTRE_RIOS_NOMBRE });
-  }
-  return sedes;
+function resolverSedesPosiblesMedico(medicoDoc) {
+  if (!medicoDoc) return [];
+  return sedesCacheCarga.filter((sede) => {
+    const diasDelMedico = medicoDoc.diasPorSede && medicoDoc.diasPorSede[sede.nombre];
+    return diasDelMedico && diasDelMedico.length > 0;
+  });
 }
 
 function actualizarBloqueMedico() {
-  const valor = document.getElementById("campo-medico").value;
-  const bloqueOtro = document.getElementById("bloque-medico-otro");
-  const infoAuto = document.getElementById("sede-automatica-info");
-  const badgeAuto = document.getElementById("badge-sede-automatica");
+  const medicoValor = document.getElementById("campo-medico").value;
+  const bloqueMedicoOtro = document.getElementById("bloque-medico-otro");
+  const sedeAutomaticaInfo = document.getElementById("sede-automatica-info");
+  const selectSedeManual = document.getElementById("campo-sede-manual");
   const avisoSedeIndefinida = document.getElementById("aviso-sede-indefinida");
-  const selectManual = document.getElementById("campo-sede-manual");
+  const badgeSedeAutomatica = document.getElementById("badge-sede-automatica");
 
-  if (!valor) {
-    bloqueOtro.style.display = "none";
-    infoAuto.style.display = "none";
-    avisoSedeIndefinida.style.display = "none";
-    selectManual.style.display = "none";
-    return;
-  }
-
-  if (valor === "otro") {
-    bloqueOtro.style.display = "block";
-    infoAuto.style.display = "none";
-    avisoSedeIndefinida.style.display = "none";
-    selectManual.style.display = "block";
-    return;
-  }
-
-  bloqueOtro.style.display = "none";
+  bloqueMedicoOtro.style.display = "none";
+  selectSedeManual.style.display = "none";
+  avisoSedeIndefinida.style.display = "none";
+  sedeAutomaticaInfo.style.display = "none";
+  selectSedeManual.value = "";
   document.getElementById("campo-medico-otro-nombre").value = "";
 
-  const medico = medicosCacheCarga.find((m) => m.id === valor);
+  if (!medicoValor) return;
+
+  const esMedicoOtro = medicoValor === "otro";
+
+  if (esMedicoOtro) {
+    bloqueMedicoOtro.style.display = "block";
+    selectSedeManual.style.display = "block";
+    return;
+  }
+
+  const medico = medicosCacheCarga.find((m) => m.id === medicoValor);
+  if (!medico) return;
+
   const sedesPosibles = resolverSedesPosiblesMedico(medico);
 
-  if (sedesPosibles.length === 1) {
-    infoAuto.style.display = "block";
-    avisoSedeIndefinida.style.display = "none";
-    badgeAuto.textContent = `Sede: ${sedesPosibles[0].nombre}`;
-    selectManual.style.display = "none";
-    selectManual.value = "";
-  } else if (sedesPosibles.length === 0) {
-    // Médico sin días cargados en ninguna sede (ficha incompleta en turnero-medicos.js).
-    infoAuto.style.display = "none";
+  if (sedesPosibles.length === 0) {
     avisoSedeIndefinida.style.display = "block";
-    selectManual.style.display = "block";
+    selectSedeManual.style.display = "block";
+  } else if (sedesPosibles.length === 1) {
+    sedeAutomaticaInfo.style.display = "block";
+    badgeSedeAutomatica.textContent = sedesPosibles[0].nombre;
   } else {
-    // Atiende las dos sedes (Occhipinti): la asignación automática es de T3/T4.
-    infoAuto.style.display = "none";
-    avisoSedeIndefinida.style.display = "none";
-    selectManual.style.display = "block";
+    selectSedeManual.style.display = "block";
   }
 }
 
-// --- Protocolos (búsqueda por nombre, igual criterio que el buscador de paciente:
-// el catálogo tiene 438 registros, así que un <select> plano no es usable) ---
+// --- Protocolos ---
 
 function agregarFilaProtocolo() {
-  contadorFilasProtocolo++;
-  const id = `fila-protocolo-${contadorFilasProtocolo}`;
+  const id = `fila-protocolo-${contadorFilasProtocolo++}`;
+  const lista = document.getElementById("lista-protocolos");
+
+  const fila = document.createElement("div");
+  fila.id = id;
+  fila.className = "fila-medicamento";
+
+  const inputBusqueda = document.createElement("input");
+  inputBusqueda.type = "text";
+  inputBusqueda.placeholder = "Escribí el nombre o parte del nombre";
+  inputBusqueda.addEventListener("input", (e) => actualizarBuscadorProtocolo(id, e.target.value));
+
+  const resultados = document.createElement("div");
+  resultados.className = "resultados-protocolo";
+
+  const botonQuitar = document.createElement("button");
+  botonQuitar.type = "button";
+  botonQuitar.className = "enlace-accion peligro";
+  botonQuitar.textContent = "quitar";
+  botonQuitar.style.marginTop = "8px";
+  botonQuitar.addEventListener("click", () => quitarFilaProtocolo(id));
+
   const div = document.createElement("div");
-  div.className = "fila-medicamento";
-  div.id = id;
+  div.style.display = "flex";
+  div.style.flexDirection = "column";
+  div.style.gap = "4px";
+  div.appendChild(inputBusqueda);
+  div.appendChild(resultados);
+  div.appendChild(botonQuitar);
 
-  div.innerHTML = `
-    <div class="fila-medicamento-encabezado">
-      <span>protocolo ${contadorFilasProtocolo}</span>
-      <button type="button" class="enlace-accion peligro" data-quitar="${id}">quitar</button>
-    </div>
-    <div id="protocolo-seleccionado-${id}" class="paciente-seleccionado" style="display:none;">
-      <span id="texto-protocolo-seleccionado-${id}"></span>
-      <button type="button" class="enlace-accion peligro" data-cambiar="${id}">cambiar</button>
-    </div>
-    <div id="bloque-busqueda-protocolo-${id}">
-      <div class="campo" style="margin-bottom:0;">
-        <input type="text" class="input-buscar-protocolo" placeholder="Buscar protocolo por nombre" />
-      </div>
-      <div class="resultados-busqueda-protocolo"></div>
-    </div>
-  `;
+  fila.appendChild(div);
+  lista.appendChild(fila);
 
-  div.querySelector("[data-quitar]").addEventListener("click", () => quitarFilaProtocolo(id));
-  div.querySelector("[data-cambiar]").addEventListener("click", () => cambiarProtocoloEnFila(id));
-  div.querySelector(".input-buscar-protocolo").addEventListener("input", (e) => buscarProtocoloEnFila(id, e.target.value));
-
-  document.getElementById("lista-protocolos").appendChild(div);
-  actualizarResumenDuracion();
+  protocolosSeleccionados[id] = null;
 }
 
-function buscarProtocoloEnFila(filaId, texto) {
-  const cont = document.querySelector(`#${filaId} .resultados-busqueda-protocolo`);
-  cont.innerHTML = "";
-  if (!texto.trim()) return;
+function actualizarBuscadorProtocolo(filaId, texto) {
+  const resultados = document.querySelector(`#${filaId} .resultados-protocolo`);
+  resultados.innerHTML = "";
+
+  if (!texto.trim()) {
+    protocolosSeleccionados[filaId] = null;
+    actualizarResumenDuracion();
+    return;
+  }
 
   const norm = normalizarTexto(texto);
-  const yaElegidos = new Set(
-    Object.entries(protocolosSeleccionados)
-      .filter(([id]) => id !== filaId)
-      .map(([, p]) => p.protocoloId)
+  const encontrados = protocolosCacheCarga.filter((p) =>
+    normalizarTexto(p.nombre).includes(norm)
   );
 
-  const encontrados = protocolosCacheCarga.filter(
-    (p) => normalizarTexto(p.nombre).includes(norm) && !yaElegidos.has(p.id)
-  );
-
-  if (encontrados.length === 0) {
-    cont.innerHTML = `<div style="font-size:13px;color:var(--color-muted);padding:4px 2px;">Sin coincidencias.</div>`;
-    return;
-  }
-
-  encontrados.slice(0, 8).forEach((p) => {
+  encontrados.slice(0, 5).forEach((p) => {
     const div = document.createElement("div");
     div.className = "resultado-busqueda";
-    div.innerHTML = `<span>${escaparHtml(p.nombre)} · ${p.duracionMinutos} min</span>
-      <button type="button" class="enlace-accion" data-id="${p.id}">usar</button>`;
-    div.querySelector("button").addEventListener("click", () => seleccionarProtocoloEnFila(filaId, p.id));
-    cont.appendChild(div);
+    div.innerHTML = `<span>${escaparHtml(p.nombre)} (${p.duracionMinutos} min)</span>
+      <button type="button" class="enlace-accion">usar</button>`;
+    div.querySelector("button").addEventListener("click", () => {
+      protocolosSeleccionados[filaId] = {
+        protocoloId: p.id,
+        nombre: p.nombre,
+        duracionMinutos: p.duracionMinutos
+      };
+      const inputBusqueda = document.querySelector(`#${filaId} input`);
+      inputBusqueda.value = p.nombre;
+      resultados.innerHTML = "";
+      actualizarResumenDuracion();
+    });
+    resultados.appendChild(div);
   });
-}
-
-function seleccionarProtocoloEnFila(filaId, protocoloId) {
-  const protocolo = protocolosCacheCarga.find((p) => p.id === protocoloId);
-  if (!protocolo) return;
-
-  protocolosSeleccionados[filaId] = {
-    protocoloId: protocolo.id,
-    nombre: protocolo.nombre,
-    duracionMinutos: protocolo.duracionMinutos
-  };
-
-  document.querySelector(`#${filaId} .input-buscar-protocolo`).value = "";
-  document.querySelector(`#${filaId} .resultados-busqueda-protocolo`).innerHTML = "";
-  renderizarProtocoloSeleccionado(filaId);
-  actualizarResumenDuracion();
-}
-
-function renderizarProtocoloSeleccionado(filaId) {
-  const contSeleccionado = document.getElementById(`protocolo-seleccionado-${filaId}`);
-  const bloqueBusqueda = document.getElementById(`bloque-busqueda-protocolo-${filaId}`);
-  const seleccionado = protocolosSeleccionados[filaId];
-
-  if (!seleccionado) {
-    contSeleccionado.style.display = "none";
-    bloqueBusqueda.style.display = "block";
-    return;
-  }
-
-  contSeleccionado.style.display = "flex";
-  bloqueBusqueda.style.display = "none";
-  document.getElementById(`texto-protocolo-seleccionado-${filaId}`).innerHTML =
-    `<strong>${escaparHtml(seleccionado.nombre)}</strong> · ${seleccionado.duracionMinutos} min`;
-}
-
-function cambiarProtocoloEnFila(filaId) {
-  delete protocolosSeleccionados[filaId];
-  renderizarProtocoloSeleccionado(filaId);
-  actualizarResumenDuracion();
 }
 
 function quitarFilaProtocolo(filaId) {
@@ -651,6 +613,7 @@ function quitarFilaProtocolo(filaId) {
 
 function actualizarResumenDuracion() {
   const sumaProtocolos = Object.values(protocolosSeleccionados)
+    .filter(p => p !== null)
     .reduce((total, p) => total + (Number(p.duracionMinutos) || 0), 0);
   const premedicacion = document.getElementById("campo-premedicacion").checked;
   const total = sumaProtocolos + (premedicacion ? PREMEDICACION_MINUTOS : 0);
@@ -660,13 +623,13 @@ function actualizarResumenDuracion() {
     : `${sumaProtocolos} min de protocolo(s)`;
 
   document.getElementById("resumen-duracion").textContent =
-    `Duración total estimada: ${total} min (${detalle}). No reserva ningún sillón todavía — eso lo hace el motor de huecos en una etapa posterior.`;
+    `Duración total estimada: ${total} min (${detalle}).`;
 }
 
-// --- Guardado del turno ---
+// --- Guardado del turno (Etapa T3: motor de búsqueda de huecos) ---
 
-function intentarGuardarTurno() {
-  if (guardandoTurno) return;
+async function intentarGuardarTurno() {
+  if (guardandoTurno || buscandoHuecos) return;
 
   if (!pacienteSeleccionadoCarga) {
     mostrarMensajeGeneral("Falta seleccionar el paciente.", "error");
@@ -699,8 +662,6 @@ function intentarGuardarTurno() {
     medicoNombre = medico.nombre;
   }
 
-  // Sede: automática si el médico atiende una sola sede, manual en cualquier otro caso
-  // (Occhipinti, "Otro", o un médico sin días cargados en ninguna sede).
   let sedeId, sedeNombre, sedeAutomatica;
   const selectSedeManual = document.getElementById("campo-sede-manual");
   const sedesPosibles = esMedicoOtro ? [] : resolverSedesPosiblesMedico(medicosCacheCarga.find((m) => m.id === medicoValor));
@@ -720,7 +681,7 @@ function intentarGuardarTurno() {
     sedeAutomatica = false;
   }
 
-  const protocolos = Object.values(protocolosSeleccionados);
+  const protocolos = Object.values(protocolosSeleccionados).filter(p => p !== null);
   if (protocolos.length === 0) {
     mostrarMensajeGeneral("Falta elegir al menos un protocolo.", "error");
     return;
@@ -758,18 +719,13 @@ function intentarGuardarTurno() {
     fechaCalculadaDesdeDias = false;
   }
 
-  const horario = document.getElementById("campo-horario").value;
-  if (!horario) {
-    mostrarMensajeGeneral("Falta elegir el horario del turno.", "error");
-    return;
-  }
-
   const premedicacion = document.getElementById("campo-premedicacion").checked;
   const duracionTotalMinutos =
     protocolos.reduce((total, p) => total + (Number(p.duracionMinutos) || 0), 0) +
     (premedicacion ? PREMEDICACION_MINUTOS : 0);
 
-  guardarTurnoReal({
+  // Etapa T3: disparar búsqueda de huecos en lugar de guardar directo
+  await buscarYMostrarHuecos({
     esMedicoOtro,
     medicoId,
     medicoNombre,
@@ -783,17 +739,215 @@ function intentarGuardarTurno() {
     sesion,
     fecha,
     diasSolicitados,
-    fechaCalculadaDesdeDias,
-    horario
+    fechaCalculadaDesdeDias
   });
 }
 
-async function guardarTurnoReal(datos) {
+// Etapa T3: buscar huecos y mostrar opciones al usuario
+async function buscarYMostrarHuecos(datosBasicos) {
+  buscandoHuecos = true;
+  document.getElementById("boton-guardar-turno").disabled = true;
+  mostrarMensajeGeneral("Buscando disponibilidad…", "info");
+
+  try {
+    const resultado = await buscarHuecos(
+      datosBasicos.medicoId || datosBasicos.medicoNombre, // Para "Otro", pasamos nombre; el motor lo maneja
+      pacienteSeleccionadoCarga.obraSocial || "",
+      datosBasicos.duracionTotalMinutos,
+      datosBasicos.fecha,
+      medicosCacheCarga,
+      sedesCacheCarga,
+      turnosExistentes,
+      rolActualCarga === "medico"
+    );
+
+    ultimaBusquedaHuecos = resultado;
+
+    if (resultado.exito && resultado.huecosEncontrados && resultado.huecosEncontrados.length > 0) {
+      mostrarOpcionesHuecos(resultado.huecosEncontrados, datosBasicos);
+    } else {
+      mostrarOpcioneSobreturno(resultado, datosBasicos);
+    }
+  } catch (error) {
+    console.error("Error al buscar huecos:", error);
+    mostrarMensajeGeneral(`Error en la búsqueda: ${error.message}`, "error");
+  } finally {
+    buscandoHuecos = false;
+    document.getElementById("boton-guardar-turno").disabled = false;
+  }
+}
+
+// Mostrar opciones de huecos encontrados
+function mostrarOpcionesHuecos(huecos, datosBasicos) {
+  const contenido = document.getElementById("contenido-carga");
+  
+  // Crear modal/bloque para seleccionar hueco
+  let modal = document.getElementById("modal-huecos");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-huecos";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0;">Huecos disponibles</h2>
+      <p style="color: var(--color-muted); font-size: 14px;">Se encontraron ${huecos.length} opción(es). Las mejores están arriba (menos tiempo desperdiciado).</p>
+      <div id="lista-huecos" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;"></div>
+      <button type="button" class="boton-secundario" onclick="cerrarModalHuecos()">Cancelar (elegir otra fecha)</button>
+    </div>
+  `;
+
+  const listaHuecos = modal.querySelector("#lista-huecos");
+  huecos.forEach((hueco, idx) => {
+    const card = document.createElement("div");
+    card.style.cssText = `
+      border: 1px solid #ddd;
+      padding: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    `;
+    card.onmouseover = () => card.style.background = "#f9f9f9";
+    card.onmouseout = () => card.style.background = "transparent";
+
+    const avisoTolerancia = hueco.superaTolerancia 
+      ? `<div style="color: #d4a017; font-size: 12px; margin-bottom: 8px;">⚠️ Esta fecha supera el margen de 5 días sugerido.</div>`
+      : "";
+
+    card.innerHTML = `
+      ${avisoTolerancia}
+      <div style="font-weight: bold; margin-bottom: 4px;">${hueco.fechaLegible}</div>
+      <div style="font-size: 14px; color: var(--color-muted);">
+        ${hueco.horaInicio} – ${hueco.horaFin} | ${hueco.sedeNombre} | Sillón ${hueco.sillon}
+      </div>
+    `;
+
+    card.addEventListener("click", () => seleccionarHuecoYGuardar(hueco, datosBasicos));
+    listaHuecos.appendChild(card);
+  });
+
+  modal.style.display = "block";
+  mostrarMensajeGeneral("Seleccioná uno de los huecos disponibles.", "exito");
+}
+
+function cerrarModalHuecos() {
+  const modal = document.getElementById("modal-huecos");
+  if (modal) modal.style.display = "none";
+  document.getElementById("boton-guardar-turno").disabled = false;
+}
+
+// Mostrar opción de sobreturno cuando no hay huecos
+function mostrarOpcioneSobreturno(resultadoBusqueda, datosBasicos) {
+  const contenido = document.getElementById("contenido-carga");
+  
+  let modal = document.getElementById("modal-sobreturno");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-sobreturno";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  // Determinar qué opciones de sobreturno mostrar según el rol
+  const puedeForzarAutomatico = rolActualCarga !== "medico"; // enfermería o administrador
+  const puedeForzarExcepcional = ["administrador", "enfermeria"].includes(rolActualCarga);
+
+  let opcionesHTML = "";
+  if (puedeForzarAutomatico) {
+    opcionesHTML += `
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;" 
+        onclick="guardarConSobreturno('automatico', ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Cargar como sobreturno automático
+      </button>
+      <div style="font-size: 12px; color: var(--color-muted); margin-bottom: 15px;">
+        El sobreturno automático respeta todas las restricciones de rol y disponibilidad.
+      </div>
+    `;
+  }
+
+  if (puedeForzarExcepcional) {
+    opcionesHTML += `
+      <button type="button" class="boton-principal" style="background: #d4a017; margin-bottom: 10px; width: 100%;" 
+        onclick="guardarConSobreturno('excepcional', ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Cargar como sobreturno excepcional (saltea todas las restricciones)
+      </button>
+      <div style="font-size: 12px; color: var(--color-muted); margin-bottom: 15px;">
+        Solo para casos especiales. Saltea la lógica de disponibilidad.
+      </div>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0; color: #c0504d;">No se encontró lugar disponible</h2>
+      <p>${resultadoBusqueda.sinHuecosMotivo || "La agenda está completa en la fecha solicitada."}</p>
+      <p style="font-size: 14px; color: var(--color-muted);">Opciones disponibles para tu rol:</p>
+      <div id="opciones-sobreturno" style="margin-bottom: 20px;">
+        ${opcionesHTML}
+      </div>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar (elegir otra fecha)</button>
+    </div>
+  `;
+
+  modal.style.display = "block";
+  mostrarMensajeGeneral("No hay lugar disponible. Mirá las opciones de sobreturno.", "error");
+}
+
+function cerrarModalSobreturno() {
+  const modal = document.getElementById("modal-sobreturno");
+  if (modal) modal.style.display = "none";
+  document.getElementById("boton-guardar-turno").disabled = false;
+}
+
+function seleccionarHuecoYGuardar(hueco, datosBasicos) {
+  huecoSeleccionado = hueco;
+  cerrarModalHuecos();
+  guardarTurnoConHueco(datosBasicos, hueco, null);
+}
+
+function guardarConSobreturno(tipoSobreturno, datosBasicos) {
+  cerrarModalSobreturno();
+  // Para sobreturno: crear un "hueco" fake con los datos originales del formulario
+  const hueco = {
+    sedeId: datosBasicos.sedeId,
+    sedeNombre: datosBasicos.sedeNombre,
+    fecha: datosBasicos.fecha,
+    fechaLegible: formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00")),
+    horaInicio: "09:00", // placeholder, no se usa en sobreturno
+    horaFin: "10:00", // placeholder
+    sillon: 0, // 0 indica que no hay sillón asignado real
+  };
+  guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno);
+}
+
+async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
   guardandoTurno = true;
   document.getElementById("boton-guardar-turno").disabled = true;
 
   try {
-    await db.collection("turnos").add({
+    const docTurno = {
       paciente: {
         id: pacienteSeleccionadoCarga.id,
         tipoDocumento: pacienteSeleccionadoCarga.tipoDocumento,
@@ -802,28 +956,33 @@ async function guardarTurnoReal(datos) {
         apellido: pacienteSeleccionadoCarga.apellido,
         obraSocial: pacienteSeleccionadoCarga.obraSocial || ""
       },
-      medicoId: datos.medicoId,
-      medicoNombre: datos.medicoNombre,
-      esMedicoOtro: datos.esMedicoOtro,
-      sedeId: datos.sedeId,
-      sedeNombre: datos.sedeNombre,
-      sedeAutomatica: datos.sedeAutomatica,
-      protocolos: datos.protocolos,
-      premedicacion: datos.premedicacion,
-      duracionTotalMinutos: datos.duracionTotalMinutos,
-      ciclo: datos.ciclo,
-      sesion: datos.sesion,
-      fecha: datos.fecha,
-      diasSolicitados: datos.diasSolicitados,
-      fechaCalculadaDesdeDias: datos.fechaCalculadaDesdeDias,
-      horario: datos.horario,
-      // Placeholder para la Etapa T7 (reasignar/modificar/eliminar sin borrado físico).
-      // Todo turno cargado en T1 nace "activo"; el resto de los valores ("cancelado",
-      // "reasignado") no tienen todavía ninguna pantalla que los produzca.
+      medicoId: datosBasicos.medicoId,
+      medicoNombre: datosBasicos.medicoNombre,
+      esMedicoOtro: datosBasicos.esMedicoOtro,
+      sedeId: datosBasicos.sedeId,
+      sedeNombre: datosBasicos.sedeNombre,
+      sedeAutomatica: datosBasicos.sedeAutomatica,
+      protocolos: datosBasicos.protocolos,
+      premedicacion: datosBasicos.premedicacion,
+      duracionTotalMinutos: datosBasicos.duracionTotalMinutos,
+      ciclo: datosBasicos.ciclo,
+      sesion: datosBasicos.sesion,
+      fecha: hueco.fecha,
+      diasSolicitados: datosBasicos.diasSolicitados,
+      fechaCalculadaDesdeDias: datosBasicos.fechaCalculadaDesdeDias,
+      horario: hueco.horaInicio, // mantener para compatibilidad con comprobante
+      // T3: campos nuevos
+      sillon: hueco.sillon || null,
+      horarioInicio: hueco.horaInicio,
+      horarioFin: hueco.horaFin,
+      tipoSobreturno: tipoSobreturno || null,
+      // Standard
       estado: "activo",
       creadoPor: { uid: usuarioActualCarga.uid, nombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email },
       creadoEn: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    };
+
+    await db.collection("turnos").add(docTurno);
 
     mostrarMensajeGeneral("Turno guardado correctamente.", "exito");
     resetearFormularioCarga();
@@ -860,6 +1019,6 @@ function resetearFormularioCarga() {
   document.getElementById("fecha-calculada-info").style.display = "none";
   renderizarModoFecha();
 
-  document.getElementById("campo-horario").value = "";
+  huecoSeleccionado = null;
   actualizarResumenDuracion();
 }
