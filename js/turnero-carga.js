@@ -540,6 +540,33 @@ function poblarSelectMedico() {
   const select = document.getElementById("campo-medico");
   select.innerHTML = '<option value="">Elegir médico</option>';
 
+  if (rolActualCarga === "medico") {
+    // Etapa T4: un médico solo puede cargarse turnos a sí mismo — el selector queda fijo
+    // en su propio médico, sin poder elegir otro (reforzado también en firestore.rules,
+    // por si se intenta forzar la escritura igual). Depende de que el documento del
+    // usuario en Firestore tenga el campo "medicoId" cargado a mano (mismo id que usa
+    // turneroMedicos, ej. "occhipinti") — si no lo tiene, se bloquea la carga entera en
+    // vez de dejarlo elegir cualquier médico.
+    const medicoPropio = medicosCacheCarga.find((m) => m.id === datosUsuarioActualCarga.medicoId);
+    if (!medicoPropio) {
+      mostrarMensajeGeneral(
+        "Tu usuario todavía no tiene un médico asociado. Pedile al administrador que lo configure antes de poder cargar turnos.",
+        "error"
+      );
+      select.disabled = true;
+      document.getElementById("boton-guardar-turno").disabled = true;
+      return;
+    }
+    const option = document.createElement("option");
+    option.value = medicoPropio.id;
+    option.textContent = medicoPropio.nombre;
+    select.appendChild(option);
+    select.value = medicoPropio.id;
+    select.disabled = true;
+    actualizarBloqueMedico();
+    return;
+  }
+
   medicosCacheCarga.forEach((m) => {
     const option = document.createElement("option");
     option.value = m.id;
@@ -876,7 +903,7 @@ async function buscarYMostrarHuecos(datosBasicos) {
       // pedido. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoCupo).
       mostrarBloqueoCupo(resultado, datosBasicos);
     } else {
-      mostrarOpcioneSobreturno(resultado, datosBasicos);
+      mostrarSobreturnoFisico(resultado, datosBasicos);
     }
   } catch (error) {
     console.error("Error al buscar huecos:", error);
@@ -889,10 +916,11 @@ async function buscarYMostrarHuecos(datosBasicos) {
 
 
 
-// Mostrar opción de sobreturno cuando no hay huecos
-function mostrarOpcioneSobreturno(resultadoBusqueda, datosBasicos) {
-  const contenido = document.getElementById("contenido-carga");
-  
+// Mostrar sobreturno cuando el motor agotó los 10 días sin encontrar ningún sillón físico
+// libre. Una sola acción manual y deliberada (no una elección entre variantes) — mismo
+// criterio que el cartel de cupo excedido: enfermería/administrador pueden forzarlo con
+// contexto, el rol médico ve el mismo bloqueo genérico que en cualquier otra restricción.
+function mostrarSobreturnoFisico(resultadoBusqueda, datosBasicos) {
   let modal = document.getElementById("modal-sobreturno");
   if (!modal) {
     modal = document.createElement("div");
@@ -911,49 +939,40 @@ function mostrarOpcioneSobreturno(resultadoBusqueda, datosBasicos) {
     document.body.appendChild(modal);
   }
 
-  // Determinar qué opciones de sobreturno mostrar según el rol
-  const puedeForzarAutomatico = rolActualCarga !== "medico"; // enfermería o administrador
-  const puedeForzarExcepcional = ["administrador", "enfermeria"].includes(rolActualCarga);
-
-  let opcionesHTML = "";
-  if (puedeForzarAutomatico) {
-    opcionesHTML += `
-      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;" 
-        onclick="guardarConSobreturno('automatico', ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
-        Cargar como sobreturno automático
-      </button>
-      <div style="font-size: 12px; color: var(--color-muted); margin-bottom: 15px;">
-        El sobreturno automático respeta todas las restricciones de rol y disponibilidad.
-      </div>
+  let cuerpoHTML;
+  if (rolActualCarga === "medico") {
+    // Mismo texto genérico que cualquier otra restricción (ver mostrarBloqueoCupo) — no
+    // le sirve a un médico saber si fue por sillones o por otra causa, solo qué hacer.
+    cuerpoHTML = `
+      <p>Ha alcanzado el límite máximo de pacientes para este día.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Probá con otra fecha, o pedile a enfermería/administrador que lo cargue si hace falta una excepción.
+      </p>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Entendido</button>
     `;
-  }
-
-  if (puedeForzarExcepcional) {
-    opcionesHTML += `
-      <button type="button" class="boton-principal" style="background: #d4a017; margin-bottom: 10px; width: 100%;" 
-        onclick="guardarConSobreturno('excepcional', ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
-        Cargar como sobreturno excepcional (saltea todas las restricciones)
+  } else {
+    cuerpoHTML = `
+      <p>No hay sillón libre para este turno dentro de los próximos 10 días.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Se puede cargar igual, como sobreturno.
+      </p>
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+        onclick="guardarComoSobreturnoFisico(${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Cargar como sobreturno
       </button>
-      <div style="font-size: 12px; color: var(--color-muted); margin-bottom: 15px;">
-        Solo para casos especiales. Saltea la lógica de disponibilidad.
-      </div>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar (elegir otra fecha)</button>
     `;
   }
 
   modal.innerHTML = `
     <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
-      <h2 style="margin-top: 0; color: #c0504d;">No se encontró lugar disponible</h2>
-      <p>${resultadoBusqueda.sinHuecosMotivo || "La agenda está completa en la fecha solicitada."}</p>
-      <p style="font-size: 14px; color: var(--color-muted);">Opciones disponibles para tu rol:</p>
-      <div id="opciones-sobreturno" style="margin-bottom: 20px;">
-        ${opcionesHTML}
-      </div>
-      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar (elegir otra fecha)</button>
+      <h2 style="margin-top: 0; color: #c0504d;">No se puede cargar este turno</h2>
+      ${cuerpoHTML}
     </div>
   `;
 
   modal.style.display = "block";
-  mostrarMensajeGeneral("No hay lugar disponible. Mirá las opciones de sobreturno.", "error");
+  mostrarMensajeGeneral("No se pudo cargar el turno como se pidió.", "error");
 }
 
 function cerrarModalSobreturno() {
@@ -987,21 +1006,26 @@ function mostrarBloqueoCupo(resultadoBusqueda, datosBasicos) {
 
   let cuerpoHTML;
   if (bloqueo.tipo === "bloqueoTotal") {
+    // Rol médico: mensaje genérico, igual para cualquier restricción que lo haya bloqueado
+    // (cupo hoy; lo mismo vale si en el futuro se agrega otro motivo de bloqueo total).
+    // No se detalla el motivo puntual — a un médico no le sirve saber el porcentaje ni la
+    // sede, solo que no puede cargarlo y qué hacer al respecto.
     cuerpoHTML = `
-      <p>${resultadoBusqueda.sinHuecosMotivo}</p>
+      <p>Ha alcanzado el límite máximo de pacientes para este día.</p>
       <p style="font-size: 14px; color: var(--color-muted);">
-        ${escaparHtml(datosBasicos.medicoNombre)} ya alcanzó su ${bloqueo.porcentaje}% del ${bloqueo.fechaLegible} en ${escaparHtml(bloqueo.sedeNombre)}.
         Probá con otra fecha, o pedile a enfermería/administrador que lo cargue si hace falta una excepción.
       </p>
       <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoCupo()">Entendido</button>
     `;
   } else {
+    // Rol enfermería/administrador: sí necesitan contexto para decidir, pero sin el
+    // porcentaje (dato interno del catálogo) — alcanza con cuánto le queda disponible.
+    const minutosRestantes = Math.max(0, Math.round(bloqueo.techoMinutos - bloqueo.minutosUsados));
     cuerpoHTML = `
-      <p>${escaparHtml(datosBasicos.medicoNombre)} está por superar su ${bloqueo.porcentaje}% del ${bloqueo.fechaLegible} en ${escaparHtml(bloqueo.sedeNombre)}
-        (usó ${bloqueo.minutosUsados} de ${Math.round(bloqueo.techoMinutos)} minutos permitidos).</p>
+      <p>${escaparHtml(datosBasicos.medicoNombre)} ya usó el tiempo que tiene asignado el ${bloqueo.fechaLegible} en ${escaparHtml(bloqueo.sedeNombre)}
+        (le quedan ${minutosRestantes} minutos disponibles y este turno necesita ${datosBasicos.duracionTotalMinutos} minutos).</p>
       <p style="font-size: 14px; color: var(--color-muted);">
-        Hay sillón disponible ese día, pero le corresponde a otro médico según el cupo. Se puede cargar igual,
-        como sobreturno de ese mismo día.
+        Se puede cargar igual, como sobreturno de ese mismo día.
       </p>
       <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
         onclick="guardarConSobreturnoPorCupo(${JSON.stringify(bloqueo.huecoDisponible).replace(/"/g, '&quot;')}, ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
@@ -1013,15 +1037,13 @@ function mostrarBloqueoCupo(resultadoBusqueda, datosBasicos) {
 
   modal.innerHTML = `
     <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
-      <h2 style="margin-top: 0; color: #c0504d;">
-        ${bloqueo.tipo === "bloqueoTotal" ? "Límite de cupo alcanzado" : "Está por superar el cupo del médico"}
-      </h2>
+      <h2 style="margin-top: 0; color: #c0504d;">No se puede cargar este turno</h2>
       ${cuerpoHTML}
     </div>
   `;
 
   modal.style.display = "block";
-  mostrarMensajeGeneral(resultadoBusqueda.sinHuecosMotivo || "El médico está por superar su cupo de este día.", "error");
+  mostrarMensajeGeneral("No se pudo cargar el turno como se pidió.", "error");
 }
 
 function cerrarModalBloqueoCupo() {
@@ -1051,7 +1073,9 @@ async function guardarConSobreturnoPorCupo(huecoDisponible, datosBasicos) {
 
 
 
-async function guardarConSobreturno(tipoSobreturno, datosBasicos) {
+// Enfermería/administrador confirman cargar igual, pese a que el motor agotó los 10 días
+// sin encontrar sillón físico. Única vía de sobreturno por esta causa — sin variantes.
+async function guardarComoSobreturnoFisico(datosBasicos) {
   cerrarModalSobreturno();
 
   let sedeIdSobreturno = datosBasicos.sedeId;
@@ -1078,9 +1102,9 @@ async function guardarConSobreturno(tipoSobreturno, datosBasicos) {
     fechaLegible: formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00")),
     horaInicio: "09:00", // placeholder, no se usa en sobreturno
     horaFin: "10:00", // placeholder
-    sillon: 0, // 0 indica que no hay sillón asignado real
+    sillon: null // no hay sillón asignado real
   };
-  await guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno);
+  await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
 }
 
 async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
@@ -1143,7 +1167,10 @@ function resetearFormularioCarga() {
   quitarPacienteSeleccionado();
   document.getElementById("campo-buscar-paciente").value = "";
 
-  document.getElementById("campo-medico").value = "";
+  // Etapa T4: para el rol médico, el selector queda fijo en su propio médico — resetear
+  // el value a "" lo dejaría sin médico elegido después de cada turno. poblarSelectMedico()
+  // ya sabe volver a fijarlo (y a los demás roles los deja en blanco como siempre).
+  poblarSelectMedico();
   actualizarBloqueMedico();
 
   protocolosSeleccionados = {};

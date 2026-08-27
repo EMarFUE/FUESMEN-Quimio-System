@@ -19,7 +19,13 @@ const GRANO_MINUTOS = 5; // Grano interno de búsqueda de huecos
 const TOPE_DIAS_BUSQUEDA = 10; // Máximo de días a buscar más allá de la fecha solicitada
 const SEDE_OCCHIPINTI = "occhipinti";
 const OBRA_SOCIAL_POP = "POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES";
-const TIPO_SOBRETURNO_CUPO = "cupoExcedido"; // T4: distinto de "automatico"/"excepcional" (T3)
+// Sobreturno: una única acción manual y deliberada (nunca una elección entre variantes —
+// el motor ya intentó automáticamente todo lo que podía respetando disponibilidad, atadura
+// y cupo; el sobreturno es lo que se ofrece recién cuando eso se agotó). tipoSobreturno
+// guarda POR QUÉ hizo falta, no quién lo cargó, para que el reporte de la Etapa T11 pueda
+// distinguir causas:
+const TIPO_SOBRETURNO_SIN_DISPONIBILIDAD = "sinDisponibilidadFisica"; // no había sillón en 10 días
+const TIPO_SOBRETURNO_CUPO = "cupoExcedido"; // había sillón, pero excedía el cupo del médico
 
 // --- Estructura de retorno del motor ---
 // {
@@ -527,6 +533,7 @@ if (typeof module !== "undefined" && module.exports) {
     formatearFechaLegible: formatearFechaLegibleMotor,
     GRANO_MINUTOS,
     TOPE_DIAS_BUSQUEDA,
-    TIPO_SOBRETURNO_CUPO
+    TIPO_SOBRETURNO_CUPO,
+    TIPO_SOBRETURNO_SIN_DISPONIBILIDAD
   };
 }
