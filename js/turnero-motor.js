@@ -1,7 +1,15 @@
-// Motor de búsqueda de huecos — Etapa T3 del Módulo de Turnero
-// Disponibilidad física pura: validación de no superposición, cálculo continuo con bloques
-// normalizados (5 minutos internamente), algoritmo de mejor ajuste, respeto de horarios por sede.
-// Sin reglas de médico/cupos (eso viene en T4) ni de "Otro" derivante (T5).
+// Motor de búsqueda de huecos — Etapas T3 (disponibilidad física) y T4 (reglas de médico)
+// del Módulo de Turnero.
+//
+// T3: validación de no superposición, cálculo continuo con bloques normalizados (5 minutos
+// internamente), algoritmo de mejor ajuste, respeto de horarios por sede, sede automática
+// de Occhipinti según obra social.
+//
+// T4 (nuevo): atadura de día y cupo por porcentaje del médico tratante. Ninguna de las dos
+// reglas está fija en el código — ambas dependen de flags por sede (`usaAtaduraDia` y
+// `usaCuposPorcentaje` en turneroSedes), igual criterio que ya se usó para cupos en T0.
+// Hoy están activadas solo en Emilio Civit, pero se pueden activar en cualquier sede desde
+// la pantalla "Sedes y sillones" sin tocar código. No aplican al médico "Otro" (eso es T5).
 //
 // Este archivo es completamente independiente de turnero-carga.js. Se integra en el
 // formulario desde T3 en adelante, pero mantiene su propia lógica para facilitar
@@ -11,29 +19,31 @@ const GRANO_MINUTOS = 5; // Grano interno de búsqueda de huecos
 const TOPE_DIAS_BUSQUEDA = 10; // Máximo de días a buscar más allá de la fecha solicitada
 const SEDE_OCCHIPINTI = "occhipinti";
 const OBRA_SOCIAL_POP = "POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES";
+const TIPO_SOBRETURNO_CUPO = "cupoExcedido"; // T4: distinto de "automatico"/"excepcional" (T3)
 
 // --- Estructura de retorno del motor ---
 // {
 //   exito: bool,
 //   huecosEncontrados?: [ // array de huecos válidos, ordenados por mejor ajuste
 //     {
-//       sedeId: string,
-//       sedeNombre: string,
-//       fecha: string (ISO),
-//       fechaLegible: string,
-//       horaInicio: string (HH:MM),
-//       horaFin: string (HH:MM),
-//       minutoInicioBloqueNormalizado: number, // para cálculos internos
-//       duracionMinutos: number,
-//       sillon: number,
-//       tiempoDesaprovechadoMinutos: number, // métrica de mejor ajuste
-//       superaTolerancia: bool // si la fecha es posterior al límite de +10 días
+//       sedeId, sedeNombre, fecha (ISO), fechaLegible, horaInicio, horaFin,
+//       minutoInicioBloqueNormalizado, duracionMinutos, sillon,
+//       tiempoDesaprovechadoMinutos, superaTolerancia
 //     },
 //     ...
 //   ],
 //   sinHuecosMotivo?: string, // si exito === false, explicación
-//   sedesIntentadas?: [string], // debug: qué sedes se buscaron
-//   diasBuscados?: number, // debug: cuántos días se recorrieron
+//   sedesIntentadas?: [string],
+//   diasBuscados?: number,
+//   bloqueoCupo?: { // T4: solo si la razón de no encontrar hueco es el cupo del médico
+//                   // en la fecha originalmente solicitada (no disponibilidad física)
+//     tipo: "bloqueoTotal" | "confirmable",
+//     medicoId, porcentaje, sedeNombre, fechaLegible,
+//     minutosUsados?, techoMinutos?, // solo si tipo === "confirmable"
+//     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin }
+//     // huecoDisponible solo si tipo === "confirmable": el bloque físico real que existía,
+//     // para poder cargarlo como sobreturno (tipoSobreturno: "cupoExcedido") si se confirma.
+//   }
 // }
 
 // --- Helpers de tiempo ---
@@ -87,7 +97,7 @@ async function determinarSedesABuscar(medicoId, obraSocial, medicosCacheLectura)
   // - Cualquier otra obra social → busca primero en Entre Ríos, solo si no hay
   //   hueco ahí busca en Emilio Civit (nunca al revés, nunca en paralelo).
   // Esto es independiente de las limitaciones por médico (atadura de día, cupo por
-  // porcentaje), que son Etapa T4 y aplican solo a Emilio Civit.
+  // porcentaje) de T4, que dependen de flags por sede, no de este médico en particular.
   // Para otros médicos: la(s) sede(s) donde atiende, sin esta lógica especial.
 
   if (medicoId === SEDE_OCCHIPINTI) {
@@ -117,6 +127,28 @@ async function determinarSedesABuscar(medicoId, obraSocial, medicosCacheLectura)
   return sedesDelMedico.length > 0 ? sedesDelMedico : ["entre-rios", "emilio-civit"];
 }
 
+// --- Helper T4: primer hueco físico posible ese día, ignorando el cupo ---
+// Se usa únicamente para poder ofrecer "cargar como sobreturno este día" cuando el cupo
+// del médico bloquea la fecha originalmente solicitada pero sí había sillón disponible.
+// No calcula mejor ajuste (no hace falta: es un candidato de respaldo, no una oferta normal).
+
+function encontrarPrimerHuecoFisico(horaAperturaMinutos, horaCierreMinutos, duracionNormalizada, sillonesDisponibles, turnosDelDia) {
+  for (let minutoActual = horaAperturaMinutos; minutoActual + duracionNormalizada <= horaCierreMinutos; minutoActual += GRANO_MINUTOS) {
+    for (const sillon of sillonesDisponibles) {
+      const tieneConflicto = turnosDelDia.some(turno => {
+        if (turno.sillon !== sillon) return false;
+        const minutoInicio = minutoDesdeString(turno.horarioInicio);
+        const minutoFin = minutoDesdeString(turno.horarioFin);
+        return minutoActual < minutoFin && minutoActual + duracionNormalizada > minutoInicio;
+      });
+      if (!tieneConflicto) {
+        return { horaInicio: stringDesdeMinuto(minutoActual), horaFin: stringDesdeMinuto(minutoActual + duracionNormalizada), sillon };
+      }
+    }
+  }
+  return null;
+}
+
 // --- Búsqueda de huecos por sede ---
 
 async function buscarHuecosEnSede(
@@ -128,12 +160,20 @@ async function buscarHuecosEnSede(
   horaCierreString, // "14:00" (no se puede cargar turno a esta hora)
   diasAtencion, // array ["lunes", "martes", ...]
   turnosExistentesEnSede, // array de turnos ya cargados en esta sede
-  sillonesDisponibles // array de números de sillones
+  sillonesDisponibles, // array de números de sillones
+  medicoId, // T4: id del médico (slug) o null/nombre libre si es "Otro"
+  medicoDoc, // T4: doc de turneroMedicos del médico, o undefined si no aplica (p. ej. "Otro")
+  usaAtaduraDia, // T4: bool, de turneroSedes.usaAtaduraDia
+  usaCuposPorcentaje, // T4: bool, de turneroSedes.usaCuposPorcentaje
+  cuposCacheLectura // T4: array de docs de turneroCupos
 ) {
-  // Retorna array de huecos válidos (de mayor a menor ajuste).
-  // Busca desde la fecha solicitada hasta +TOPE_DIAS_BUSQUEDA días.
+  // Retorna { huecos, candidatoCupoExcedido }.
+  // huecos: array de huecos válidos (de mayor a menor ajuste), ya filtrados por atadura y cupo.
+  // candidatoCupoExcedido: solo si en la fecha originalmente solicitada (diasDesde === 0) había
+  // un hueco físico real pero el cupo del médico lo bloqueó — para ofrecerlo como sobreturno.
 
   const huecos = [];
+  let candidatoCupoExcedido = null;
   const horaAperturaMinutos = minutoDesdeString(horaAperturaString);
   const horaCierreMinutos = minutoDesdeString(horaCierreString);
 
@@ -154,10 +194,24 @@ async function buscarHuecosEnSede(
     const dayIndex = fechaActual.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
     const diasEnEspanol = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
     const nombreDiaActual = diasEnEspanol[dayIndex];
+    const fechaActualISO = fechaISO(fechaActual);
 
     // Verificar si la sede atiende ese día
     if (!diasAtencion.includes(nombreDiaActual)) {
       continue; // No atiende ese día, pasar al siguiente
+    }
+
+    // --- T4: atadura de día del médico tratante ---
+    // Si la sede tiene activada la atadura (usaAtaduraDia) y el médico es uno con ficha
+    // propia (no "Otro" — eso es T5), se exige además que el médico atienda ESE día
+    // puntual en ESTA sede, según turneroMedicos.diasPorSede. Si no, el día se saltea
+    // igual que si la sede estuviera cerrada — no hay cartel especial para esto, el
+    // buscador simplemente sigue con el día siguiente dentro de la ventana.
+    if (usaAtaduraDia && medicoDoc) {
+      const diasDelMedicoEnSede = (medicoDoc.diasPorSede && medicoDoc.diasPorSede[sedeNombre]) || [];
+      if (!diasDelMedicoEnSede.includes(nombreDiaActual)) {
+        continue;
+      }
     }
 
     // Construir lista de turnos que impactan ese día en esa sede.
@@ -165,10 +219,63 @@ async function buscarHuecosEnSede(
     // turnos cargados antes de la Etapa T3 (T1/T2), que todavía no tenían estos
     // campos — considerarlos rompería el cálculo de conflictos más abajo.
     const turnosDelDia = turnosExistentesEnSede.filter(turno =>
-      turno.fecha === fechaISO(fechaActual) &&
+      turno.fecha === fechaActualISO &&
       typeof turno.horarioInicio === "string" &&
       typeof turno.horarioFin === "string"
     );
+
+    // --- T4: cupo por porcentaje del médico tratante ---
+    // Igual que la atadura, depende de un flag por sede (usaCuposPorcentaje) y no aplica
+    // a "Otro" (sin medicoDoc). El techo se calcula sobre el tiempo TOTAL de sillones de
+    // ese día en esa sede (regular + backup), no sobre un sillón puntual — así lo define
+    // el punto 9 del alcance, confirmado con Elías. Si la sede tiene el cupo activo pero
+    // no hay un porcentaje cargado para este médico ese día, no se aplica tope (se avisa
+    // por consola para poder detectar el catálogo incompleto).
+    let excedeCupoHoy = false;
+    if (usaCuposPorcentaje && medicoDoc) {
+      const cupoDoc = (cuposCacheLectura || []).find(c => c.sedeId === sedeId && c.dia === nombreDiaActual);
+      const porcentaje = cupoDoc && cupoDoc.cupos && cupoDoc.cupos[medicoId] != null ? cupoDoc.cupos[medicoId] : null;
+
+      if (porcentaje != null) {
+        const totalMinutosSede = (horaCierreMinutos - horaAperturaMinutos) * sillonesDisponibles.length;
+        const techoMinutos = totalMinutosSede * porcentaje / 100;
+        const minutosUsadosMedico = turnosExistentesEnSede
+          .filter(t => t.medicoId === medicoId && t.fecha === fechaActualISO)
+          .reduce((acc, t) => acc + (Number(t.duracionTotalMinutos) || 0), 0);
+
+        if (minutosUsadosMedico + duracionMinutos > techoMinutos) {
+          excedeCupoHoy = true;
+
+          // Si es la fecha originalmente solicitada, buscar un candidato físico real
+          // (ignorando el cupo) para poder ofrecerlo después como sobreturno.
+          if (diasDesde === 0 && !candidatoCupoExcedido) {
+            const probeHueco = encontrarPrimerHuecoFisico(
+              horaAperturaMinutos, horaCierreMinutos, duracionNormalizada, sillonesDisponibles, turnosDelDia
+            );
+            if (probeHueco) {
+              candidatoCupoExcedido = {
+                sedeId,
+                sedeNombre,
+                fecha: fechaActualISO,
+                fechaLegible: formatearFechaLegibleMotor(fechaActual),
+                horaInicio: probeHueco.horaInicio,
+                horaFin: probeHueco.horaFin,
+                medicoId,
+                porcentaje,
+                minutosUsados: minutosUsadosMedico,
+                techoMinutos
+              };
+            }
+          }
+        }
+      } else {
+        console.warn(`Cupo activo en ${sedeNombre} pero sin porcentaje configurado para "${medicoId}" el ${nombreDiaActual}. No se aplica tope ese día.`);
+      }
+    }
+
+    if (excedeCupoHoy) {
+      continue; // Este día no cuenta como hueco válido normal; seguir con el siguiente.
+    }
 
     // Búsqueda continua: recorrer el horario en bloques de GRANO_MINUTOS
     for (let minutoActual = horaAperturaMinutos; minutoActual + duracionNormalizada <= horaCierreMinutos; minutoActual += GRANO_MINUTOS) {
@@ -206,7 +313,7 @@ async function buscarHuecosEnSede(
           huecos.push({
             sedeId,
             sedeNombre,
-            fecha: fechaISO(fechaActual),
+            fecha: fechaActualISO,
             fechaLegible: formatearFechaLegibleMotor(fechaActual),
             horaInicio: stringDesdeMinuto(minutoActual),
             horaFin: stringDesdeMinuto(minutoActual + duracionNormalizada),
@@ -232,7 +339,7 @@ async function buscarHuecosEnSede(
   // Ordenar por mejor ajuste (menos tiempo desperdiciado)
   huecos.sort((a, b) => a.tiempoDesaprovechadoMinutos - b.tiempoDesaprovechadoMinutos);
 
-  return huecos;
+  return { huecos, candidatoCupoExcedido };
 }
 
 // --- Función principal del motor ---
@@ -245,13 +352,17 @@ async function buscarHuecos(
   medicosCacheLectura, // array de docs de turneroMedicos
   sedesCacheLectura, // array de docs de turneroSedes
   turnosExistentes, // array de docs de turnos ya cargados
-  esRolMedico, // bool, para determinar qué tipo de sobreturno ofrecer después
-  sedeIdManual // string|null — si la persona ya eligió la sede a mano (médico "Otro" o
-               // médico que atiende ambas sedes), buscar SOLO ahí, sin recalcular.
+  esRolMedico, // bool, para determinar qué tipo de sobreturno/bloqueo ofrecer después
+  sedeIdManual, // string|null — si la persona ya eligió la sede a mano (médico "Otro" o
+                // médico que atiende ambas sedes), buscar SOLO ahí, sin recalcular.
+  cuposCacheLectura // T4: array de docs de turneroCupos (opcional; si no se pasa, sin cupo)
 ) {
   // Retorna la estructura de resultado del motor.
 
   try {
+    // 0. T4: resolver el doc del médico (si existe una ficha propia — "Otro" no tiene).
+    const medicoDoc = (medicosCacheLectura || []).find(m => m.id === medicoId);
+
     // 1. Determinar sedes a buscar. Si la persona ya eligió una sede a mano, se
     // respeta esa elección tal cual — no se vuelve a calcular por médico/obra social.
     const sedesABuscar = sedeIdManual
@@ -271,6 +382,7 @@ async function buscarHuecos(
 
     // 3. Buscar en cada sede en orden
     const todosLosHuecos = [];
+    let candidatoCupoExcedidoGlobal = null;
 
     for (const sedeId of sedesABuscar) {
       const sedeDoc = sedesCacheLectura.find(s => s.id === sedeId);
@@ -286,11 +398,13 @@ async function buscarHuecos(
       const sillones = (sedeDoc.sillones || [])
         .filter(s => s.tipo === "regular" || s.tipo === "backup")
         .map(s => s.numero);
+      const usaAtaduraDia = sedeDoc.usaAtaduraDia === true;
+      const usaCuposPorcentaje = sedeDoc.usaCuposPorcentaje === true;
 
       // Filtrar turnos de esta sede
       const turnosEnSede = turnosExistentes.filter(t => t.sedeId === sedeId);
 
-      const huecos = await buscarHuecosEnSede(
+      const resultadoSede = await buscarHuecosEnSede(
         sedeId,
         sedeNombre,
         fechaInicioBusqueda,
@@ -299,8 +413,18 @@ async function buscarHuecos(
         horaCierre,
         diasAtencion,
         turnosEnSede,
-        sillones
+        sillones,
+        medicoId,
+        medicoDoc,
+        usaAtaduraDia,
+        usaCuposPorcentaje,
+        cuposCacheLectura
       );
+
+      const huecos = resultadoSede.huecos;
+      if (!candidatoCupoExcedidoGlobal && resultadoSede.candidatoCupoExcedido) {
+        candidatoCupoExcedidoGlobal = resultadoSede.candidatoCupoExcedido;
+      }
 
       todosLosHuecos.push(...huecos);
 
@@ -325,7 +449,51 @@ async function buscarHuecos(
       };
     }
 
-    // No se encontraron huecos
+    // No se encontraron huecos dentro de las reglas normales.
+    // T4: si la causa concreta es el cupo del médico en la fecha originalmente pedida
+    // (no la falta de sillón físico en general), se distingue del sobreturno genérico.
+    if (candidatoCupoExcedidoGlobal) {
+      if (esRolMedico) {
+        return {
+          exito: false,
+          bloqueoCupo: {
+            tipo: "bloqueoTotal",
+            medicoId: candidatoCupoExcedidoGlobal.medicoId,
+            porcentaje: candidatoCupoExcedidoGlobal.porcentaje,
+            sedeNombre: candidatoCupoExcedidoGlobal.sedeNombre,
+            fechaLegible: candidatoCupoExcedidoGlobal.fechaLegible
+          },
+          sinHuecosMotivo: "Ha alcanzado el límite máximo de pacientes para este día.",
+          sedesIntentadas: sedesABuscar,
+          diasBuscados: TOPE_DIAS_BUSQUEDA
+        };
+      }
+
+      return {
+        exito: false,
+        bloqueoCupo: {
+          tipo: "confirmable",
+          medicoId: candidatoCupoExcedidoGlobal.medicoId,
+          porcentaje: candidatoCupoExcedidoGlobal.porcentaje,
+          minutosUsados: candidatoCupoExcedidoGlobal.minutosUsados,
+          techoMinutos: candidatoCupoExcedidoGlobal.techoMinutos,
+          sedeNombre: candidatoCupoExcedidoGlobal.sedeNombre,
+          fechaLegible: candidatoCupoExcedidoGlobal.fechaLegible,
+          huecoDisponible: {
+            sedeId: candidatoCupoExcedidoGlobal.sedeId,
+            sedeNombre: candidatoCupoExcedidoGlobal.sedeNombre,
+            fecha: candidatoCupoExcedidoGlobal.fecha,
+            fechaLegible: candidatoCupoExcedidoGlobal.fechaLegible,
+            horaInicio: candidatoCupoExcedidoGlobal.horaInicio,
+            horaFin: candidatoCupoExcedidoGlobal.horaFin
+          }
+        },
+        sinHuecosMotivo: `Está por superar el porcentaje límite de ocupación de este médico (${candidatoCupoExcedidoGlobal.porcentaje}%) para el ${candidatoCupoExcedidoGlobal.fechaLegible}.`,
+        sedesIntentadas: sedesABuscar,
+        diasBuscados: TOPE_DIAS_BUSQUEDA
+      };
+    }
+
     return {
       exito: false,
       sinHuecosMotivo: `No hay lugar disponible dentro de ${TOPE_DIAS_BUSQUEDA} días.`,
@@ -351,12 +519,14 @@ if (typeof module !== "undefined" && module.exports) {
     buscarHuecos,
     determinarSedesABuscar,
     buscarHuecosEnSede,
+    encontrarPrimerHuecoFisico,
     minutoDesdeString,
     stringDesdeMinuto,
     fechaDesdeISO,
     fechaISO,
     formatearFechaLegible: formatearFechaLegibleMotor,
     GRANO_MINUTOS,
-    TOPE_DIAS_BUSQUEDA
+    TOPE_DIAS_BUSQUEDA,
+    TIPO_SOBRETURNO_CUPO
   };
 }

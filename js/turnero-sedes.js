@@ -18,6 +18,7 @@ const SEDES_INICIALES = [
     diasAtencion: DIAS_SEMANA,
     sabadosEspeciales: true,
     usaCuposPorcentaje: true,
+    usaAtaduraDia: true,
     sillones: [
       { numero: 1, tipo: "regular" }, { numero: 2, tipo: "regular" },
       { numero: 3, tipo: "regular" }, { numero: 4, tipo: "regular" },
@@ -34,6 +35,7 @@ const SEDES_INICIALES = [
     diasAtencion: DIAS_SEMANA,
     sabadosEspeciales: false,
     usaCuposPorcentaje: false,
+    usaAtaduraDia: false,
     sillones: [
       { numero: 1, tipo: "regular" }, { numero: 2, tipo: "regular" },
       { numero: 3, tipo: "regular" }, { numero: 4, tipo: "regular" },
@@ -118,6 +120,7 @@ function renderizarSedes() {
     document.getElementById(`form-horario-${sede.id}`).addEventListener("submit", (e) => onGuardarHorario(e, sede.id));
     document.getElementById(`check-sabados-${sede.id}`).addEventListener("change", (e) => onCambiarSabados(e, sede.id));
     document.getElementById(`check-cupos-${sede.id}`).addEventListener("change", (e) => onCambiarUsaCupos(e, sede.id));
+    document.getElementById(`check-atadura-${sede.id}`).addEventListener("change", (e) => onCambiarUsaAtaduraDia(e, sede.id));
     document.getElementById(`form-sillon-${sede.id}`).addEventListener("submit", (e) => onAgregarSillon(e, sede.id));
   });
 }
@@ -165,6 +168,11 @@ function renderizarTarjetaSede(sede) {
       <label class="check-linea">
         <input type="checkbox" id="check-cupos-${sede.id}" ${sede.usaCuposPorcentaje ? "checked" : ""} />
         Usa cupo por porcentaje (día × médico) — hoy solo corresponde a Emilio Civit según el alcance, pero queda a tu criterio activarlo o desactivarlo acá
+      </label>
+
+      <label class="check-linea">
+        <input type="checkbox" id="check-atadura-${sede.id}" ${sede.usaAtaduraDia ? "checked" : ""} />
+        Usa atadura de día por médico (el médico solo atiende los días que tiene tildados en "Médicos" para esta sede) — hoy solo corresponde a Emilio Civit según el alcance, pero queda a tu criterio activarlo o desactivarlo acá
       </label>
 
       <div class="titulo-bloque" style="margin-top:16px;">Sillones</div>
@@ -225,6 +233,17 @@ async function onCambiarUsaCupos(evento, sedeId) {
     mostrarMensajeSedes("Actualizado.", "exito");
   } catch (error) {
     console.error("Error al actualizar uso de cupos:", error);
+    mostrarMensajeSedes("No se pudo actualizar.", "error");
+    evento.target.checked = !evento.target.checked;
+  }
+}
+
+async function onCambiarUsaAtaduraDia(evento, sedeId) {
+  try {
+    await db.collection("turneroSedes").doc(sedeId).update({ usaAtaduraDia: evento.target.checked });
+    mostrarMensajeSedes("Actualizado.", "exito");
+  } catch (error) {
+    console.error("Error al actualizar atadura de día:", error);
     mostrarMensajeSedes("No se pudo actualizar.", "error");
     evento.target.checked = !evento.target.checked;
   }

@@ -72,6 +72,7 @@ let pacientesCacheCarga = [];
 let medicosCacheCarga = [];
 let protocolosCacheCarga = [];
 let sedesCacheCarga = [];
+let cuposCacheCarga = []; // T4: array de docs de turneroCupos
 
 let pacienteSeleccionadoCarga = null;
 let protocolosSeleccionados = {}; // filaId -> { protocoloId, nombre, duracionMinutos }
@@ -268,7 +269,7 @@ async function iniciarCargaTurno(user, datosUsuario) {
     campoBuscarPaciente.placeholder = "Buscar por apellido, nombre o documento";
   });
 
-  await Promise.all([cargarMedicosCarga(), cargarProtocolosCarga(), cargarSedesCarga(), cargarTurnosExistentes()]);
+  await Promise.all([cargarMedicosCarga(), cargarProtocolosCarga(), cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga()]);
   poblarSelectMedico();
   poblarSelectSedeManual();
   agregarFilaProtocolo();
@@ -303,6 +304,17 @@ async function cargarSedesCarga() {
   const snapshot = await db.collection("turneroSedes").get();
   sedesCacheCarga = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   sedesCacheCarga.sort((a, b) => (a.id === SEDE_CIVIT_ID ? -1 : 1));
+}
+
+// Etapa T4: cargar cupos por porcentaje para que el motor pueda aplicar el techo por médico
+async function cargarCuposCarga() {
+  try {
+    const snapshot = await db.collection("turneroCupos").get();
+    cuposCacheCarga = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.warn("No se pudieron cargar los cupos para el motor:", error);
+    cuposCacheCarga = [];
+  }
 }
 
 // Etapa T3: cargar turnos existentes para que el motor valide no superposición
@@ -849,7 +861,8 @@ async function buscarYMostrarHuecos(datosBasicos) {
       sedesCacheCarga,
       turnosExistentes,
       rolActualCarga === "medico",
-      datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId // sede elegida a mano, si aplica
+      datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId, // sede elegida a mano, si aplica
+      cuposCacheCarga // Etapa T4
     );
 
     ultimaBusquedaHuecos = resultado;
@@ -858,6 +871,10 @@ async function buscarYMostrarHuecos(datosBasicos) {
       // El sistema elige automáticamente el mejor hueco (el primero de la lista, que está ordenado por mejor ajuste)
       const mejorHueco = resultado.huecosEncontrados[0];
       await guardarTurnoConHueco(datosBasicos, mejorHueco, null);
+    } else if (resultado.bloqueoCupo) {
+      // Etapa T4: no es que no haya sillón físico — el médico llegó a su cupo del día
+      // pedido. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoCupo).
+      mostrarBloqueoCupo(resultado, datosBasicos);
     } else {
       mostrarOpcioneSobreturno(resultado, datosBasicos);
     }
@@ -943,6 +960,93 @@ function cerrarModalSobreturno() {
   const modal = document.getElementById("modal-sobreturno");
   if (modal) modal.style.display = "none";
   document.getElementById("boton-guardar-turno").disabled = false;
+}
+
+// Etapa T4: cartel de cupo excedido — distinto del modal de sobreturno de siempre.
+// No es que falte sillón físico: el médico llegó a su porcentaje del día pedido.
+function mostrarBloqueoCupo(resultadoBusqueda, datosBasicos) {
+  const bloqueo = resultadoBusqueda.bloqueoCupo;
+
+  let modal = document.getElementById("modal-bloqueo-cupo");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-bloqueo-cupo";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  let cuerpoHTML;
+  if (bloqueo.tipo === "bloqueoTotal") {
+    cuerpoHTML = `
+      <p>${resultadoBusqueda.sinHuecosMotivo}</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        ${escaparHtml(datosBasicos.medicoNombre)} ya alcanzó su ${bloqueo.porcentaje}% del ${bloqueo.fechaLegible} en ${escaparHtml(bloqueo.sedeNombre)}.
+        Probá con otra fecha, o pedile a enfermería/administrador que lo cargue si hace falta una excepción.
+      </p>
+      <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoCupo()">Entendido</button>
+    `;
+  } else {
+    cuerpoHTML = `
+      <p>${escaparHtml(datosBasicos.medicoNombre)} está por superar su ${bloqueo.porcentaje}% del ${bloqueo.fechaLegible} en ${escaparHtml(bloqueo.sedeNombre)}
+        (usó ${bloqueo.minutosUsados} de ${Math.round(bloqueo.techoMinutos)} minutos permitidos).</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Hay sillón disponible ese día, pero le corresponde a otro médico según el cupo. Se puede cargar igual,
+        como sobreturno de ese mismo día.
+      </p>
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+        onclick="guardarConSobreturnoPorCupo(${JSON.stringify(bloqueo.huecoDisponible).replace(/"/g, '&quot;')}, ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Cargar igual como sobreturno este día
+      </button>
+      <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoCupo()">Cancelar (elegir otra fecha)</button>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0; color: #c0504d;">
+        ${bloqueo.tipo === "bloqueoTotal" ? "Límite de cupo alcanzado" : "Está por superar el cupo del médico"}
+      </h2>
+      ${cuerpoHTML}
+    </div>
+  `;
+
+  modal.style.display = "block";
+  mostrarMensajeGeneral(resultadoBusqueda.sinHuecosMotivo || "El médico está por superar su cupo de este día.", "error");
+}
+
+function cerrarModalBloqueoCupo() {
+  const modal = document.getElementById("modal-bloqueo-cupo");
+  if (modal) modal.style.display = "none";
+  document.getElementById("boton-guardar-turno").disabled = false;
+}
+
+// Etapa T4: enfermería/admin confirman cargar igual, excediendo el cupo del médico.
+// Se guarda como sobreturno (sillon: null) del mismo día pedido, no como turno con sillón
+// real — así no interfiere con el reparto de sillones de los demás médicos ese día.
+async function guardarConSobreturnoPorCupo(huecoDisponible, datosBasicos) {
+  cerrarModalBloqueoCupo();
+
+  const hueco = {
+    sedeId: huecoDisponible.sedeId,
+    sedeNombre: huecoDisponible.sedeNombre,
+    fecha: huecoDisponible.fecha,
+    fechaLegible: huecoDisponible.fechaLegible,
+    horaInicio: huecoDisponible.horaInicio,
+    horaFin: huecoDisponible.horaFin,
+    sillon: null // no ocupa un sillón real: es un sobreturno por cupo, no disponibilidad física
+  };
+
+  await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_CUPO);
 }
 
 
