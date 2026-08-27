@@ -146,9 +146,13 @@ async function buscarHuecosEnSede(
     const fechaActual = new Date(fechaInicioBusqueda);
     fechaActual.setDate(fechaActual.getDate() + diasDesde);
 
-    // Obtener el nombre del día en español
+    // Obtener el nombre del día en español. IMPORTANTE: "miercoles" va sin tilde acá
+    // a propósito — así es como turnero-sedes.js guarda diasAtencion en Firestore
+    // (DIAS_SEMANA en turnero-sedes.js/turnero-medicos.js/turnero-cupos.js, sin acento).
+    // Si se le pone tilde, la comparación de más abajo nunca coincide y el motor
+    // saltea todos los miércoles pensando que la sede no atiende ese día.
     const dayIndex = fechaActual.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
-    const diasEnEspanol = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+    const diasEnEspanol = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
     const nombreDiaActual = diasEnEspanol[dayIndex];
 
     // Verificar si la sede atiende ese día
@@ -156,8 +160,15 @@ async function buscarHuecosEnSede(
       continue; // No atiende ese día, pasar al siguiente
     }
 
-    // Construir lista de turnos que impactan ese día en esa sede
-    const turnosDelDia = turnosExistentesEnSede.filter(turno => turno.fecha === fechaISO(fechaActual));
+    // Construir lista de turnos que impactan ese día en esa sede.
+    // Se descartan turnos que no tengan horarioInicio/horarioFin como string: son
+    // turnos cargados antes de la Etapa T3 (T1/T2), que todavía no tenían estos
+    // campos — considerarlos rompería el cálculo de conflictos más abajo.
+    const turnosDelDia = turnosExistentesEnSede.filter(turno =>
+      turno.fecha === fechaISO(fechaActual) &&
+      typeof turno.horarioInicio === "string" &&
+      typeof turno.horarioFin === "string"
+    );
 
     // Búsqueda continua: recorrer el horario en bloques de GRANO_MINUTOS
     for (let minutoActual = horaAperturaMinutos; minutoActual + duracionNormalizada <= horaCierreMinutos; minutoActual += GRANO_MINUTOS) {
@@ -170,7 +181,7 @@ async function buscarHuecosEnSede(
           if (turno.sillon !== sillon) return false; // Diferente sillón, no hay conflicto
 
           const minutoInicio = minutoDesdeString(turno.horarioInicio);
-          const minutoFin = minutoInicio + turno.duracionMinutos;
+          const minutoFin = minutoDesdeString(turno.horarioFin);
 
           // Conflicto si [minutoActual, minutoActual + duracionNormalizada) se superpone
           // con [minutoInicio, minutoFin)
@@ -178,8 +189,19 @@ async function buscarHuecosEnSede(
         });
 
         if (!tieneConflicto) {
-          // Hueco encontrado
-          const tiempoDesaprovechadoMinutos = (horaCierreMinutos - (minutoActual + duracionNormalizada)) % GRANO_MINUTOS;
+          // Hueco encontrado. "Mejor ajuste" = cuánto tiempo libre queda entre el fin
+          // de este bloque y el próximo evento en el mismo sillón ese día (el siguiente
+          // turno ya agendado, o el cierre de la sede si no hay ninguno después). Cuanto
+          // menor ese resto, mejor aprovechado queda el sillón.
+          const finBloque = minutoActual + duracionNormalizada;
+          const proximosInicioEnEsteSillon = turnosDelDia
+            .filter(t => t.sillon === sillon)
+            .map(t => minutoDesdeString(t.horarioInicio))
+            .filter(inicio => inicio >= finBloque);
+          const proximoEvento = proximosInicioEnEsteSillon.length > 0
+            ? Math.min(...proximosInicioEnEsteSillon)
+            : horaCierreMinutos;
+          const tiempoDesaprovechadoMinutos = proximoEvento - finBloque;
 
           huecos.push({
             sedeId,
@@ -223,13 +245,18 @@ async function buscarHuecos(
   medicosCacheLectura, // array de docs de turneroMedicos
   sedesCacheLectura, // array de docs de turneroSedes
   turnosExistentes, // array de docs de turnos ya cargados
-  esRolMedico // bool, para determinar qué tipo de sobreturno ofrecer después
+  esRolMedico, // bool, para determinar qué tipo de sobreturno ofrecer después
+  sedeIdManual // string|null — si la persona ya eligió la sede a mano (médico "Otro" o
+               // médico que atiende ambas sedes), buscar SOLO ahí, sin recalcular.
 ) {
   // Retorna la estructura de resultado del motor.
 
   try {
-    // 1. Determinar sedes a buscar
-    const sedesABuscar = await determinarSedesABuscar(medicoId, obraSocialPaciente, medicosCacheLectura);
+    // 1. Determinar sedes a buscar. Si la persona ya eligió una sede a mano, se
+    // respeta esa elección tal cual — no se vuelve a calcular por médico/obra social.
+    const sedesABuscar = sedeIdManual
+      ? [sedeIdManual]
+      : await determinarSedesABuscar(medicoId, obraSocialPaciente, medicosCacheLectura);
 
     if (sedesABuscar.length === 0) {
       return {
@@ -277,12 +304,11 @@ async function buscarHuecos(
 
       todosLosHuecos.push(...huecos);
 
-      // Si encontramos huecos en esta sede (especialmente importante para Occhipinti),
-      // dejar de buscar en las siguientes sedes por defecto.
-      // Nota: esto se puede ajustar si el comportamiento real requiere mostrar opciones
-      // de múltiples sedes simultáneamente.
-      if (huecos.length > 0 && sedesABuscar.length > 1 && sedeId === "entre-rios") {
-        // Especial para Occhipinti: si encontramos en Entre Ríos, no buscamos en Civit
+      // Si encontramos huecos en esta sede, no seguimos buscando en las siguientes
+      // de la lista (se respeta el orden de prioridad: primero la primera sede de
+      // la lista, solo si no hay lugar ahí se pasa a la próxima).
+      const esUltimaSedeDeLaLista = sedesABuscar.indexOf(sedeId) === sedesABuscar.length - 1;
+      if (huecos.length > 0 && !esUltimaSedeDeLaLista) {
         break;
       }
     }

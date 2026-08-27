@@ -848,7 +848,8 @@ async function buscarYMostrarHuecos(datosBasicos) {
       medicosCacheCarga,
       sedesCacheCarga,
       turnosExistentes,
-      rolActualCarga === "medico"
+      rolActualCarga === "medico",
+      datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId // sede elegida a mano, si aplica
     );
 
     ultimaBusquedaHuecos = resultado;
