@@ -167,12 +167,12 @@ function renderizarTarjetaSede(sede) {
 
       <label class="check-linea">
         <input type="checkbox" id="check-cupos-${sede.id}" ${sede.usaCuposPorcentaje ? "checked" : ""} />
-        Usa cupo por porcentaje (día × médico) — hoy solo corresponde a Emilio Civit según el alcance, pero queda a tu criterio activarlo o desactivarlo acá
+        Esta casilla es solo para <strong>${escaparHtml(sede.nombre)}</strong>: usar cupo por porcentaje (día × médico) acá. Hoy, según el alcance, va tildada en Emilio Civit y destildada en Entre Ríos — pero queda a tu criterio.
       </label>
 
       <label class="check-linea">
         <input type="checkbox" id="check-atadura-${sede.id}" ${sede.usaAtaduraDia ? "checked" : ""} />
-        Usa atadura de día por médico (el médico solo atiende los días que tiene tildados en "Médicos" para esta sede) — hoy solo corresponde a Emilio Civit según el alcance, pero queda a tu criterio activarlo o desactivarlo acá
+        Esta casilla es solo para <strong>${escaparHtml(sede.nombre)}</strong>: usar atadura de día por médico acá (el médico solo atiende los días que tiene tildados en "Médicos" para esta sede). Hoy, según el alcance, va tildada en Emilio Civit y destildada en Entre Ríos — pero queda a tu criterio.
       </label>
 
       <div class="titulo-bloque" style="margin-top:16px;">Sillones</div>
