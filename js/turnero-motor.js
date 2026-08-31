@@ -26,6 +26,7 @@ const OBRA_SOCIAL_POP = "POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES";
 // distinguir causas:
 const TIPO_SOBRETURNO_SIN_DISPONIBILIDAD = "sinDisponibilidadFisica"; // no había sillón en 10 días
 const TIPO_SOBRETURNO_CUPO = "cupoExcedido"; // había sillón, pero excedía el cupo del médico
+const TIPO_SOBRETURNO_ATADURA = "ataduraDia"; // había sillón, pero el médico no atiende ese día ahí
 
 // --- Estructura de retorno del motor ---
 // {
@@ -49,6 +50,14 @@ const TIPO_SOBRETURNO_CUPO = "cupoExcedido"; // había sillón, pero excedía el
 //     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin }
 //     // huecoDisponible solo si tipo === "confirmable": el bloque físico real que existía,
 //     // para poder cargarlo como sobreturno (tipoSobreturno: "cupoExcedido") si se confirma.
+//   },
+//   bloqueoAtadura?: { // T4 (31/8): igual que bloqueoCupo, pero la causa es que el médico
+//                      // no atiende ese día en esa sede (había sillón físico libre)
+//     tipo: "bloqueoTotal" | "confirmable",
+//     medicoId, sedeNombre, fechaLegible,
+//     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin }
+//     // huecoDisponible solo si tipo === "confirmable", para cargarlo como sobreturno
+//     // (tipoSobreturno: "ataduraDia") si se confirma.
 //   }
 // }
 
@@ -180,6 +189,7 @@ async function buscarHuecosEnSede(
 
   const huecos = [];
   let candidatoCupoExcedido = null;
+  let candidatoAtaduraExcedida = null;
   const horaAperturaMinutos = minutoDesdeString(horaAperturaString);
   const horaCierreMinutos = minutoDesdeString(horaCierreString);
 
@@ -207,19 +217,6 @@ async function buscarHuecosEnSede(
       continue; // No atiende ese día, pasar al siguiente
     }
 
-    // --- T4: atadura de día del médico tratante ---
-    // Si la sede tiene activada la atadura (usaAtaduraDia) y el médico es uno con ficha
-    // propia (no "Otro" — eso es T5), se exige además que el médico atienda ESE día
-    // puntual en ESTA sede, según turneroMedicos.diasPorSede. Si no, el día se saltea
-    // igual que si la sede estuviera cerrada — no hay cartel especial para esto, el
-    // buscador simplemente sigue con el día siguiente dentro de la ventana.
-    if (usaAtaduraDia && medicoDoc) {
-      const diasDelMedicoEnSede = (medicoDoc.diasPorSede && medicoDoc.diasPorSede[sedeNombre]) || [];
-      if (!diasDelMedicoEnSede.includes(nombreDiaActual)) {
-        continue;
-      }
-    }
-
     // Construir lista de turnos que impactan ese día en esa sede.
     // Se descartan turnos que no tengan horarioInicio/horarioFin como string: son
     // turnos cargados antes de la Etapa T3 (T1/T2), que todavía no tenían estos
@@ -229,6 +226,38 @@ async function buscarHuecosEnSede(
       typeof turno.horarioInicio === "string" &&
       typeof turno.horarioFin === "string"
     );
+
+    // --- T4: atadura de día del médico tratante ---
+    // Si la sede tiene activada la atadura (usaAtaduraDia) y el médico es uno con ficha
+    // propia (no "Otro" — eso es T5), se exige además que el médico atienda ESE día
+    // puntual en ESTA sede, según turneroMedicos.diasPorSede. Si no, el día se saltea
+    // igual que si la sede estuviera cerrada. Si es la fecha originalmente solicitada
+    // (diasDesde === 0) y sí había un sillón físico libre ese día — solo bloqueado por
+    // la atadura, no por falta de lugar —, se guarda como candidato para poder ofrecer
+    // "cargar igual como sobreturno este día" (agregado 31/8 a pedido de Elías; mismo
+    // patrón que el cupo por porcentaje, más abajo).
+    if (usaAtaduraDia && medicoDoc) {
+      const diasDelMedicoEnSede = (medicoDoc.diasPorSede && medicoDoc.diasPorSede[sedeNombre]) || [];
+      if (!diasDelMedicoEnSede.includes(nombreDiaActual)) {
+        if (diasDesde === 0 && !candidatoAtaduraExcedida) {
+          const probeHueco = encontrarPrimerHuecoFisico(
+            horaAperturaMinutos, horaCierreMinutos, duracionNormalizada, sillonesDisponibles, turnosDelDia
+          );
+          if (probeHueco) {
+            candidatoAtaduraExcedida = {
+              sedeId,
+              sedeNombre,
+              fecha: fechaActualISO,
+              fechaLegible: formatearFechaLegibleMotor(fechaActual),
+              horaInicio: probeHueco.horaInicio,
+              horaFin: probeHueco.horaFin,
+              medicoId
+            };
+          }
+        }
+        continue;
+      }
+    }
 
     // --- T4: cupo por porcentaje del médico tratante ---
     // Igual que la atadura, depende de un flag por sede (usaCuposPorcentaje) y no aplica
@@ -345,7 +374,46 @@ async function buscarHuecosEnSede(
   // Ordenar por mejor ajuste (menos tiempo desperdiciado)
   huecos.sort((a, b) => a.tiempoDesaprovechadoMinutos - b.tiempoDesaprovechadoMinutos);
 
-  return { huecos, candidatoCupoExcedido };
+  return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida };
+}
+
+// --- Helper T4 (feedback post-entrega, 31/8): horario real del sobreturno por falta de
+// disponibilidad física ---
+// Antes se guardaba siempre un horario fijo "09:00"-"10:00" (placeholder sin relación con
+// la duración real pedida). A pedido de Elías: si queda lugar en la agenda de ese día/sede
+// después del último turno ya cargado (cualquier sillón, incluyendo otros sobreturnos),
+// ocupa el tiempo que corresponde (la duración pedida completa); si no entra completa, se
+// acomoda en lo que quede; si no queda nada de lugar, se carga con 1 minuto de duración
+// (una marca administrativa, no un horario real utilizable).
+// Solo hace falta para el sobreturno por falta de disponibilidad física: el sobreturno por
+// cupo y el sobreturno por atadura de día ya se construyen sobre un hueco físico real
+// (encontrarPrimerHuecoFisico encuentra el bloque completo o no encuentra nada), así que
+// nunca necesitan este ajuste.
+function calcularBloqueSobreturno(horaAperturaString, horaCierreString, turnosDelDiaEnSede, duracionSolicitadaMinutos) {
+  const horaAperturaMinutos = minutoDesdeString(horaAperturaString);
+  const horaCierreMinutos = minutoDesdeString(horaCierreString);
+
+  const finesDeTurnos = (turnosDelDiaEnSede || [])
+    .filter(t => typeof t.horarioFin === "string")
+    .map(t => minutoDesdeString(t.horarioFin));
+  const ultimoFin = finesDeTurnos.length > 0 ? Math.max(...finesDeTurnos) : horaAperturaMinutos;
+  const inicioAsignado = Math.max(horaAperturaMinutos, ultimoFin);
+
+  const espacioDisponible = horaCierreMinutos - inicioAsignado;
+  let duracionAsignada;
+  if (espacioDisponible >= duracionSolicitadaMinutos) {
+    duracionAsignada = duracionSolicitadaMinutos;
+  } else if (espacioDisponible > 0) {
+    duracionAsignada = espacioDisponible;
+  } else {
+    duracionAsignada = 1;
+  }
+
+  return {
+    horaInicio: stringDesdeMinuto(inicioAsignado),
+    horaFin: stringDesdeMinuto(inicioAsignado + duracionAsignada),
+    duracionAsignada
+  };
 }
 
 // --- Función principal del motor ---
@@ -389,6 +457,7 @@ async function buscarHuecos(
     // 3. Buscar en cada sede en orden
     const todosLosHuecos = [];
     let candidatoCupoExcedidoGlobal = null;
+    let candidatoAtaduraExcedidoGlobal = null;
 
     for (const sedeId of sedesABuscar) {
       const sedeDoc = sedesCacheLectura.find(s => s.id === sedeId);
@@ -430,6 +499,9 @@ async function buscarHuecos(
       const huecos = resultadoSede.huecos;
       if (!candidatoCupoExcedidoGlobal && resultadoSede.candidatoCupoExcedido) {
         candidatoCupoExcedidoGlobal = resultadoSede.candidatoCupoExcedido;
+      }
+      if (!candidatoAtaduraExcedidoGlobal && resultadoSede.candidatoAtaduraExcedida) {
+        candidatoAtaduraExcedidoGlobal = resultadoSede.candidatoAtaduraExcedida;
       }
 
       todosLosHuecos.push(...huecos);
@@ -500,6 +572,47 @@ async function buscarHuecos(
       };
     }
 
+    // T4 (agregado 31/8): si la causa concreta es la atadura de día (el médico no
+    // atiende ese día en esa sede, pero sí había sillón físico libre), se distingue
+    // también del sobreturno genérico — mismo patrón que el cupo, arriba.
+    if (candidatoAtaduraExcedidoGlobal) {
+      if (esRolMedico) {
+        return {
+          exito: false,
+          bloqueoAtadura: {
+            tipo: "bloqueoTotal",
+            medicoId: candidatoAtaduraExcedidoGlobal.medicoId,
+            sedeNombre: candidatoAtaduraExcedidoGlobal.sedeNombre,
+            fechaLegible: candidatoAtaduraExcedidoGlobal.fechaLegible
+          },
+          sinHuecosMotivo: "Ha alcanzado el límite máximo de pacientes para este día.",
+          sedesIntentadas: sedesABuscar,
+          diasBuscados: TOPE_DIAS_BUSQUEDA
+        };
+      }
+
+      return {
+        exito: false,
+        bloqueoAtadura: {
+          tipo: "confirmable",
+          medicoId: candidatoAtaduraExcedidoGlobal.medicoId,
+          sedeNombre: candidatoAtaduraExcedidoGlobal.sedeNombre,
+          fechaLegible: candidatoAtaduraExcedidoGlobal.fechaLegible,
+          huecoDisponible: {
+            sedeId: candidatoAtaduraExcedidoGlobal.sedeId,
+            sedeNombre: candidatoAtaduraExcedidoGlobal.sedeNombre,
+            fecha: candidatoAtaduraExcedidoGlobal.fecha,
+            fechaLegible: candidatoAtaduraExcedidoGlobal.fechaLegible,
+            horaInicio: candidatoAtaduraExcedidoGlobal.horaInicio,
+            horaFin: candidatoAtaduraExcedidoGlobal.horaFin
+          }
+        },
+        sinHuecosMotivo: `El médico no atiende en ${candidatoAtaduraExcedidoGlobal.sedeNombre} el ${candidatoAtaduraExcedidoGlobal.fechaLegible}.`,
+        sedesIntentadas: sedesABuscar,
+        diasBuscados: TOPE_DIAS_BUSQUEDA
+      };
+    }
+
     return {
       exito: false,
       sinHuecosMotivo: `No hay lugar disponible dentro de ${TOPE_DIAS_BUSQUEDA} días.`,
@@ -531,9 +644,11 @@ if (typeof module !== "undefined" && module.exports) {
     fechaDesdeISO,
     fechaISO,
     formatearFechaLegible: formatearFechaLegibleMotor,
+    calcularBloqueSobreturno,
     GRANO_MINUTOS,
     TOPE_DIAS_BUSQUEDA,
     TIPO_SOBRETURNO_CUPO,
-    TIPO_SOBRETURNO_SIN_DISPONIBILIDAD
+    TIPO_SOBRETURNO_SIN_DISPONIBILIDAD,
+    TIPO_SOBRETURNO_ATADURA
   };
 }

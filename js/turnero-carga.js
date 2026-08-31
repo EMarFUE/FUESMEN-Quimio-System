@@ -902,6 +902,10 @@ async function buscarYMostrarHuecos(datosBasicos) {
       // Etapa T4: no es que no haya sillón físico — el médico llegó a su cupo del día
       // pedido. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoCupo).
       mostrarBloqueoCupo(resultado, datosBasicos);
+    } else if (resultado.bloqueoAtadura) {
+      // Etapa T4 (31/8): no es que no haya sillón físico — el médico no atiende ese día
+      // en esa sede. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoAtadura).
+      mostrarBloqueoAtadura(resultado, datosBasicos);
     } else {
       mostrarSobreturnoFisico(resultado, datosBasicos);
     }
@@ -1071,7 +1075,92 @@ async function guardarConSobreturnoPorCupo(huecoDisponible, datosBasicos) {
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_CUPO);
 }
 
+// Etapa T4 (31/8, a pedido de Elías): cartel de atadura de día — distinto del modal de
+// sobreturno de siempre. No es que falte sillón físico: el médico no atiende ese día en
+// esa sede. Mismo patrón que mostrarBloqueoCupo.
+function mostrarBloqueoAtadura(resultadoBusqueda, datosBasicos) {
+  const bloqueo = resultadoBusqueda.bloqueoAtadura;
 
+  let modal = document.getElementById("modal-bloqueo-atadura");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-bloqueo-atadura";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  let cuerpoHTML;
+  if (bloqueo.tipo === "bloqueoTotal") {
+    // Rol médico: mismo mensaje genérico que cualquier otra restricción (ver
+    // mostrarBloqueoCupo) — no le sirve saber que fue por el día, solo qué hacer.
+    cuerpoHTML = `
+      <p>Ha alcanzado el límite máximo de pacientes para este día.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Probá con otra fecha, o pedile a enfermería/administrador que lo cargue si hace falta una excepción.
+      </p>
+      <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoAtadura()">Entendido</button>
+    `;
+  } else {
+    // Rol enfermería/administrador: sí necesitan el motivo para decidir.
+    cuerpoHTML = `
+      <p>${escaparHtml(datosBasicos.medicoNombre)} no atiende en ${escaparHtml(bloqueo.sedeNombre)} el ${bloqueo.fechaLegible}.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Se puede cargar igual, como sobreturno de ese mismo día.
+      </p>
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+        onclick="guardarConSobreturnoPorAtadura(${JSON.stringify(bloqueo.huecoDisponible).replace(/"/g, '&quot;')}, ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Cargar igual como sobreturno este día
+      </button>
+      <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoAtadura()">Cancelar (elegir otra fecha)</button>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0; color: #c0504d;">No se puede cargar este turno</h2>
+      ${cuerpoHTML}
+    </div>
+  `;
+
+  modal.style.display = "block";
+  mostrarMensajeGeneral("No se pudo cargar el turno como se pidió.", "error");
+}
+
+function cerrarModalBloqueoAtadura() {
+  const modal = document.getElementById("modal-bloqueo-atadura");
+  if (modal) modal.style.display = "none";
+  document.getElementById("boton-guardar-turno").disabled = false;
+}
+
+// Etapa T4 (31/8): enfermería/admin confirman cargar igual, saltando la atadura de día.
+// Se guarda como sobreturno (sillon: null) usando el hueco físico real que ya había ese
+// día (candidatoAtaduraExcedida en el motor ya lo buscó ignorando la atadura) — no hace
+// falta calcularBloqueSobreturno acá porque ese hueco ya es un bloque físico completo.
+async function guardarConSobreturnoPorAtadura(huecoDisponible, datosBasicos) {
+  cerrarModalBloqueoAtadura();
+
+  const hueco = {
+    sedeId: huecoDisponible.sedeId,
+    sedeNombre: huecoDisponible.sedeNombre,
+    fecha: huecoDisponible.fecha,
+    fechaLegible: huecoDisponible.fechaLegible,
+    horaInicio: huecoDisponible.horaInicio,
+    horaFin: huecoDisponible.horaFin,
+    sillon: null // no ocupa un sillón real: es un sobreturno por atadura, no disponibilidad física
+  };
+
+  await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_ATADURA);
+}
 
 // Enfermería/administrador confirman cargar igual, pese a que el motor agotó los 10 días
 // sin encontrar sillón físico. Única vía de sobreturno por esta causa — sin variantes.
@@ -1094,14 +1183,32 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
     sedeNombreSobreturno = sedeDoc ? sedeDoc.nombre : sedeIdSobreturno;
   }
 
-  // Para sobreturno: crear un "hueco" fake con los datos originales del formulario
+  // Etapa T4 (31/8, a pedido de Elías): ya no se guarda un horario fijo 09:00-10:00.
+  // Se calcula el bloque real según la agenda de ese día en esa sede: si hay lugar
+  // después del último turno ya cargado, ocupa la duración completa pedida; si no entra
+  // completa, se acomoda en lo que quede; si no queda nada de lugar, se carga con 1
+  // minuto (marca administrativa). Ver calcularBloqueSobreturno en turnero-motor.js.
+  const sedeDocParaHorario = sedesCacheCarga.find((s) => s.id === sedeIdSobreturno);
+  const turnosDelDiaEnSede = turnosExistentes.filter((t) =>
+    t.sedeId === sedeIdSobreturno && t.fecha === datosBasicos.fecha
+  );
+  const bloque = sedeDocParaHorario
+    ? calcularBloqueSobreturno(
+        sedeDocParaHorario.horaApertura,
+        sedeDocParaHorario.horaCierre,
+        turnosDelDiaEnSede,
+        datosBasicos.duracionTotalMinutos
+      )
+    : { horaInicio: "09:00", horaFin: "10:00" }; // resguardo si la sede no está en caché
+
+  // Para sobreturno: crear un "hueco" con los datos originales del formulario
   const hueco = {
     sedeId: sedeIdSobreturno,
     sedeNombre: sedeNombreSobreturno,
     fecha: datosBasicos.fecha,
     fechaLegible: formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00")),
-    horaInicio: "09:00", // placeholder, no se usa en sobreturno
-    horaFin: "10:00", // placeholder
+    horaInicio: bloque.horaInicio,
+    horaFin: bloque.horaFin,
     sillon: null // no hay sillón asignado real
   };
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
