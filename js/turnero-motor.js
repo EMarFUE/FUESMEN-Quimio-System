@@ -230,16 +230,28 @@ async function buscarHuecosEnSede(
     // --- T4: atadura de día del médico tratante ---
     // Si la sede tiene activada la atadura (usaAtaduraDia) y el médico es uno con ficha
     // propia (no "Otro" — eso es T5), se exige además que el médico atienda ESE día
-    // puntual en ESTA sede, según turneroMedicos.diasPorSede. Si no, el día se saltea
-    // igual que si la sede estuviera cerrada. Si es la fecha originalmente solicitada
-    // (diasDesde === 0) y sí había un sillón físico libre ese día — solo bloqueado por
-    // la atadura, no por falta de lugar —, se guarda como candidato para poder ofrecer
-    // "cargar igual como sobreturno este día" (agregado 31/8 a pedido de Elías; mismo
-    // patrón que el cupo por porcentaje, más abajo).
+    // puntual en ESTA sede, según turneroMedicos.diasPorSede.
+    //
+    // Corregido 31/8 (a pedido de Elías, tras probar la primera versión): si el día
+    // ESPECÍFICAMENTE PEDIDO (diasDesde === 0) no es válido para este médico en esta
+    // sede, el motor NO sigue buscando otros días por su cuenta dentro de esta sede —
+    // se corta la búsqueda acá mismo y se ofrece el cartel de atadura (con el hueco
+    // físico real de ese día, si existía, para poder cargarlo como sobreturno si se
+    // confirma). Antes el motor seguía probando los días siguientes y, como la mayoría
+    // de los médicos atienden ese día de la semana al menos una vez dentro de la
+    // ventana de 10 días, terminaba reprogramando en silencio sin avisar — exactamente
+    // lo que no se quería. (El cupo por porcentaje, más abajo, sigue con el criterio
+    // anterior — sí sigue buscando otros días solo —, confirmado que funciona bien.)
+    //
+    // Si el día pedido SÍ es válido para el médico pero, más adelante, la búsqueda
+    // automática de disponibilidad física prueba otros días (por falta de sillón, no
+    // por atadura), esos días siguientes sí se saltean en silencio si no le
+    // corresponden al médico — ahí no hace falta preguntar nada porque el día pedido
+    // originalmente ya quedó resuelto.
     if (usaAtaduraDia && medicoDoc) {
       const diasDelMedicoEnSede = (medicoDoc.diasPorSede && medicoDoc.diasPorSede[sedeNombre]) || [];
       if (!diasDelMedicoEnSede.includes(nombreDiaActual)) {
-        if (diasDesde === 0 && !candidatoAtaduraExcedida) {
+        if (diasDesde === 0) {
           const probeHueco = encontrarPrimerHuecoFisico(
             horaAperturaMinutos, horaCierreMinutos, duracionNormalizada, sillonesDisponibles, turnosDelDia
           );
@@ -254,6 +266,7 @@ async function buscarHuecosEnSede(
               medicoId
             };
           }
+          return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida };
         }
         continue;
       }
