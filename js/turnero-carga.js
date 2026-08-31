@@ -1133,12 +1133,16 @@ function mostrarBloqueoAtadura(resultadoBusqueda, datosBasicos) {
         <p style="font-size: 14px; color: var(--color-muted);">
           Intente cargar el turno los días ${diasValidosLegible}.
         </p>
+        <p style="font-size: 14px; color: var(--color-muted);">
+          Si es una urgencia o hace falta una excepción, contáctese con enfermería o administrador.
+        </p>
         <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoAtadura()">Entendido</button>
       `
       : `
         <p>Los días ${diaSolicitadoLegible} no atiende consultas en esta institución.</p>
         <p style="font-size: 14px; color: var(--color-muted);">
-          No tiene ningún día configurado en esta sede — consulte con el administrador.
+          No tiene ningún día configurado en esta sede. Si es una urgencia o hace falta una
+          excepción, contáctese con enfermería o administrador.
         </p>
         <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoAtadura()">Entendido</button>
       `;
