@@ -52,9 +52,13 @@ const TIPO_SOBRETURNO_ATADURA = "ataduraDia"; // había sillón, pero el médico
 //     // para poder cargarlo como sobreturno (tipoSobreturno: "cupoExcedido") si se confirma.
 //   },
 //   bloqueoAtadura?: { // T4 (31/8): igual que bloqueoCupo, pero la causa es que el médico
-//                      // no atiende ese día en esa sede (había sillón físico libre)
+//                      // no atiende ese día en esa sede (había sillón físico libre).
+//                      // A diferencia del cupo, el motor NO sigue buscando otros días
+//                      // solo cuando la causa es esta — se corta en el día pedido.
 //     tipo: "bloqueoTotal" | "confirmable",
 //     medicoId, sedeNombre, fechaLegible,
+//     nombreDiaSolicitado, // "lunes", etc. — para el mensaje específico del rol médico
+//     diasAtencionMedico, // ["jueves", "viernes"] — días que sí le corresponden en esta sede
 //     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin }
 //     // huecoDisponible solo si tipo === "confirmable", para cargarlo como sobreturno
 //     // (tipoSobreturno: "ataduraDia") si se confirma.
@@ -263,7 +267,13 @@ async function buscarHuecosEnSede(
               fechaLegible: formatearFechaLegibleMotor(fechaActual),
               horaInicio: probeHueco.horaInicio,
               horaFin: probeHueco.horaFin,
-              medicoId
+              medicoId,
+              // Agregado a pedido de Elías (31/8, segunda ronda): para el rol médico, el
+              // cartel de atadura ahora es específico ("los lunes no atiende, pruebe los
+              // jueves") en vez del mensaje genérico — hace falta saber qué día pidió y
+              // qué días sí le corresponden en esta sede para poder armar ese texto.
+              nombreDiaSolicitado: nombreDiaActual,
+              diasAtencionMedico: diasDelMedicoEnSede
             };
           }
           return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida };
@@ -596,7 +606,9 @@ async function buscarHuecos(
             tipo: "bloqueoTotal",
             medicoId: candidatoAtaduraExcedidoGlobal.medicoId,
             sedeNombre: candidatoAtaduraExcedidoGlobal.sedeNombre,
-            fechaLegible: candidatoAtaduraExcedidoGlobal.fechaLegible
+            fechaLegible: candidatoAtaduraExcedidoGlobal.fechaLegible,
+            nombreDiaSolicitado: candidatoAtaduraExcedidoGlobal.nombreDiaSolicitado,
+            diasAtencionMedico: candidatoAtaduraExcedidoGlobal.diasAtencionMedico
           },
           sinHuecosMotivo: "Ha alcanzado el límite máximo de pacientes para este día.",
           sedesIntentadas: sedesABuscar,
@@ -611,6 +623,8 @@ async function buscarHuecos(
           medicoId: candidatoAtaduraExcedidoGlobal.medicoId,
           sedeNombre: candidatoAtaduraExcedidoGlobal.sedeNombre,
           fechaLegible: candidatoAtaduraExcedidoGlobal.fechaLegible,
+          nombreDiaSolicitado: candidatoAtaduraExcedidoGlobal.nombreDiaSolicitado,
+          diasAtencionMedico: candidatoAtaduraExcedidoGlobal.diasAtencionMedico,
           huecoDisponible: {
             sedeId: candidatoAtaduraExcedidoGlobal.sedeId,
             sedeNombre: candidatoAtaduraExcedidoGlobal.sedeNombre,

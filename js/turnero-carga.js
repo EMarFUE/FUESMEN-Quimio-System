@@ -1075,6 +1075,26 @@ async function guardarConSobreturnoPorCupo(huecoDisponible, datosBasicos) {
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_CUPO);
 }
 
+// Etapa T4 (31/8, segunda ronda): nombres de día legibles (con tilde) para el mensaje
+// específico del rol médico en el cartel de atadura — turneroSedes/turneroMedicos/
+// turneroCupos guardan los días sin tilde ("miercoles", "sabado"), pero acá sí hace
+// falta mostrarlos bien escritos.
+const DIAS_LEGIBLES_ATADURA = {
+  lunes: "lunes", martes: "martes", miercoles: "miércoles",
+  jueves: "jueves", viernes: "viernes", sabado: "sábado", domingo: "domingo"
+};
+
+function diaLegible(nombreDia) {
+  return DIAS_LEGIBLES_ATADURA[nombreDia] || nombreDia || "";
+}
+
+function formatearListaDiasLegibles(diasArray) {
+  const legibles = (diasArray || []).map(diaLegible).filter(Boolean);
+  if (legibles.length === 0) return "";
+  if (legibles.length === 1) return legibles[0];
+  return `${legibles.slice(0, -1).join(", ")} y ${legibles[legibles.length - 1]}`;
+}
+
 // Etapa T4 (31/8, a pedido de Elías): cartel de atadura de día — distinto del modal de
 // sobreturno de siempre. No es que falte sillón físico: el médico no atiende ese día en
 // esa sede. Mismo patrón que mostrarBloqueoCupo.
@@ -1101,15 +1121,27 @@ function mostrarBloqueoAtadura(resultadoBusqueda, datosBasicos) {
 
   let cuerpoHTML;
   if (bloqueo.tipo === "bloqueoTotal") {
-    // Rol médico: mismo mensaje genérico que cualquier otra restricción (ver
-    // mostrarBloqueoCupo) — no le sirve saber que fue por el día, solo qué hacer.
-    cuerpoHTML = `
-      <p>Ha alcanzado el límite máximo de pacientes para este día.</p>
-      <p style="font-size: 14px; color: var(--color-muted);">
-        Probá con otra fecha, o pedile a enfermería/administrador que lo cargue si hace falta una excepción.
-      </p>
-      <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoAtadura()">Entendido</button>
-    `;
+    // Rol médico (agregado 31/8, segunda ronda, a pedido de Elías): a diferencia del
+    // cupo excedido, acá SÍ conviene un mensaje específico — le sirve saber qué días le
+    // corresponden en esta sede para poder cargar el turno él mismo, en vez de un
+    // mensaje genérico que lo manda a "probar otra fecha" a ciegas.
+    const diaSolicitadoLegible = diaLegible(bloqueo.nombreDiaSolicitado);
+    const diasValidosLegible = formatearListaDiasLegibles(bloqueo.diasAtencionMedico);
+    cuerpoHTML = diasValidosLegible
+      ? `
+        <p>Los días ${diaSolicitadoLegible} no atiende consultas en esta institución.</p>
+        <p style="font-size: 14px; color: var(--color-muted);">
+          Intente cargar el turno los días ${diasValidosLegible}.
+        </p>
+        <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoAtadura()">Entendido</button>
+      `
+      : `
+        <p>Los días ${diaSolicitadoLegible} no atiende consultas en esta institución.</p>
+        <p style="font-size: 14px; color: var(--color-muted);">
+          No tiene ningún día configurado en esta sede — consulte con el administrador.
+        </p>
+        <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoAtadura()">Entendido</button>
+      `;
   } else {
     // Rol enfermería/administrador: sí necesitan el motivo para decidir.
     cuerpoHTML = `
