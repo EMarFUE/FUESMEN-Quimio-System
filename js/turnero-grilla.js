@@ -112,8 +112,8 @@ async function iniciarAgenda(user, datosUsuario) {
     return;
   }
 
-  sedeSeleccionadaGrilla = sedesCacheGrilla.some(s => s.id === "emilio-civit")
-    ? "emilio-civit"
+  sedeSeleccionadaGrilla = sedesCacheGrilla.some(s => s.id === "entre-rios")
+    ? "entre-rios"
     : sedesCacheGrilla[0].id;
 
   renderizarSelectorSedeGrilla();
