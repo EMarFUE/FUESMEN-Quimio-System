@@ -22,19 +22,24 @@
 
     <div id="mensaje-agenda" class="mensaje-info" style="display:none;"></div>
 
-    <p style="color:var(--color-muted); font-size:13px; margin-top:-16px; margin-bottom:24px;">
+    <p class="nota-fase-grilla" style="color:var(--color-muted); font-size:13px; margin-top:-16px; margin-bottom:24px;">
       Etapa T6, fase 1 de 3 — por ahora es una vista de solo lectura. El botón "+ nuevo turno" y el arrastre
       para reasignar llegan en las próximas entregas.
     </p>
 
     <div class="barra-controles-grilla">
       <div id="selector-sede-grilla" class="selector-sede-grilla"></div>
+      <select id="filtro-medico-grilla" class="filtro-medico-grilla" onchange="cambiarFiltroMedicoGrilla(this.value)">
+        <option value="">Todos los médicos</option>
+      </select>
       <div class="navegacion-semana-grilla">
         <button type="button" onclick="cambiarSemanaGrilla(-1)">‹ Semana anterior</button>
         <span class="etiqueta-semana-grilla" id="etiqueta-semana-grilla"></span>
         <button type="button" onclick="irASemanaActualGrilla()">Hoy</button>
         <button type="button" onclick="cambiarSemanaGrilla(1)">Semana siguiente ›</button>
       </div>
+      <button type="button" id="boton-pantalla-completa-grilla" class="boton-pantalla-completa-grilla"
+        onclick="alternarPantallaCompletaGrilla()">⛶ Pantalla completa</button>
     </div>
 
     <div class="grilla-scroll-grilla">

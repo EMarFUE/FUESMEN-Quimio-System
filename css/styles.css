@@ -1149,6 +1149,67 @@ h1 {
   color: var(--color-muted);
 }
 
+.filtro-medico-grilla {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-text);
+  font-family: var(--font);
+  background: var(--color-surface);
+}
+
+.boton-pantalla-completa-grilla {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+.boton-pantalla-completa-grilla:hover {
+  background: var(--color-bg);
+}
+
+.linea-superior-turno-grilla {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.detalle-turno-grilla {
+  color: var(--color-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+/* Pantalla completa: oculta el encabezado institucional y la nota de fase para
+   aprovechar el alto de la pantalla en la grilla. El resto de las pantallas del
+   sistema no se toca — esto aplica únicamente cuando el body tiene esta clase,
+   que solo se agrega desde agenda.html. */
+body.pantalla-completa-grilla .encabezado-sesion,
+body.pantalla-completa-grilla .nota-fase-grilla {
+  display: none;
+}
+
+body.pantalla-completa-grilla .contenedor-ancho {
+  max-width: 100%;
+  padding: 16px 20px;
+}
+
+body.pantalla-completa-grilla .grilla-scroll-grilla {
+  max-height: calc(100vh - 130px);
+}
+
+.grilla-scroll-grilla {
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+}
+
 @media (max-width: 560px) {
   .contenedor-ancho {
     padding: 24px 12px;

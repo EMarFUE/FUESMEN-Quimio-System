@@ -4,6 +4,14 @@
 // como etiqueta visible para el personal. Sin modal de carga ni arrastre todavía
 // (llegan en las Fases 2 y 3).
 //
+// Ronda de ajustes (2/9): se agregó el sábado como sexta columna (mismo horario
+// que el resto de la semana — todavía no existe el mecanismo de "bloqueo
+// invertido" del punto 3 del alcance para los sábados puntuales de Emilio Civit,
+// así que esto es solo una columna más en la grilla, no cambia el motor de
+// búsqueda de huecos), filtro por médico, más datos en la tarjeta cuando la
+// altura del bloque lo permite (ciclo/sesión, DNI, obra social), y modo de
+// pantalla completa para aprovechar mejor el alto de la pantalla.
+//
 // Reutiliza los helpers de fecha/hora de turnero-motor.js (minutoDesdeString,
 // stringDesdeMinuto, fechaISO) — este archivo no los redeclara.
 //
@@ -13,21 +21,24 @@
 // evitar colisión de scope global entre los tres archivos, mismo criterio que
 // ya se viene aplicando desde T3.
 
-const DIAS_SEMANA_GRILLA = ["lunes", "martes", "miercoles", "jueves", "viernes"];
+const DIAS_SEMANA_GRILLA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 const DIAS_LABEL_GRILLA = {
   lunes: "Lunes", martes: "Martes", miercoles: "Miércoles",
-  jueves: "Jueves", viernes: "Viernes"
+  jueves: "Jueves", viernes: "Viernes", sabado: "Sábado"
 };
 const MESES_LABEL_GRILLA = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ];
 const PIXELES_POR_MINUTO_GRILLA = 2; // escala vertical de la grilla
+const ALTO_LINEA_GRILLA = 13; // alto aproximado de cada línea de texto dentro de una tarjeta
+const LINEAS_BASE_GRILLA = 3; // sillón+horario, paciente, médico — siempre se muestran
 
 let sedesCacheGrilla = [];
 let turnosCacheGrilla = [];
 let sedeSeleccionadaGrilla = null; // id de la sede activa (p. ej. "emilio-civit")
 let semanaOffsetGrilla = 0; // 0 = semana actual, -1 = anterior, +1 = siguiente
+let medicoFiltroGrilla = null; // null = todos los médicos
 let rolActualGrilla = null;
 
 function escaparHtmlGrilla(texto) {
@@ -36,7 +47,7 @@ function escaparHtmlGrilla(texto) {
   return div.innerHTML;
 }
 
-// --- Cálculo de la semana visible (lunes a viernes) ---
+// --- Cálculo de la semana visible (lunes a sábado) ---
 
 function calcularLunesGrilla(fechaBase) {
   const fecha = new Date(fechaBase);
@@ -53,7 +64,7 @@ function obtenerDiasVisiblesGrilla() {
   lunesVisible.setDate(lunesVisible.getDate() + semanaOffsetGrilla * 7);
 
   const dias = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) { // lunes a sábado
     const dia = new Date(lunesVisible);
     dia.setDate(dia.getDate() + i);
     dias.push(dia);
@@ -114,6 +125,7 @@ function renderizarSelectorSedeGrilla() {
 
 async function cambiarSedeGrilla(sedeId) {
   sedeSeleccionadaGrilla = sedeId;
+  medicoFiltroGrilla = null; // el listado de médicos cambia con la sede
   renderizarSelectorSedeGrilla();
   await cargarYRenderizarGrilla();
 }
@@ -126,6 +138,37 @@ async function cambiarSemanaGrilla(delta) {
 async function irASemanaActualGrilla() {
   semanaOffsetGrilla = 0;
   await cargarYRenderizarGrilla();
+}
+
+// --- Filtro por médico ---
+
+function poblarFiltroMedicoGrilla() {
+  const nombres = Array.from(new Set(
+    turnosCacheGrilla.map(t => t.medicoNombre).filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b, "es"));
+
+  // Si el médico filtrado ya no aparece en esta sede/semana, volver a "Todos"
+  // en vez de dejar el filtro aplicado sobre una opción que no existe más.
+  if (medicoFiltroGrilla && !nombres.includes(medicoFiltroGrilla)) {
+    medicoFiltroGrilla = null;
+  }
+
+  const select = document.getElementById("filtro-medico-grilla");
+  select.innerHTML = `<option value="">Todos los médicos</option>` +
+    nombres.map(nombre => `<option value="${escaparHtmlGrilla(nombre)}" ${nombre === medicoFiltroGrilla ? "selected" : ""}>${escaparHtmlGrilla(nombre)}</option>`).join("");
+}
+
+function cambiarFiltroMedicoGrilla(valor) {
+  medicoFiltroGrilla = valor || null;
+  renderizarGrilla(); // ya está todo en caché, no hace falta volver a consultar Firestore
+}
+
+// --- Pantalla completa ---
+
+function alternarPantallaCompletaGrilla() {
+  const activo = document.body.classList.toggle("pantalla-completa-grilla");
+  document.getElementById("boton-pantalla-completa-grilla").textContent =
+    activo ? "⛶ Salir de pantalla completa" : "⛶ Pantalla completa";
 }
 
 // --- Carga de turnos de la sede activa ---
@@ -144,6 +187,7 @@ async function cargarYRenderizarGrilla() {
 
   try {
     await cargarTurnosGrilla();
+    poblarFiltroMedicoGrilla();
     renderizarGrilla();
   } catch (error) {
     console.error("Error al cargar la agenda:", error);
@@ -169,9 +213,13 @@ function renderizarGrilla() {
     etiquetasHtml += `<div class="etiqueta-hora-grilla" style="top:${top}px;">${stringDesdeMinuto(minuto)}</div>`;
   }
 
+  const turnosVisibles = medicoFiltroGrilla
+    ? turnosCacheGrilla.filter(t => t.medicoNombre === medicoFiltroGrilla)
+    : turnosCacheGrilla;
+
   const columnasHtml = dias.map((dia, indice) => {
     const fechaDiaISO = fechaISO(dia);
-    const turnosDelDia = turnosCacheGrilla.filter(t => t.fecha === fechaDiaISO);
+    const turnosDelDia = turnosVisibles.filter(t => t.fecha === fechaDiaISO);
     const tarjetasHtml = turnosDelDia
       .map(turno => renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede))
       .join("");
@@ -216,14 +264,49 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede) {
   const esBackup = infoSillon && infoSillon.tipo === "backup";
   const textoSillon = turno.sillon != null ? `S${turno.sillon}` : "S?";
 
-  const tituloCompleto = `${escaparHtmlGrilla(paciente)} · ${escaparHtmlGrilla(turno.medicoNombre || "")} · ${turno.horarioInicio}–${turno.horarioFin}`;
+  // Líneas opcionales, en el orden pedido: ciclo/sesión, DNI, obra social.
+  // Solo se muestran las que entran según el alto real de la tarjeta (proporcional
+  // a la duración del turno) — en tarjetas cortas no se agrega ninguna, y el
+  // tooltip (title) siempre tiene el detalle completo igual.
+  const lineasOpcionales = [];
+  if (turno.ciclo != null || turno.sesion != null) {
+    const partes = [];
+    if (turno.ciclo != null) partes.push(`Ciclo ${turno.ciclo}`);
+    if (turno.sesion != null) partes.push(`Sesión ${turno.sesion}`);
+    lineasOpcionales.push(partes.join(" · "));
+  }
+  if (turno.paciente && turno.paciente.numeroDocumento) {
+    lineasOpcionales.push(`DNI ${turno.paciente.numeroDocumento}`);
+  }
+  if (turno.paciente && turno.paciente.obraSocial) {
+    lineasOpcionales.push(turno.paciente.obraSocial);
+  }
+
+  const lineasDisponibles = Math.floor((alto - 8) / ALTO_LINEA_GRILLA) - LINEAS_BASE_GRILLA;
+  const lineasAMostrar = lineasOpcionales.slice(0, Math.max(lineasDisponibles, 0));
+  const lineasOpcionalesHtml = lineasAMostrar
+    .map(texto => `<span class="detalle-turno-grilla">${escaparHtmlGrilla(texto)}</span>`)
+    .join("");
+
+  const tituloPartes = [
+    paciente,
+    turno.medicoNombre || "",
+    `${turno.horarioInicio}–${turno.horarioFin}`,
+    (turno.ciclo != null || turno.sesion != null) ? `Ciclo ${turno.ciclo ?? "-"} · Sesión ${turno.sesion ?? "-"}` : null,
+    turno.paciente && turno.paciente.numeroDocumento ? `DNI ${turno.paciente.numeroDocumento}` : null,
+    turno.paciente && turno.paciente.obraSocial ? turno.paciente.obraSocial : null
+  ].filter(Boolean);
+  const tituloCompleto = escaparHtmlGrilla(tituloPartes.join(" · "));
 
   return `
     <div class="tarjeta-turno-grilla" style="top:${top}px;height:${alto}px;" title="${tituloCompleto}">
-      <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
-      <span class="horario-turno-grilla">${turno.horarioInicio}</span>
+      <span class="linea-superior-turno-grilla">
+        <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
+        <span class="horario-turno-grilla">${turno.horarioInicio}</span>
+      </span>
       <span class="paciente-turno-grilla">${escaparHtmlGrilla(paciente)}</span>
       <span class="medico-turno-grilla">${escaparHtmlGrilla(turno.medicoNombre || "")}</span>
+      ${lineasOpcionalesHtml}
     </div>
   `;
 }
