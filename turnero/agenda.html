@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agenda semanal · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor-ancho">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Turnero</a> &gt; Agenda semanal</div>
+        <h1 style="margin-bottom:0;margin-top:8px;">Agenda semanal</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-agenda" class="mensaje-info" style="display:none;"></div>
+
+    <p style="color:var(--color-muted); font-size:13px; margin-top:-16px; margin-bottom:24px;">
+      Etapa T6, fase 1 de 3 — por ahora es una vista de solo lectura. El botón "+ nuevo turno" y el arrastre
+      para reasignar llegan en las próximas entregas.
+    </p>
+
+    <div class="barra-controles-grilla">
+      <div id="selector-sede-grilla" class="selector-sede-grilla"></div>
+      <div class="navegacion-semana-grilla">
+        <button type="button" onclick="cambiarSemanaGrilla(-1)">‹ Semana anterior</button>
+        <span class="etiqueta-semana-grilla" id="etiqueta-semana-grilla"></span>
+        <button type="button" onclick="irASemanaActualGrilla()">Hoy</button>
+        <button type="button" onclick="cambiarSemanaGrilla(1)">Semana siguiente ›</button>
+      </div>
+    </div>
+
+    <div class="grilla-scroll-grilla">
+      <div id="grilla-contenedor">
+        <p style="color:var(--color-muted);padding:20px;">Cargando...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/turnero-motor.js"></script>
+  <script src="../js/turnero-grilla.js"></script>
+  <script>
+    requireAuth(async (user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtmlGrilla(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      await iniciarAgenda(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>
