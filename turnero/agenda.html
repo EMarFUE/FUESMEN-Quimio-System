@@ -8,24 +8,19 @@
 </head>
 <body style="visibility:hidden">
   <div class="contenedor-ancho">
-    <div class="encabezado-sesion">
-      <div>
-        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
-        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Turnero</a> &gt; Agenda semanal</div>
-        <h1 style="margin-bottom:0;margin-top:8px;">Agenda semanal</h1>
+    <div class="barra-superior-grilla">
+      <div class="titulo-agenda-grilla">
+        <a href="index.html">← Turnero</a>
+        <span class="separador-titulo-grilla">·</span>
+        <strong>Agenda semanal</strong>
       </div>
-      <div style="text-align:right;">
-        <div class="datos-sesion" id="datos-sesion"></div>
-        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      <div class="sesion-compacta-grilla">
+        <span class="datos-sesion" id="datos-sesion"></span>
+        <button class="boton-secundario" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
       </div>
     </div>
 
     <div id="mensaje-agenda" class="mensaje-info" style="display:none;"></div>
-
-    <p class="nota-fase-grilla" style="color:var(--color-muted); font-size:13px; margin-top:-16px; margin-bottom:24px;">
-      Etapa T6, fase 1 de 3 — por ahora es una vista de solo lectura. El botón "+ nuevo turno" y el arrastre
-      para reasignar llegan en las próximas entregas.
-    </p>
 
     <div class="barra-controles-grilla">
       <div id="selector-sede-grilla" class="selector-sede-grilla"></div>
@@ -38,8 +33,6 @@
         <button type="button" onclick="irASemanaActualGrilla()">Hoy</button>
         <button type="button" onclick="cambiarSemanaGrilla(1)">Semana siguiente ›</button>
       </div>
-      <button type="button" id="boton-pantalla-completa-grilla" class="boton-pantalla-completa-grilla"
-        onclick="alternarPantallaCompletaGrilla()">⛶ Pantalla completa</button>
     </div>
 
     <div class="grilla-scroll-grilla">

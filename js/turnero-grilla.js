@@ -163,14 +163,6 @@ function cambiarFiltroMedicoGrilla(valor) {
   renderizarGrilla(); // ya está todo en caché, no hace falta volver a consultar Firestore
 }
 
-// --- Pantalla completa ---
-
-function alternarPantallaCompletaGrilla() {
-  const activo = document.body.classList.toggle("pantalla-completa-grilla");
-  document.getElementById("boton-pantalla-completa-grilla").textContent =
-    activo ? "⛶ Salir de pantalla completa" : "⛶ Pantalla completa";
-}
-
 // --- Carga de turnos de la sede activa ---
 
 async function cargarTurnosGrilla() {

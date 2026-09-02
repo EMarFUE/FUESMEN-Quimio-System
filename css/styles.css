@@ -957,14 +957,55 @@ h1 {
   margin-bottom: 20px;
 }
 
+
 /* ===== Etapa T6 — Agenda semanal (grilla tipo Excel por sede) =====
-   Contenedor más ancho que el resto del sistema (720px no alcanza para 5 días
-   legibles a la vez); el resto del sistema sigue usando .contenedor sin cambios. */
+   Contenedor más ancho que el resto del sistema (720px no alcanza para 6 días
+   legibles a la vez), con una barra superior compacta propia en vez del
+   encabezado grande del resto del sistema — el resto sigue igual, sin cambios. */
 
 .contenedor-ancho {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 48px 24px;
+  padding: 24px 24px 40px;
+}
+
+/* Barra superior compacta de agenda.html — reemplaza el encabezado grande
+   (logo + título grande + migas de pan) que usa el resto del sistema. */
+.barra-superior-grilla {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.titulo-agenda-grilla {
+  font-size: 14.5px;
+  color: var(--color-text);
+}
+
+.titulo-agenda-grilla a {
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.titulo-agenda-grilla a:hover {
+  text-decoration: underline;
+}
+
+.separador-titulo-grilla {
+  color: var(--color-border);
+  margin: 0 6px;
+}
+
+.sesion-compacta-grilla {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
 }
 
 .barra-controles-grilla {
@@ -1003,6 +1044,16 @@ h1 {
   font-weight: 600;
 }
 
+.filtro-medico-grilla {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-text);
+  font-family: var(--font);
+  background: var(--color-surface);
+}
+
 .navegacion-semana-grilla {
   display: flex;
   align-items: center;
@@ -1031,6 +1082,8 @@ h1 {
 }
 
 .grilla-scroll-grilla {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
   overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -1039,7 +1092,7 @@ h1 {
 
 .grilla-turnero {
   display: flex;
-  min-width: 780px;
+  min-width: 890px;
 }
 
 .eje-horario-grilla {
@@ -1078,6 +1131,9 @@ h1 {
   font-weight: 600;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg);
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .encabezado-dia-grilla.hoy {
@@ -1118,6 +1174,12 @@ h1 {
   gap: 1px;
 }
 
+.linea-superior-turno-grilla {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .badge-sillon-grilla {
   align-self: flex-start;
   font-size: 10px;
@@ -1139,80 +1201,21 @@ h1 {
 }
 
 .paciente-turno-grilla,
-.medico-turno-grilla {
+.medico-turno-grilla,
+.detalle-turno-grilla {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
 }
 
-.medico-turno-grilla {
-  color: var(--color-muted);
-}
-
-.filtro-medico-grilla {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 8px 12px;
-  font-size: 13px;
-  color: var(--color-text);
-  font-family: var(--font);
-  background: var(--color-surface);
-}
-
-.boton-pantalla-completa-grilla {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 8px 14px;
-  font-size: 13px;
-  color: var(--color-text);
-  cursor: pointer;
-  font-family: var(--font);
-}
-
-.boton-pantalla-completa-grilla:hover {
-  background: var(--color-bg);
-}
-
-.linea-superior-turno-grilla {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
+.medico-turno-grilla,
 .detalle-turno-grilla {
   color: var(--color-muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-
-/* Pantalla completa: oculta el encabezado institucional y la nota de fase para
-   aprovechar el alto de la pantalla en la grilla. El resto de las pantallas del
-   sistema no se toca — esto aplica únicamente cuando el body tiene esta clase,
-   que solo se agrega desde agenda.html. */
-body.pantalla-completa-grilla .encabezado-sesion,
-body.pantalla-completa-grilla .nota-fase-grilla {
-  display: none;
-}
-
-body.pantalla-completa-grilla .contenedor-ancho {
-  max-width: 100%;
-  padding: 16px 20px;
-}
-
-body.pantalla-completa-grilla .grilla-scroll-grilla {
-  max-height: calc(100vh - 130px);
-}
-
-.grilla-scroll-grilla {
-  max-height: calc(100vh - 300px);
-  overflow-y: auto;
 }
 
 @media (max-width: 560px) {
   .contenedor-ancho {
-    padding: 24px 12px;
+    padding: 16px 12px 32px;
   }
   .barra-controles-grilla {
     flex-direction: column;
