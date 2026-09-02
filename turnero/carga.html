@@ -173,9 +173,9 @@
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
 
-      if (datosUsuario.rol === "administrativo") {
+      if (datosUsuario.rol !== "administrador") {
         document.getElementById("mensaje-general").className = "mensaje-info error";
-        document.getElementById("mensaje-general").textContent = "Esta pantalla es exclusiva para administrador, enfermería y médico.";
+        document.getElementById("mensaje-general").textContent = "Esta pantalla es exclusiva para administrador. Para cargar turnos, usá \"+ nuevo turno\" desde la agenda semanal.";
         document.getElementById("mensaje-general").style.display = "block";
         return;
       }

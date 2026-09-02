@@ -40,6 +40,9 @@ let sedeSeleccionadaGrilla = null; // id de la sede activa (p. ej. "emilio-civit
 let semanaOffsetGrilla = 0; // 0 = semana actual, -1 = anterior, +1 = siguiente
 let medicoFiltroGrilla = null; // null = todos los médicos
 let rolActualGrilla = null;
+let usuarioActualGrilla = null;
+let datosUsuarioActualGrilla = null;
+let modalNuevoTurnoInicializadoGrilla = false;
 
 function escaparHtmlGrilla(texto) {
   const div = document.createElement("div");
@@ -85,6 +88,14 @@ function formatearRangoSemanaGrilla(dias) {
 
 async function iniciarAgenda(user, datosUsuario) {
   rolActualGrilla = datosUsuario.rol;
+  usuarioActualGrilla = user;
+  datosUsuarioActualGrilla = datosUsuario;
+
+  // Fase 2: "+ nuevo turno" — mismos roles que ya podían cargar en carga.html
+  // (administrativo queda sin este botón, solo lectura de la agenda).
+  if (rolActualGrilla !== "administrativo") {
+    document.getElementById("boton-nuevo-turno-grilla").style.display = "inline-block";
+  }
 
   try {
     await cargarSedesGrilla();
@@ -161,6 +172,48 @@ function poblarFiltroMedicoGrilla() {
 function cambiarFiltroMedicoGrilla(valor) {
   medicoFiltroGrilla = valor || null;
   renderizarGrilla(); // ya está todo en caché, no hace falta volver a consultar Firestore
+}
+
+// --- Modal "+ nuevo turno" (Fase 2) ---
+// Reutiliza el formulario y la lógica de turnero-carga.js sin tocarlos. La primera
+// vez que se abre, se inicializa completo (listeners + datos + primera fila de
+// protocolo). Las siguientes veces solo se refrescan los datos (sobre todo turnos,
+// para que el motor no trabaje con información vieja) y se resetea el formulario
+// con las funciones que turnero-carga.js ya expone para eso — evita re-adjuntar
+// listeners duplicados o duplicar filas de protocolo.
+
+async function abrirModalNuevoTurnoGrilla() {
+  document.getElementById("overlay-nuevo-turno-grilla").style.display = "flex";
+
+  if (!modalNuevoTurnoInicializadoGrilla) {
+    modalNuevoTurnoInicializadoGrilla = true;
+    await iniciarCargaTurno(usuarioActualGrilla, datosUsuarioActualGrilla);
+    observarGuardadoTurnoGrilla();
+  } else {
+    await Promise.all([
+      cargarPacientesCarga(), cargarMedicosCarga(), cargarProtocolosCarga(),
+      cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga()
+    ]);
+    poblarSelectMedico();
+    poblarSelectSedeManual();
+    resetearFormularioCarga();
+  }
+}
+
+function cerrarModalNuevoTurnoGrilla() {
+  document.getElementById("overlay-nuevo-turno-grilla").style.display = "none";
+  cargarYRenderizarGrilla(); // por si se guardó algún turno mientras estaba abierto
+}
+
+function observarGuardadoTurnoGrilla() {
+  const mensaje = document.getElementById("mensaje-general");
+  const observer = new MutationObserver(() => {
+    if (mensaje.textContent.trim() === "Turno guardado correctamente.") {
+      cargarYRenderizarGrilla(); // refresca la grilla de fondo sin cerrar el modal,
+      // así se puede seguir cargando turnos para otros pacientes y ver el resultado
+    }
+  });
+  observer.observe(mensaje, { childList: true, characterData: true, subtree: true });
 }
 
 // --- Menú de cuenta (contraído por defecto: volver a Turnero / cerrar sesión) ---
