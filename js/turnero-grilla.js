@@ -163,6 +163,22 @@ function cambiarFiltroMedicoGrilla(valor) {
   renderizarGrilla(); // ya está todo en caché, no hace falta volver a consultar Firestore
 }
 
+// --- Menú de cuenta (contraído por defecto: volver a Turnero / cerrar sesión) ---
+
+function alternarMenuCuentaGrilla(evento) {
+  evento.stopPropagation();
+  const panel = document.getElementById("panel-menu-cuenta-grilla");
+  panel.style.display = panel.style.display === "block" ? "none" : "block";
+}
+
+document.addEventListener("click", (evento) => {
+  const panel = document.getElementById("panel-menu-cuenta-grilla");
+  if (!panel || panel.style.display !== "block") return;
+  const boton = document.querySelector(".boton-menu-cuenta-grilla");
+  if (panel.contains(evento.target) || (boton && boton.contains(evento.target))) return;
+  panel.style.display = "none";
+});
+
 // --- Carga de turnos de la sede activa ---
 
 async function cargarTurnosGrilla() {

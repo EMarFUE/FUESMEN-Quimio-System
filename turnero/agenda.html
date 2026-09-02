@@ -8,18 +8,6 @@
 </head>
 <body style="visibility:hidden">
   <div class="contenedor-ancho">
-    <div class="barra-superior-grilla">
-      <div class="titulo-agenda-grilla">
-        <a href="index.html">← Turnero</a>
-        <span class="separador-titulo-grilla">·</span>
-        <strong>Agenda semanal</strong>
-      </div>
-      <div class="sesion-compacta-grilla">
-        <span class="datos-sesion" id="datos-sesion"></span>
-        <button class="boton-secundario" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
-      </div>
-    </div>
-
     <div id="mensaje-agenda" class="mensaje-info" style="display:none;"></div>
 
     <div class="barra-controles-grilla">
@@ -32,6 +20,14 @@
         <span class="etiqueta-semana-grilla" id="etiqueta-semana-grilla"></span>
         <button type="button" onclick="irASemanaActualGrilla()">Hoy</button>
         <button type="button" onclick="cambiarSemanaGrilla(1)">Semana siguiente ›</button>
+        <div class="menu-cuenta-grilla">
+          <button type="button" class="boton-menu-cuenta-grilla" onclick="alternarMenuCuentaGrilla(event)" title="Cuenta">☰</button>
+          <div class="panel-menu-cuenta-grilla" id="panel-menu-cuenta-grilla" style="display:none;">
+            <div class="datos-sesion-menu-grilla" id="datos-sesion"></div>
+            <a href="index.html" class="opcion-menu-cuenta-grilla">← Volver a Turnero</a>
+            <button type="button" class="opcion-menu-cuenta-grilla" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+          </div>
+        </div>
       </div>
     </div>
 
