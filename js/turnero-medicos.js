@@ -139,6 +139,46 @@ async function cargarSeedMedicos() {
 function renderizarTablas() {
   renderizarTablaSede(SEDE_CIVIT, "cuerpo-tabla-medicos-civit");
   renderizarTablaSede(SEDE_ENTRE_RIOS, "cuerpo-tabla-medicos-entrerios");
+  renderizarTablaHabilitados();
+}
+
+// Permiso nuevo (feedback post-Fase 3 del Turnero): habilita o deshabilita que ESE
+// médico, con su propio usuario de rol médico, pueda cargar turnos nuevos o arrastrar
+// los suyos en la agenda. No afecta a enfermería/administrador, que siempre pueden
+// cargar y mover turnos de cualquier médico — es una restricción sobre el login del
+// médico puntual, no sobre el médico como entidad del catálogo. Ausente en el
+// documento = habilitado (no hace falta migrar a los médicos ya cargados).
+function renderizarTablaHabilitados() {
+  const tbody = document.getElementById("cuerpo-tabla-medicos-habilitado");
+  if (!tbody) return;
+  tbody.innerHTML = medicosCache.map(medico => {
+    const habilitado = medico.habilitadoParaCargar !== false;
+    return `<tr>
+      <td>${escaparHtml(medico.nombre)}</td>
+      <td>
+        <input type="checkbox" ${habilitado ? "checked" : ""}
+          onchange="onCambiarHabilitado('${medico.id}', this.checked)" />
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function onCambiarHabilitado(medicoId, habilitado) {
+  const medico = medicosCache.find(m => m.id === medicoId);
+  if (!medico) return;
+
+  try {
+    await db.collection("turneroMedicos").doc(medicoId).update({ habilitadoParaCargar: habilitado });
+    medico.habilitadoParaCargar = habilitado;
+    mostrarMensajeMedicos(
+      habilitado ? "Médico habilitado para cargar y modificar turnos." : "Médico deshabilitado. Sus turnos ya cargados quedan congelados salvo que enfermería o un administrador los mueva.",
+      "exito"
+    );
+  } catch (error) {
+    console.error("Error al actualizar el permiso del médico:", error);
+    mostrarMensajeMedicos("No se pudo guardar el cambio.", "error");
+    renderizarTablaHabilitados(); // revertir el checkbox visualmente si falló el guardado
+  }
 }
 
 function renderizarTablaSede(sede, idTbody) {

@@ -168,6 +168,24 @@ function encontrarPrimerHuecoFisico(horaAperturaMinutos, horaCierreMinutos, dura
   return null;
 }
 
+// --- Regla nueva (post-Fase 3, feedback de Elías): un mismo paciente no puede tener
+// más de un turno activo el mismo día, en ninguna de las dos sedes. Bloqueo total, sin
+// excepción de rol (a diferencia de atadura/cupo, acá no hay variante "confirmable" para
+// enfermería/administrador). Se calcula una sola vez por búsqueda, con la lista COMPLETA
+// de turnos (todas las sedes, no la ya filtrada por sede que usa el resto del motor) —
+// por eso es un parámetro aparte en vez de derivarse de turnosExistentesEnSede.
+function diasBloqueadosPorPaciente(pacienteId, turnosExistentesTodasSedes, turnoIdExcluir) {
+  const fechas = new Set();
+  if (!pacienteId) return fechas;
+  for (const turno of (turnosExistentesTodasSedes || [])) {
+    if (turnoIdExcluir && turno.id === turnoIdExcluir) continue; // el propio turno arrastrado, si aplica
+    if (turno.paciente && turno.paciente.id === pacienteId && typeof turno.fecha === "string") {
+      fechas.add(turno.fecha);
+    }
+  }
+  return fechas;
+}
+
 // --- Evaluación de un solo día (T6 Fase 3: extraído de buscarHuecosEnSede) ---
 //
 // Contiene, sin cambios de comportamiento respecto de la versión anterior, la atadura
@@ -188,6 +206,7 @@ function evaluarDiaEnSede({
   horaAperturaMinutos, horaCierreMinutos, duracionMinutos, duracionNormalizada,
   turnosDelDia, turnosExistentesEnSede, sillonesDisponibles,
   medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura,
+  diasBloqueadosPaciente, // Set de fechas ISO donde el paciente ya tiene otro turno (o undefined/vacío)
   capturarCandidato // bool: true solo cuando corresponde buscar el candidato físico de
                      // respaldo para ofrecer como sobreturno (diasDesde === 0 en la
                      // búsqueda secuencial); la búsqueda semanal siempre pasa false,
@@ -195,16 +214,29 @@ function evaluarDiaEnSede({
 }) {
   // Retorna:
   // {
+  //   bloqueadoPorPaciente: bool,           // el paciente ya tiene otro turno ese día (cualquier sede)
   //   bloqueadoPorAtadura: bool,
   //   candidatoAtadura: {...} | null,      // solo si bloqueadoPorAtadura && capturarCandidato
   //   nombreDiaSolicitado, diasAtencionMedico, // metadata de atadura, solo si bloqueadoPorAtadura
   //   bloqueadoPorCupo: bool,
   //   candidatoCupo: {...} | null,         // solo si bloqueadoPorCupo && capturarCandidato
-  //   huecos: [...]                        // vacío si bloqueado por atadura o cupo;
+  //   huecos: [...]                        // vacío si bloqueado por paciente, atadura o cupo;
   //                                         // si no, huecos físicos válidos de ese día
   //                                         // (sin ordenar todavía — ordenar por mejor
   //                                         // ajuste queda a cargo de quien llama)
   // }
+
+  // El bloqueo por paciente es el más básico de los tres: si el paciente ya tiene otro
+  // turno ese día, no importa qué médico o qué cupo esté en juego, el día no sirve.
+  // Nunca hay candidato de sobreturno para esto — es bloqueo total, sin excepción de rol.
+  if (diasBloqueadosPaciente && diasBloqueadosPaciente.has(fechaActualISO)) {
+    return {
+      bloqueadoPorPaciente: true,
+      bloqueadoPorAtadura: false, candidatoAtadura: null,
+      bloqueadoPorCupo: false, candidatoCupo: null,
+      huecos: []
+    };
+  }
 
   // --- T4: atadura de día del médico tratante ---
   // Si la sede tiene activada la atadura (usaAtaduraDia) y el médico es uno con ficha
@@ -229,6 +261,7 @@ function evaluarDiaEnSede({
         }
       }
       return {
+        bloqueadoPorPaciente: false,
         bloqueadoPorAtadura: true, candidatoAtadura,
         nombreDiaSolicitado: nombreDiaActual, diasAtencionMedico: diasDelMedicoEnSede,
         bloqueadoPorCupo: false, candidatoCupo: null,
@@ -271,6 +304,7 @@ function evaluarDiaEnSede({
           }
         }
         return {
+          bloqueadoPorPaciente: false,
           bloqueadoPorAtadura: false, candidatoAtadura: null,
           bloqueadoPorCupo: true, candidatoCupo,
           huecos: []
@@ -330,6 +364,7 @@ function evaluarDiaEnSede({
   }
 
   return {
+    bloqueadoPorPaciente: false,
     bloqueadoPorAtadura: false, candidatoAtadura: null,
     bloqueadoPorCupo: false, candidatoCupo: null,
     huecos
@@ -352,17 +387,21 @@ async function buscarHuecosEnSede(
   medicoDoc, // T4: doc de turneroMedicos del médico, o undefined si no aplica (p. ej. "Otro")
   usaAtaduraDia, // T4: bool, de turneroSedes.usaAtaduraDia
   usaCuposPorcentaje, // T4: bool, de turneroSedes.usaCuposPorcentaje
-  cuposCacheLectura // T4: array de docs de turneroCupos
+  cuposCacheLectura, // T4: array de docs de turneroCupos
+  diasBloqueadosPaciente // opcional: Set de fechas ISO donde el paciente ya tiene otro turno
 ) {
-  // Retorna { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida }.
-  // huecos: array de huecos válidos (de mayor a menor ajuste), ya filtrados por atadura y cupo.
+  // Retorna { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia }.
+  // huecos: array de huecos válidos (de mayor a menor ajuste), ya filtrados por paciente/atadura/cupo.
   // candidatoCupoExcedido / candidatoAtaduraExcedida: solo si en la fecha originalmente
   // solicitada (diasDesde === 0) había un hueco físico real pero esa regla lo bloqueó —
-  // para ofrecerlo después como sobreturno.
+  // para ofrecerlo después como sobreturno. bloqueadoPorPacienteMismoDia: true si el día
+  // puntualmente pedido está bloqueado porque el paciente ya tiene otro turno ese día —
+  // nunca ofrece sobreturno, es bloqueo total sin excepción de rol.
 
   const huecos = [];
   let candidatoCupoExcedido = null;
   let candidatoAtaduraExcedida = null;
+  let bloqueadoPorPacienteMismoDia = false;
   const horaAperturaMinutos = minutoDesdeString(horaAperturaString);
   const horaCierreMinutos = minutoDesdeString(horaCierreString);
 
@@ -405,8 +444,21 @@ async function buscarHuecosEnSede(
       horaAperturaMinutos, horaCierreMinutos, duracionMinutos, duracionNormalizada,
       turnosDelDia, turnosExistentesEnSede, sillonesDisponibles,
       medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura,
+      diasBloqueadosPaciente,
       capturarCandidato: diasDesde === 0
     });
+
+    // Paciente: mismo criterio que la atadura — corta la búsqueda entera en esta sede
+    // si el día PUNTUALMENTE PEDIDO ya tiene otro turno de este paciente (sin importar
+    // sede). Nunca ofrece sobreturno, es bloqueo total. En días posteriores (probados
+    // por la búsqueda automática), se saltea en silencio.
+    if (resultadoDia.bloqueadoPorPaciente) {
+      if (diasDesde === 0) {
+        bloqueadoPorPacienteMismoDia = true;
+        return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia };
+      }
+      continue;
+    }
 
     // Atadura: corta la búsqueda entera en esta sede si el día PUNTUALMENTE PEDIDO
     // (diasDesde === 0) no corresponde al médico — no se prueban más días acá dentro.
@@ -415,7 +467,7 @@ async function buscarHuecosEnSede(
     if (resultadoDia.bloqueadoPorAtadura) {
       if (diasDesde === 0) {
         if (resultadoDia.candidatoAtadura) candidatoAtaduraExcedida = resultadoDia.candidatoAtadura;
-        return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida };
+        return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia };
       }
       continue;
     }
@@ -441,7 +493,7 @@ async function buscarHuecosEnSede(
   // Ordenar por mejor ajuste (menos tiempo desperdiciado)
   huecos.sort((a, b) => a.tiempoDesaprovechadoMinutos - b.tiempoDesaprovechadoMinutos);
 
-  return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida };
+  return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia };
 }
 
 // --- Búsqueda semanal de huecos por sede (T6 Fase 3: grilla con arrastre) ---
@@ -467,12 +519,14 @@ async function buscarHuecosSemanaEnSede(
   medicoDoc,
   usaAtaduraDia,
   usaCuposPorcentaje,
-  cuposCacheLectura
+  cuposCacheLectura,
+  diasBloqueadosPaciente // opcional: Set de fechas ISO donde el paciente ya tiene otro turno
 ) {
   // Retorna un objeto { "2026-09-08": resultadoDelDia, ... } con una entrada por cada
   // fecha de fechasVisibles. resultadoDelDia:
   // {
   //   atiende: bool,              // false si la sede no atiende ese día (huecos siempre [])
+  //   bloqueadoPorPaciente: bool, // el paciente ya tiene otro turno ese día (cualquier sede)
   //   bloqueadoPorAtadura: bool,  // solo tiene sentido si atiende === true
   //   bloqueadoPorCupo: bool,
   //   huecos: [...]               // huecos físicos válidos, sin ordenar (cada uno con su
@@ -492,7 +546,7 @@ async function buscarHuecosSemanaEnSede(
 
     if (!diasAtencion.includes(nombreDiaActual)) {
       resultadoPorDia[fechaActualISO] = {
-        atiende: false, bloqueadoPorAtadura: false, bloqueadoPorCupo: false, huecos: []
+        atiende: false, bloqueadoPorPaciente: false, bloqueadoPorAtadura: false, bloqueadoPorCupo: false, huecos: []
       };
       continue;
     }
@@ -508,11 +562,13 @@ async function buscarHuecosSemanaEnSede(
       horaAperturaMinutos, horaCierreMinutos, duracionMinutos, duracionNormalizada,
       turnosDelDia, turnosExistentesEnSede, sillonesDisponibles,
       medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura,
+      diasBloqueadosPaciente,
       capturarCandidato: false
     });
 
     resultadoPorDia[fechaActualISO] = {
       atiende: true,
+      bloqueadoPorPaciente: resultadoDia.bloqueadoPorPaciente,
       bloqueadoPorAtadura: resultadoDia.bloqueadoPorAtadura,
       bloqueadoPorCupo: resultadoDia.bloqueadoPorCupo,
       huecos: resultadoDia.huecos
@@ -570,17 +626,25 @@ async function buscarHuecos(
   fechaSolicitadaISO, // "2026-09-08"
   medicosCacheLectura, // array de docs de turneroMedicos
   sedesCacheLectura, // array de docs de turneroSedes
-  turnosExistentes, // array de docs de turnos ya cargados
+  turnosExistentes, // array de docs de turnos ya cargados (TODAS las sedes: hace falta
+                     // para poder chequear el bloqueo por paciente, que es transversal)
   esRolMedico, // bool, para determinar qué tipo de sobreturno/bloqueo ofrecer después
   sedeIdManual, // string|null — si la persona ya eligió la sede a mano (médico "Otro" o
                 // médico que atiende ambas sedes), buscar SOLO ahí, sin recalcular.
-  cuposCacheLectura // T4: array de docs de turneroCupos (opcional; si no se pasa, sin cupo)
+  cuposCacheLectura, // T4: array de docs de turneroCupos (opcional; si no se pasa, sin cupo)
+  pacienteId, // opcional: id del paciente, para la regla "un turno por día" (transversal a sedes)
+  turnoIdExcluir // opcional: id del propio turno a excluir del chequeo (uso: reasignación)
 ) {
   // Retorna la estructura de resultado del motor.
 
   try {
     // 0. T4: resolver el doc del médico (si existe una ficha propia — "Otro" no tiene).
     const medicoDoc = (medicosCacheLectura || []).find(m => m.id === medicoId);
+
+    // 0.5: regla nueva — un mismo paciente no puede tener más de un turno activo el
+    // mismo día, en ninguna sede. Se calcula una sola vez con TODOS los turnos
+    // existentes (no filtrados por sede), y se le pasa a cada sede que se intente.
+    const diasBloqueadosPaciente = diasBloqueadosPorPaciente(pacienteId, turnosExistentes, turnoIdExcluir);
 
     // 1. Determinar sedes a buscar. Si la persona ya eligió una sede a mano, se
     // respeta esa elección tal cual — no se vuelve a calcular por médico/obra social.
@@ -603,6 +667,7 @@ async function buscarHuecos(
     const todosLosHuecos = [];
     let candidatoCupoExcedidoGlobal = null;
     let candidatoAtaduraExcedidoGlobal = null;
+    let bloqueadoPorPacienteGlobal = false;
 
     for (const sedeId of sedesABuscar) {
       const sedeDoc = sedesCacheLectura.find(s => s.id === sedeId);
@@ -638,10 +703,14 @@ async function buscarHuecos(
         medicoDoc,
         usaAtaduraDia,
         usaCuposPorcentaje,
-        cuposCacheLectura
+        cuposCacheLectura,
+        diasBloqueadosPaciente
       );
 
       const huecos = resultadoSede.huecos;
+      if (resultadoSede.bloqueadoPorPacienteMismoDia) {
+        bloqueadoPorPacienteGlobal = true;
+      }
       if (!candidatoCupoExcedidoGlobal && resultadoSede.candidatoCupoExcedido) {
         candidatoCupoExcedidoGlobal = resultadoSede.candidatoCupoExcedido;
       }
@@ -673,6 +742,19 @@ async function buscarHuecos(
     }
 
     // No se encontraron huecos dentro de las reglas normales.
+    // Regla nueva: si el paciente ya tiene otro turno la fecha originalmente pedida
+    // (en cualquier sede), es el motivo más básico — se prioriza sobre cupo/atadura.
+    // Bloqueo total, mismo mensaje para cualquier rol, nunca ofrece sobreturno.
+    if (bloqueadoPorPacienteGlobal) {
+      return {
+        exito: false,
+        sinHuecosMotivo: `Este paciente ya tiene un turno cargado el ${formatearFechaLegibleMotor(fechaInicioBusqueda)}. No se puede agendar otro el mismo día.`,
+        bloqueoPaciente: true,
+        sedesIntentadas: sedesABuscar,
+        diasBuscados: TOPE_DIAS_BUSQUEDA
+      };
+    }
+
     // T4: si la causa concreta es el cupo del médico en la fecha originalmente pedida
     // (no la falta de sillón físico en general), se distingue del sobreturno genérico.
     if (candidatoCupoExcedidoGlobal) {
@@ -789,6 +871,7 @@ if (typeof module !== "undefined" && module.exports) {
     buscarHuecosEnSede,
     buscarHuecosSemanaEnSede,
     evaluarDiaEnSede,
+    diasBloqueadosPorPaciente,
     encontrarPrimerHuecoFisico,
     minutoDesdeString,
     stringDesdeMinuto,

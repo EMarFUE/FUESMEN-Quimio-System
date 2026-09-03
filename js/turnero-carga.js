@@ -557,6 +557,18 @@ function poblarSelectMedico() {
       document.getElementById("boton-guardar-turno").disabled = true;
       return;
     }
+    // Permiso nuevo: el administrador puede deshabilitar a un médico puntual para que
+    // no cargue ni modifique turnos con su propio usuario (ver turnero-medicos.js).
+    // Ausente en el documento = habilitado, no hace falta migrar a los ya cargados.
+    if (medicoPropio.habilitadoParaCargar === false) {
+      mostrarMensajeGeneral(
+        "Tu usuario no tiene permiso para cargar turnos en este momento. Consultá con el administrador.",
+        "error"
+      );
+      select.disabled = true;
+      document.getElementById("boton-guardar-turno").disabled = true;
+      return;
+    }
     const option = document.createElement("option");
     option.value = medicoPropio.id;
     option.textContent = medicoPropio.nombre;
@@ -889,7 +901,8 @@ async function buscarYMostrarHuecos(datosBasicos) {
       turnosExistentes,
       rolActualCarga === "medico",
       datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId, // sede elegida a mano, si aplica
-      cuposCacheCarga // Etapa T4
+      cuposCacheCarga, // Etapa T4
+      pacienteSeleccionadoCarga.id // regla nueva: un turno por paciente por día (transversal a sedes)
     );
 
     ultimaBusquedaHuecos = resultado;
@@ -898,6 +911,10 @@ async function buscarYMostrarHuecos(datosBasicos) {
       // El sistema elige automáticamente el mejor hueco (el primero de la lista, que está ordenado por mejor ajuste)
       const mejorHueco = resultado.huecosEncontrados[0];
       await guardarTurnoConHueco(datosBasicos, mejorHueco, null);
+    } else if (resultado.bloqueoPaciente) {
+      // Regla nueva: bloqueo total sin excepción de rol, nunca ofrece sobreturno (a
+      // diferencia de cupo/atadura, que sí lo hacen) — se corta acá con un mensaje simple.
+      mostrarMensajeGeneral(resultado.sinHuecosMotivo, "error");
     } else if (resultado.bloqueoCupo) {
       // Etapa T4: no es que no haya sillón físico — el médico llegó a su cupo del día
       // pedido. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoCupo).

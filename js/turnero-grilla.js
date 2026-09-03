@@ -341,7 +341,13 @@ function calcularLanesDiaGrilla(turnosDelDia) {
 function puedeArrastrarTurnoGrilla(turno) {
   if (rolActualGrilla === "administrador" || rolActualGrilla === "enfermeria") return true;
   if (rolActualGrilla === "medico") {
-    return !!datosUsuarioActualGrilla.medicoId && turno.medicoId === datosUsuarioActualGrilla.medicoId;
+    if (!datosUsuarioActualGrilla.medicoId || turno.medicoId !== datosUsuarioActualGrilla.medicoId) return false;
+    // Permiso nuevo: si el administrador deshabilitó a este médico para cargar/modificar
+    // turnos, no puede arrastrar ni los suyos propios (ver turnero-medicos.js). Si el
+    // caché de médicos todavía no cargó, no se bloquea acá — firestore.rules protege
+    // del lado del servidor de todas formas.
+    const medicoPropio = medicosCacheGrilla.find(m => m.id === datosUsuarioActualGrilla.medicoId);
+    return !medicoPropio || medicoPropio.habilitadoParaCargar !== false;
   }
   return false;
 }
@@ -565,12 +571,19 @@ async function armarArrastreGrilla(estado) {
   const turnosSinElArrastrado = turnosCacheGrilla.filter(t => t.id !== turno.id);
   const diasVisibles = obtenerDiasVisiblesGrilla();
 
+  // Regla nueva: un paciente no puede tener más de un turno el mismo día, en ninguna
+  // sede. turnosCacheGrilla solo tiene la sede visible en pantalla — hace falta una
+  // consulta aparte, acotada a este paciente, para ver también la otra sede.
+  const diasBloqueadosPaciente = await calcularDiasBloqueadosPacienteGrilla(
+    turno.paciente && turno.paciente.id, turno.id
+  );
+
   estado.huecosSemana = await buscarHuecosSemanaEnSede(
     sede.id, sede.nombre, diasVisibles,
     turno.duracionTotalMinutos, sede.horaApertura, sede.horaCierre, sede.diasAtencion,
     turnosSinElArrastrado, sillones,
     turno.medicoId, medicoDoc, sede.usaAtaduraDia === true, sede.usaCuposPorcentaje === true,
-    cuposCacheGrilla
+    cuposCacheGrilla, diasBloqueadosPaciente
   );
 
   document.querySelectorAll(".pista-dia-grilla").forEach(pista => {
@@ -586,6 +599,25 @@ async function armarArrastreGrilla(estado) {
   estado.elementoGhost.style.height = `${Math.max(turno.duracionTotalMinutos * PIXELES_POR_MINUTO_GRILLA, 18)}px`;
   estado.elementoGhost.style.display = "none"; // hasta que el puntero esté sobre una pista
   document.body.appendChild(estado.elementoGhost);
+}
+
+// Consulta acotada (solo turnos activos de este paciente puntual) para poder aplicar la
+// regla "un turno por día" de forma transversal a las dos sedes, sin tener que cargar
+// todos los turnos de todas las sedes en el caché general de la grilla.
+async function calcularDiasBloqueadosPacienteGrilla(pacienteId, turnoIdExcluir) {
+  if (!pacienteId) return new Set();
+  try {
+    const snapshot = await db.collection("turnos")
+      .where("paciente.id", "==", pacienteId)
+      .where("estado", "==", "activo")
+      .get();
+    const turnosDelPaciente = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return diasBloqueadosPorPaciente(pacienteId, turnosDelPaciente, turnoIdExcluir);
+  } catch (error) {
+    console.error("Error al chequear otros turnos del paciente:", error);
+    return new Set(); // ante la duda, no bloquear por un error de red — el motor igual
+                       // sigue validando sillón/atadura/cupo con normalidad
+  }
 }
 
 function actualizarCandidatoArrastreGrilla(estado, evento) {
