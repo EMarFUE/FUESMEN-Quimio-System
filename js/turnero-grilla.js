@@ -31,8 +31,6 @@ const MESES_LABEL_GRILLA = [
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ];
 const PIXELES_POR_MINUTO_GRILLA = 2; // escala vertical de la grilla
-const ALTO_LINEA_GRILLA = 13; // alto aproximado de cada línea de texto dentro de una tarjeta
-const LINEAS_BASE_GRILLA = 3; // sillón+horario, paciente, médico — siempre se muestran
 
 let sedesCacheGrilla = [];
 let turnosCacheGrilla = [];
@@ -430,7 +428,13 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
 
   const puedeArrastrar = puedeArrastrarTurnoGrilla(turno);
 
-  const paciente = turno.paciente
+  // Feedback tras probar la Fase 3: con varios sillones coincidiendo en horario, la
+  // tarjeta de antes (sillón+horario, paciente completo, médico, extras) no entraba.
+  // Ahora la tarjeta muestra solo lo indispensable — sillón y apellido — y el resto
+  // (nombre completo, médico, horario, ciclo/sesión, DNI, obra social, sobreturno) se ve
+  // en un modal al clickear/tocar la tarjeta (abrirDetalleTurnoGrilla).
+  const apellido = turno.paciente && turno.paciente.apellido ? turno.paciente.apellido : "Sin paciente";
+  const pacienteCompleto = turno.paciente
     ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
     : "Sin paciente";
 
@@ -438,32 +442,8 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
   const esBackup = infoSillon && infoSillon.tipo === "backup";
   const textoSillon = turno.sillon != null ? `S${turno.sillon}` : "S?";
 
-  // Líneas opcionales, en el orden pedido: ciclo/sesión, DNI, obra social.
-  // Solo se muestran las que entran según el alto real de la tarjeta (proporcional
-  // a la duración del turno) — en tarjetas cortas no se agrega ninguna, y el
-  // tooltip (title) siempre tiene el detalle completo igual.
-  const lineasOpcionales = [];
-  if (turno.ciclo != null || turno.sesion != null) {
-    const partes = [];
-    if (turno.ciclo != null) partes.push(`Ciclo ${turno.ciclo}`);
-    if (turno.sesion != null) partes.push(`Sesión ${turno.sesion}`);
-    lineasOpcionales.push(partes.join(" · "));
-  }
-  if (turno.paciente && turno.paciente.numeroDocumento) {
-    lineasOpcionales.push(`DNI ${turno.paciente.numeroDocumento}`);
-  }
-  if (turno.paciente && turno.paciente.obraSocial) {
-    lineasOpcionales.push(turno.paciente.obraSocial);
-  }
-
-  const lineasDisponibles = Math.floor((alto - 8) / ALTO_LINEA_GRILLA) - LINEAS_BASE_GRILLA;
-  const lineasAMostrar = lineasOpcionales.slice(0, Math.max(lineasDisponibles, 0));
-  const lineasOpcionalesHtml = lineasAMostrar
-    .map(texto => `<span class="detalle-turno-grilla">${escaparHtmlGrilla(texto)}</span>`)
-    .join("");
-
   const tituloPartes = [
-    paciente,
+    pacienteCompleto,
     turno.medicoNombre || "",
     `${turno.horarioInicio}–${turno.horarioFin}`,
     (turno.ciclo != null || turno.sesion != null) ? `Ciclo ${turno.ciclo ?? "-"} · Sesión ${turno.sesion ?? "-"}` : null,
@@ -472,18 +452,19 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
   ].filter(Boolean);
   const tituloCompleto = escaparHtmlGrilla(tituloPartes.join(" · "));
 
+  // Toda tarjeta reacciona al clic/toque: si es arrastrable, el pointerdown decide solo
+  // (toque simple sin mover = detalle, ver soltarArrastreGrilla); si no, un click directo
+  // basta, porque nunca va a arrastrarse.
+  const accionClic = puedeArrastrar
+    ? `onpointerdown="iniciarArrastreGrilla(event, '${turno.id}')"`
+    : `onclick="abrirDetalleTurnoGrilla('${turno.id}')"`;
+
   return `
     <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""}"
       style="top:${top}px;height:${alto}px;${posicionHtml}" title="${tituloCompleto}"
-      data-turno-id="${turno.id}"
-      ${puedeArrastrar ? `onpointerdown="iniciarArrastreGrilla(event, '${turno.id}')"` : ""}>
-      <span class="linea-superior-turno-grilla">
-        <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
-        <span class="horario-turno-grilla">${turno.horarioInicio}</span>
-      </span>
-      <span class="paciente-turno-grilla">${escaparHtmlGrilla(paciente)}</span>
-      <span class="medico-turno-grilla">${escaparHtmlGrilla(turno.medicoNombre || "")}</span>
-      ${lineasOpcionalesHtml}
+      data-turno-id="${turno.id}" ${accionClic}>
+      <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
+      <span class="apellido-turno-grilla">${escaparHtmlGrilla(apellido)}</span>
     </div>
   `;
 }
@@ -664,11 +645,16 @@ async function soltarArrastreGrilla(evento) {
 
   const huboMovimientoReal = estado.enMovimiento;
   const candidato = estado.candidatoActual;
+  const turnoId = estado.turno.id;
 
   limpiarVisualArrastreGrilla(estado);
   arrastreActivoGrilla = null;
 
-  if (!huboMovimientoReal || !candidato) return; // toque simple, o soltó fuera de un hueco válido
+  if (!huboMovimientoReal) {
+    abrirDetalleTurnoGrilla(turnoId); // toque/clic simple, sin arrastre real: mostrar el detalle
+    return;
+  }
+  if (!candidato) return; // soltó fuera de un hueco válido
 
   await confirmarArrastreGrilla(estado.turno, candidato);
 }
@@ -736,4 +722,61 @@ async function confirmarArrastreGrilla(turno, candidato) {
     mostrarMensajeAgenda("No se pudo mover el turno. Reintentá en unos segundos.", "error");
     await cargarYRenderizarGrilla(); // por las dudas, refresca para reflejar el estado real
   }
+}
+
+// --- Detalle del turno (feedback tras Fase 3) ---
+// La tarjeta comprimida solo muestra sillón + apellido; acá va todo lo demás, en un
+// modal centrado (mismo patrón .overlay-modal/.modal-panel que "+ nuevo turno").
+
+function abrirDetalleTurnoGrilla(turnoId) {
+  const turno = turnosCacheGrilla.find(t => t.id === turnoId);
+  if (!turno) return;
+
+  const sede = sedesCacheGrilla.find(s => s.id === sedeSeleccionadaGrilla);
+  const infoSillon = sede && (sede.sillones || []).find(s => s.numero === turno.sillon);
+  const esBackup = infoSillon && infoSillon.tipo === "backup";
+  const paciente = turno.paciente
+    ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
+    : "Sin paciente";
+
+  const filas = [
+    ["Paciente", paciente],
+    ["Sillón", turno.sillon != null ? `${turno.sillon}${esBackup ? " (backup)" : ""}` : "Sin asignar (sobreturno)"],
+    ["Horario", `${turno.horarioInicio || "-"} – ${turno.horarioFin || "-"}`],
+    ["Fecha", turno.fecha || "-"],
+    ["Médico", turno.medicoNombre || "-"]
+  ];
+  if (turno.ciclo != null || turno.sesion != null) {
+    filas.push(["Ciclo / Sesión", `${turno.ciclo ?? "-"} / ${turno.sesion ?? "-"}`]);
+  }
+  if (turno.paciente && turno.paciente.numeroDocumento) {
+    filas.push(["Documento", `${turno.paciente.tipoDocumento || ""} ${turno.paciente.numeroDocumento}`.trim()]);
+  }
+  if (turno.paciente && turno.paciente.obraSocial) {
+    filas.push(["Obra social", turno.paciente.obraSocial]);
+  }
+  if (turno.tipoSobreturno) {
+    filas.push(["Sobreturno", turno.tipoSobreturno]);
+  }
+
+  const filasHtml = filas.map(([etiqueta, valor]) => `
+    <div class="fila-detalle-turno-grilla">
+      <span class="etiqueta-detalle-turno-grilla">${escaparHtmlGrilla(etiqueta)}</span>
+      <span>${escaparHtmlGrilla(valor)}</span>
+    </div>
+  `).join("");
+
+  document.getElementById("contenido-detalle-turno-grilla").innerHTML = `
+    <h2 style="margin-top:0;">Detalle del turno</h2>
+    ${filasHtml}
+  `;
+  document.getElementById("overlay-detalle-turno-grilla").style.display = "flex";
+}
+
+function cerrarDetalleTurnoGrilla() {
+  document.getElementById("overlay-detalle-turno-grilla").style.display = "none";
+}
+
+function cerrarDetalleTurnoGrillaSiFondo(evento) {
+  if (evento.target.id === "overlay-detalle-turno-grilla") cerrarDetalleTurnoGrilla();
 }

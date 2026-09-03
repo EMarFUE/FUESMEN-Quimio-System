@@ -191,6 +191,17 @@
     </div>
   </div>
 
+  <!-- Detalle de turno (feedback tras Fase 3) — la tarjeta comprimida de la grilla solo
+       muestra sillón + apellido; acá va el resto al hacer clic/toque. -->
+  <div class="overlay-modal" id="overlay-detalle-turno-grilla" style="display:none;" onclick="cerrarDetalleTurnoGrillaSiFondo(event)">
+    <div class="modal-panel" style="max-width:420px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarDetalleTurnoGrilla()">×</button>
+      </div>
+      <div id="contenido-detalle-turno-grilla"></div>
+    </div>
+  </div>
+
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>

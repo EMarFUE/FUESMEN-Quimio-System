@@ -1204,12 +1204,39 @@ h1 {
   background: var(--color-accent-soft);
   border: 1px solid var(--color-accent);
   border-radius: 6px;
-  padding: 3px 6px;
+  padding: 2px 5px;
   font-size: 11px;
-  line-height: 1.35;
+  line-height: 1.2;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.apellido-turno-grilla {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.fila-detalle-turno-grilla {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13.5px;
+}
+
+.fila-detalle-turno-grilla:last-child {
+  border-bottom: none;
+}
+
+.etiqueta-detalle-turno-grilla {
+  color: var(--color-muted);
+  flex-shrink: 0;
 }
 
 /* Fase 3 (T6): arrastre de turnos en la grilla. */
@@ -1219,9 +1246,8 @@ h1 {
 }
 
 .tarjeta-turno-grilla.arrastrando-grilla {
-  opacity: 0.4;
-  cursor: grabbing;
-  user-select: none;
+  visibility: hidden; /* la original desaparece del todo mientras se arrastra — solo se
+    ve el indicador que sigue al puntero, para no tener dos cuadrados a la vez en pantalla */
 }
 
 .pista-dia-grilla.dia-sin-huecos-grilla {
