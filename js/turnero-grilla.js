@@ -433,7 +433,9 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
   // Ahora la tarjeta muestra solo lo indispensable — sillón y apellido — y el resto
   // (nombre completo, médico, horario, ciclo/sesión, DNI, obra social, sobreturno) se ve
   // en un modal al clickear/tocar la tarjeta (abrirDetalleTurnoGrilla).
-  const apellido = turno.paciente && turno.paciente.apellido ? turno.paciente.apellido : "Sin paciente";
+  const nombreMostrado = turno.paciente
+    ? `${turno.paciente.nombre || ""} ${turno.paciente.apellido || ""}`.trim() || "Sin paciente"
+    : "Sin paciente";
   const pacienteCompleto = turno.paciente
     ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
     : "Sin paciente";
@@ -469,7 +471,7 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
       style="top:${top}px;height:${alto}px;${posicionHtml}" title="${tituloCompleto}"
       data-turno-id="${turno.id}" ${accionClic}>
       <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
-      <span class="apellido-turno-grilla">${escaparHtmlGrilla(apellido)}</span>
+      <span class="apellido-turno-grilla">${escaparHtmlGrilla(nombreMostrado)}</span>
     </div>
   `;
 }
