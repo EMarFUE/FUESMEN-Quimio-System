@@ -44,6 +44,19 @@ let usuarioActualGrilla = null;
 let datosUsuarioActualGrilla = null;
 let modalNuevoTurnoInicializadoGrilla = false;
 
+// Fase 3 (T6): caches propios de médicos y cupos, para que el motor extendido
+// (buscarHuecosSemanaEnSede) tenga lo que necesita para atadura/cupo sin depender de
+// que turnero-carga.js ya haya cargado los suyos (medicosCacheCarga/cuposCacheCarga
+// solo se llenan cuando se abre el modal "+ nuevo turno" al menos una vez — si alguien
+// arrastra un turno antes de abrir ese modal, esos caches estarían vacíos y la atadura/
+// cupo se saltearían en silencio). Se cargan una vez al iniciar la agenda, igual que
+// sedesCacheGrilla.
+let medicosCacheGrilla = [];
+let cuposCacheGrilla = [];
+
+// Fase 3 (T6): estado del arrastre en curso (null cuando no se está arrastrando nada).
+let arrastreActivoGrilla = null;
+
 function escaparHtmlGrilla(texto) {
   const div = document.createElement("div");
   div.textContent = texto == null ? "" : String(texto);
@@ -98,7 +111,7 @@ async function iniciarAgenda(user, datosUsuario) {
   }
 
   try {
-    await cargarSedesGrilla();
+    await Promise.all([cargarSedesGrilla(), cargarMedicosGrilla(), cargarCuposGrilla()]);
   } catch (error) {
     console.error("Error al cargar sedes:", error);
     document.getElementById("grilla-contenedor").innerHTML =
@@ -124,6 +137,16 @@ async function cargarSedesGrilla() {
   const snapshot = await db.collection("turneroSedes").get();
   sedesCacheGrilla = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   sedesCacheGrilla.sort((a, b) => (a.id === "emilio-civit" ? -1 : 1));
+}
+
+async function cargarMedicosGrilla() {
+  const snapshot = await db.collection("turneroMedicos").get();
+  medicosCacheGrilla = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+async function cargarCuposGrilla() {
+  const snapshot = await db.collection("turneroCupos").get();
+  cuposCacheGrilla = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 function renderizarSelectorSedeGrilla() {
@@ -256,6 +279,73 @@ async function cargarYRenderizarGrilla() {
   }
 }
 
+// --- Fase 3 (T6): separar turnos superpuestos en carriles ---
+// Antes del arrastre, dos turnos que coincidían en horario (sillones distintos)
+// quedaban tapados uno encima del otro (las tarjetas usaban left:4px;right:4px fijo,
+// sin importar cuántos turnos había a la misma hora). Con el arrastre esto se vuelve
+// mucho más común de ver, así que se resuelve acá: agrupa los turnos que se solapan en
+// el tiempo en "racimos" y les asigna un carril (0, 1, 2...) dentro de su racimo, para
+// poder ubicarlos lado a lado. Mismo criterio que usan Google Calendar/Outlook en su
+// vista semanal. Devuelve un Map(turnoId -> {lane, totalLanes}).
+function calcularLanesDiaGrilla(turnosDelDia) {
+  const turnosOrdenados = [...turnosDelDia].sort((a, b) => {
+    const ia = minutoDesdeString(a.horarioInicio), ib = minutoDesdeString(b.horarioInicio);
+    if (ia !== ib) return ia - ib;
+    return minutoDesdeString(a.horarioFin) - minutoDesdeString(b.horarioFin);
+  });
+
+  const resultado = new Map();
+  let clusterActual = [];
+  let finesDeLanesCluster = [];
+  let finMaximoClusterActual = -Infinity;
+
+  function cerrarCluster() {
+    if (clusterActual.length === 0) return;
+    const totalLanes = finesDeLanesCluster.length;
+    clusterActual.forEach(({ turno, lane }) => resultado.set(turno.id, { lane, totalLanes }));
+    clusterActual = [];
+    finesDeLanesCluster = [];
+  }
+
+  for (const turno of turnosOrdenados) {
+    const inicio = minutoDesdeString(turno.horarioInicio);
+    const fin = minutoDesdeString(turno.horarioFin);
+
+    if (clusterActual.length > 0 && inicio >= finMaximoClusterActual) {
+      cerrarCluster();
+      finMaximoClusterActual = -Infinity;
+    }
+
+    let laneAsignada = finesDeLanesCluster.findIndex(finLane => finLane <= inicio);
+    if (laneAsignada === -1) {
+      laneAsignada = finesDeLanesCluster.length;
+      finesDeLanesCluster.push(fin);
+    } else {
+      finesDeLanesCluster[laneAsignada] = fin;
+    }
+
+    clusterActual.push({ turno, lane: laneAsignada });
+    finMaximoClusterActual = Math.max(finMaximoClusterActual, fin);
+  }
+  cerrarCluster();
+
+  return resultado;
+}
+
+// --- Fase 3 (T6): quién puede arrastrar este turno puntual ---
+// Administrador y enfermería: cualquier turno. Médico: solo los propios (comparando
+// medicoId contra su propio medicoId). Administrativo: nunca (ni siquiera ve el botón
+// "+ nuevo turno"). Los turnos de "Otro" derivante guardan medicoId: null, así que
+// nunca van a coincidir con el medicoId de un médico logueado — quedan protegidos sin
+// necesidad de un caso especial.
+function puedeArrastrarTurnoGrilla(turno) {
+  if (rolActualGrilla === "administrador" || rolActualGrilla === "enfermeria") return true;
+  if (rolActualGrilla === "medico") {
+    return !!datosUsuarioActualGrilla.medicoId && turno.medicoId === datosUsuarioActualGrilla.medicoId;
+  }
+  return false;
+}
+
 // --- Render de la grilla ---
 
 function renderizarGrilla() {
@@ -280,9 +370,16 @@ function renderizarGrilla() {
 
   const columnasHtml = dias.map((dia, indice) => {
     const fechaDiaISO = fechaISO(dia);
-    const turnosDelDia = turnosVisibles.filter(t => t.fecha === fechaDiaISO);
+    // Solo entran al cálculo de carriles los turnos que efectivamente se pueden ubicar
+    // en la grilla (con horarioInicio/horarioFin como texto) — mismo filtro que ya
+    // aplicaba renderizarTarjetaTurnoGrilla antes, ahora hecho acá para poder calcular
+    // los carriles sobre el conjunto correcto.
+    const turnosDelDia = turnosVisibles.filter(t =>
+      t.fecha === fechaDiaISO && typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
+    );
+    const lanesDelDia = calcularLanesDiaGrilla(turnosDelDia);
     const tarjetasHtml = turnosDelDia
-      .map(turno => renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede))
+      .map(turno => renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, lanesDelDia.get(turno.id)))
       .join("");
 
     return `
@@ -291,7 +388,7 @@ function renderizarGrilla() {
           ${DIAS_LABEL_GRILLA[DIAS_SEMANA_GRILLA[indice]]}
           <span class="fecha-dia-grilla">${String(dia.getDate()).padStart(2, "0")}/${String(dia.getMonth() + 1).padStart(2, "0")}</span>
         </div>
-        <div class="pista-dia-grilla" style="height:${alturaTotal}px;">
+        <div class="pista-dia-grilla" data-fecha="${fechaDiaISO}" style="height:${alturaTotal}px;">
           ${tarjetasHtml || ""}
         </div>
       </div>
@@ -306,7 +403,7 @@ function renderizarGrilla() {
   `;
 }
 
-function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede) {
+function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
   if (typeof turno.horarioInicio !== "string" || typeof turno.horarioFin !== "string") {
     // Turnos de T1/T2, sin estos campos todavía — no se pueden ubicar en la grilla.
     return "";
@@ -316,6 +413,16 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede) {
   const fin = minutoDesdeString(turno.horarioFin);
   const top = (inicio - minutoApertura) * PIXELES_POR_MINUTO_GRILLA;
   const alto = Math.max((fin - inicio) * PIXELES_POR_MINUTO_GRILLA, 18);
+
+  // Fase 3 (T6): si este turno comparte horario con otro(s) (sillones distintos), se
+  // divide el ancho de la columna entre la cantidad de turnos simultáneos de su racimo,
+  // para que ninguno tape al otro. Sin solapamiento, ocupa el ancho completo como antes.
+  const { lane, totalLanes } = laneInfo || { lane: 0, totalLanes: 1 };
+  const posicionHtml = totalLanes > 1
+    ? `left:calc(4px + (100% - 8px) * ${lane} / ${totalLanes} + 1px);width:calc((100% - 8px) / ${totalLanes} - 2px);`
+    : `left:4px;right:4px;`;
+
+  const puedeArrastrar = puedeArrastrarTurnoGrilla(turno);
 
   const paciente = turno.paciente
     ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
@@ -360,7 +467,10 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede) {
   const tituloCompleto = escaparHtmlGrilla(tituloPartes.join(" · "));
 
   return `
-    <div class="tarjeta-turno-grilla" style="top:${top}px;height:${alto}px;" title="${tituloCompleto}">
+    <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""}"
+      style="top:${top}px;height:${alto}px;${posicionHtml}" title="${tituloCompleto}"
+      data-turno-id="${turno.id}"
+      ${puedeArrastrar ? `onpointerdown="iniciarArrastreGrilla(event, '${turno.id}')"` : ""}>
       <span class="linea-superior-turno-grilla">
         <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
         <span class="horario-turno-grilla">${turno.horarioInicio}</span>
@@ -370,4 +480,228 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede) {
       ${lineasOpcionalesHtml}
     </div>
   `;
+}
+
+// --- Fase 3 (T6): arrastre de turnos ---
+//
+// Usa Pointer Events (no el drag-and-drop nativo de HTML5) para que funcione igual con
+// mouse y con dedo en tablet/celular — el drag-and-drop nativo del navegador no anda
+// bien en touch sin librerías extra.
+//
+// Flujo: pointerdown sobre una tarjeta arrastrable arranca el seguimiento, pero no hace
+// nada visible todavía (evita que un simple toque dispare una búsqueda). Recién cuando
+// el puntero se movió más de UMBRAL_ARRASTRE_PX_GRILLA se "arma" el arrastre de verdad:
+// se llama a buscarHuecosSemanaEnSede() una sola vez (con el turno arrastrado ya
+// excluido del cálculo), se atenúan los días sin ningún hueco válido para esa duración/
+// médico, y aparece un indicador fantasma que sigue al puntero, en verde si la posición
+// bajo el cursor (redondeada a 15 minutos) es un hueco válido, en rojo si no. Al soltar,
+// si había un candidato válido, se actualiza el turno en Firestore.
+
+const UMBRAL_ARRASTRE_PX_GRILLA = 6;
+
+function mostrarMensajeAgenda(texto, tipo) {
+  const el = document.getElementById("mensaje-agenda");
+  el.textContent = texto;
+  el.className = "mensaje-info " + tipo;
+  el.style.display = "block";
+  clearTimeout(mostrarMensajeAgenda._temporizador);
+  mostrarMensajeAgenda._temporizador = setTimeout(() => { el.style.display = "none"; }, 4000);
+}
+
+function iniciarArrastreGrilla(evento, turnoId) {
+  if (arrastreActivoGrilla) return; // ya hay un arrastre en curso (no debería pasar, por las dudas)
+  const turno = turnosCacheGrilla.find(t => t.id === turnoId);
+  if (!turno) return;
+
+  arrastreActivoGrilla = {
+    turno,
+    elementoTarjeta: evento.currentTarget,
+    pointerId: evento.pointerId,
+    xInicio: evento.clientX,
+    yInicio: evento.clientY,
+    enMovimiento: false, // true recién cuando se supera el umbral
+    huecosSemana: null,
+    elementoGhost: null,
+    candidatoActual: null // { fechaISO, hueco } | null
+  };
+
+  evento.currentTarget.setPointerCapture(evento.pointerId);
+  evento.currentTarget.addEventListener("pointermove", moverArrastreGrilla);
+  evento.currentTarget.addEventListener("pointerup", soltarArrastreGrilla);
+  evento.currentTarget.addEventListener("pointercancel", cancelarArrastreGrilla);
+  // Red de seguridad: si la tarjeta se destruye en medio de un arrastre (por ejemplo,
+  // el usuario cambia de semana o de sede mientras arrastra, y cargarYRenderizarGrilla()
+  // reemplaza toda la grilla), el navegador libera la captura del puntero solo — hay que
+  // limpiar el estado en ese momento, si no queda "colgado" un arrastre fantasma.
+  evento.currentTarget.addEventListener("lostpointercapture", cancelarArrastreGrilla);
+}
+
+async function moverArrastreGrilla(evento) {
+  if (!arrastreActivoGrilla) return;
+  const estado = arrastreActivoGrilla;
+
+  if (!estado.enMovimiento) {
+    const dx = evento.clientX - estado.xInicio;
+    const dy = evento.clientY - estado.yInicio;
+    if (Math.hypot(dx, dy) < UMBRAL_ARRASTRE_PX_GRILLA) return; // todavía no se movió lo suficiente
+    estado.enMovimiento = true;
+    await armarArrastreGrilla(estado);
+    if (arrastreActivoGrilla !== estado) return; // se soltó/canceló mientras se armaba
+  }
+
+  actualizarCandidatoArrastreGrilla(estado, evento);
+}
+
+async function armarArrastreGrilla(estado) {
+  const turno = estado.turno;
+  const sede = sedesCacheGrilla.find(s => s.id === sedeSeleccionadaGrilla);
+  const medicoDoc = medicosCacheGrilla.find(m => m.id === turno.medicoId);
+  const sillones = (sede.sillones || [])
+    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .map(s => s.numero);
+  // Excluir el turno que se está moviendo del cálculo: si no, chocaría contra sí mismo
+  // (conflicto de sillón falso) y su propio tiempo ya usado se contaría dos veces en
+  // el cupo del médico ese día.
+  const turnosSinElArrastrado = turnosCacheGrilla.filter(t => t.id !== turno.id);
+  const diasVisibles = obtenerDiasVisiblesGrilla();
+
+  estado.huecosSemana = await buscarHuecosSemanaEnSede(
+    sede.id, sede.nombre, diasVisibles,
+    turno.duracionTotalMinutos, sede.horaApertura, sede.horaCierre, sede.diasAtencion,
+    turnosSinElArrastrado, sillones,
+    turno.medicoId, medicoDoc, sede.usaAtaduraDia === true, sede.usaCuposPorcentaje === true,
+    cuposCacheGrilla
+  );
+
+  document.querySelectorAll(".pista-dia-grilla").forEach(pista => {
+    const resultadoDia = estado.huecosSemana[pista.dataset.fecha];
+    const sinHuecos = !resultadoDia || !resultadoDia.atiende || resultadoDia.huecos.length === 0;
+    pista.classList.toggle("dia-sin-huecos-grilla", sinHuecos);
+  });
+
+  estado.elementoTarjeta.classList.add("arrastrando-grilla");
+
+  estado.elementoGhost = document.createElement("div");
+  estado.elementoGhost.className = "indicador-drop-grilla invalido-grilla";
+  estado.elementoGhost.style.height = `${Math.max(turno.duracionTotalMinutos * PIXELES_POR_MINUTO_GRILLA, 18)}px`;
+  estado.elementoGhost.style.display = "none"; // hasta que el puntero esté sobre una pista
+  document.body.appendChild(estado.elementoGhost);
+}
+
+function actualizarCandidatoArrastreGrilla(estado, evento) {
+  const elementoBajoPuntero = document.elementFromPoint(evento.clientX, evento.clientY);
+  const pista = elementoBajoPuntero ? elementoBajoPuntero.closest(".pista-dia-grilla") : null;
+
+  if (!pista) {
+    estado.candidatoActual = null;
+    estado.elementoGhost.style.display = "none";
+    return;
+  }
+
+  const sede = sedesCacheGrilla.find(s => s.id === sedeSeleccionadaGrilla);
+  const minutoApertura = minutoDesdeString(sede.horaApertura);
+  const rect = pista.getBoundingClientRect();
+  const offsetY = evento.clientY - rect.top;
+  const minutoCrudo = minutoApertura + offsetY / PIXELES_POR_MINUTO_GRILLA;
+  const minutoRedondeado = Math.round(minutoCrudo / 15) * 15; // redondeo a 15 minutos
+
+  const fechaISOCandidata = pista.dataset.fecha;
+  const resultadoDia = estado.huecosSemana[fechaISOCandidata];
+  const hueco = resultadoDia && resultadoDia.atiende
+    ? resultadoDia.huecos.find(h => h.minutoInicioBloqueNormalizado === minutoRedondeado)
+    : null;
+
+  estado.candidatoActual = hueco ? { fechaISO: fechaISOCandidata, hueco } : null;
+
+  if (estado.elementoGhost.parentElement !== pista) {
+    pista.appendChild(estado.elementoGhost);
+  }
+  estado.elementoGhost.style.top = `${(minutoRedondeado - minutoApertura) * PIXELES_POR_MINUTO_GRILLA}px`;
+  estado.elementoGhost.style.display = "flex";
+  estado.elementoGhost.classList.toggle("valido-grilla", !!hueco);
+  estado.elementoGhost.classList.toggle("invalido-grilla", !hueco);
+  estado.elementoGhost.textContent = hueco
+    ? `${hueco.horaInicio}–${hueco.horaFin}`
+    : `${stringDesdeMinuto(minutoRedondeado)}–${stringDesdeMinuto(minutoRedondeado + estado.turno.duracionTotalMinutos)}`;
+}
+
+async function soltarArrastreGrilla(evento) {
+  if (!arrastreActivoGrilla) return;
+  const estado = arrastreActivoGrilla;
+  desengancharListenersArrastreGrilla(estado);
+
+  const huboMovimientoReal = estado.enMovimiento;
+  const candidato = estado.candidatoActual;
+
+  limpiarVisualArrastreGrilla(estado);
+  arrastreActivoGrilla = null;
+
+  if (!huboMovimientoReal || !candidato) return; // toque simple, o soltó fuera de un hueco válido
+
+  await confirmarArrastreGrilla(estado.turno, candidato);
+}
+
+function cancelarArrastreGrilla(evento) {
+  if (!arrastreActivoGrilla) return;
+  const estado = arrastreActivoGrilla;
+  desengancharListenersArrastreGrilla(estado);
+  limpiarVisualArrastreGrilla(estado);
+  arrastreActivoGrilla = null;
+}
+
+function desengancharListenersArrastreGrilla(estado) {
+  estado.elementoTarjeta.removeEventListener("pointermove", moverArrastreGrilla);
+  estado.elementoTarjeta.removeEventListener("pointerup", soltarArrastreGrilla);
+  estado.elementoTarjeta.removeEventListener("pointercancel", cancelarArrastreGrilla);
+  estado.elementoTarjeta.removeEventListener("lostpointercapture", cancelarArrastreGrilla);
+}
+
+function limpiarVisualArrastreGrilla(estado) {
+  if (estado.elementoGhost && estado.elementoGhost.parentElement) {
+    estado.elementoGhost.parentElement.removeChild(estado.elementoGhost);
+  }
+  document.querySelectorAll(".pista-dia-grilla.dia-sin-huecos-grilla").forEach(pista => {
+    pista.classList.remove("dia-sin-huecos-grilla");
+  });
+  if (estado.elementoTarjeta) estado.elementoTarjeta.classList.remove("arrastrando-grilla");
+}
+
+async function confirmarArrastreGrilla(turno, candidato) {
+  const hueco = candidato.hueco;
+
+  const sinCambioReal = turno.fecha === hueco.fecha &&
+    turno.horarioInicio === hueco.horaInicio && turno.sillon === hueco.sillon;
+  if (sinCambioReal) return; // soltó en el mismo lugar donde ya estaba
+
+  // Rastro de auditoría simple (punto 5 de las decisiones de Fase 3): un único objeto
+  // con la posición anterior, que se pisa en cada arrastre — no un historial completo,
+  // eso queda para el mecanismo formal de la Etapa T7 si hace falta más adelante.
+  const actualizacion = {
+    fecha: hueco.fecha,
+    horarioInicio: hueco.horaInicio,
+    horarioFin: hueco.horaFin,
+    horario: hueco.horaInicio, // compatibilidad con el comprobante, mismo criterio que al cargar
+    sillon: hueco.sillon,
+    modificadoPor: {
+      uid: usuarioActualGrilla.uid,
+      nombre: datosUsuarioActualGrilla.nombre || usuarioActualGrilla.email
+    },
+    modificadoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    ultimaReasignacion: {
+      fecha: turno.fecha,
+      horarioInicio: turno.horarioInicio,
+      horarioFin: turno.horarioFin,
+      sillon: turno.sillon
+    }
+  };
+
+  try {
+    await db.collection("turnos").doc(turno.id).update(actualizacion);
+    mostrarMensajeAgenda("Turno reasignado correctamente.", "exito");
+    await cargarYRenderizarGrilla();
+  } catch (error) {
+    console.error("Error al reasignar el turno:", error);
+    mostrarMensajeAgenda("No se pudo mover el turno. Reintentá en unos segundos.", "error");
+    await cargarYRenderizarGrilla(); // por las dudas, refresca para reflejar el estado real
+  }
 }
