@@ -459,8 +459,13 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
     ? `onpointerdown="iniciarArrastreGrilla(event, '${turno.id}')"`
     : `onclick="abrirDetalleTurnoGrilla('${turno.id}')"`;
 
+  // Con 3 o más turnos superpuestos, cada carril queda muy angosto para texto
+  // horizontal — el apellido pasa a escribirse en vertical (ver .vertical-grilla en
+  // el CSS) para aprovechar el largo de la tarjeta en vez del ancho.
+  const modoVertical = totalLanes >= 3;
+
   return `
-    <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""}"
+    <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""} ${modoVertical ? "vertical-grilla" : ""}"
       style="top:${top}px;height:${alto}px;${posicionHtml}" title="${tituloCompleto}"
       data-turno-id="${turno.id}" ${accionClic}>
       <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
@@ -780,3 +785,9 @@ function cerrarDetalleTurnoGrilla() {
 function cerrarDetalleTurnoGrillaSiFondo(evento) {
   if (evento.target.id === "overlay-detalle-turno-grilla") cerrarDetalleTurnoGrilla();
 }
+
+document.addEventListener("keydown", (evento) => {
+  if (evento.key !== "Escape") return;
+  const overlay = document.getElementById("overlay-detalle-turno-grilla");
+  if (overlay && overlay.style.display !== "none") cerrarDetalleTurnoGrilla();
+});

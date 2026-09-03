@@ -1213,14 +1213,6 @@ h1 {
   cursor: pointer;
 }
 
-.apellido-turno-grilla {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
 .fila-detalle-turno-grilla {
   display: flex;
   justify-content: space-between;
@@ -1296,7 +1288,12 @@ h1 {
 }
 
 .badge-sillon-grilla {
-  align-self: flex-start;
+  /* Ya NO lleva align-self:flex-start — ese estilo venía de cuando el badge vivía
+     dentro de otra fila (.linea-superior-turno-grilla, ya no existe). Ahora que es
+     hijo directo de .tarjeta-turno-grilla, ese align-self pisaba el align-items:center
+     del padre y lo clavaba arriba mientras el apellido quedaba centrado aparte —
+     el desalineado que reportó Elías. */
+  flex-shrink: 0;
   font-size: 10px;
   font-weight: 600;
   background: var(--color-accent);
@@ -1308,6 +1305,33 @@ h1 {
 .badge-sillon-grilla.backup {
   background: var(--color-accent-secondary);
   color: #274a08;
+}
+
+.apellido-turno-grilla {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--color-text);
+  min-width: 0; /* imprescindible en un hijo flex: sin esto no se achica por debajo de
+    su contenido y el ellipsis nunca llega a activarse */
+}
+
+/* Tarjetas angostas (3 o más turnos superpuestos a la misma hora): el apellido se
+   escribe de arriba hacia abajo para aprovechar el LARGO de la tarjeta, en vez de
+   pelear contra un ancho de 15-20px donde el texto horizontal no entra ni truncado. */
+.tarjeta-turno-grilla.vertical-grilla {
+  flex-direction: column;
+  padding: 4px 1px;
+  gap: 3px;
+}
+
+.tarjeta-turno-grilla.vertical-grilla .apellido-turno-grilla {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 .horario-turno-grilla {
