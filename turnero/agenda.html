@@ -202,6 +202,24 @@
     </div>
   </div>
 
+  <!-- Motivo obligatorio del arrastre (Etapa T7) — se abre después de soltar en un
+       hueco válido, antes de guardar nada. -->
+  <div class="overlay-modal" id="overlay-motivo-arrastre-grilla" style="display:none;">
+    <div class="modal-panel" style="max-width:420px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cancelarMotivoArrastreGrilla()">×</button>
+      </div>
+      <h2 style="margin-top:0;font-size:17px;">Motivo del cambio</h2>
+      <p id="texto-motivo-arrastre-grilla" style="font-size:13px;color:var(--color-muted);margin-top:0;"></p>
+      <textarea id="campo-motivo-arrastre-grilla" rows="3" style="width:100%;box-sizing:border-box;" placeholder="Ej: el paciente avisó que no puede venir ese día"></textarea>
+      <p id="error-motivo-arrastre-grilla" style="display:none;color:var(--color-danger);font-size:13px;margin:6px 0 0;">El motivo es obligatorio.</p>
+      <div style="display:flex;gap:10px;margin-top:14px;">
+        <button type="button" class="boton-secundario" style="width:auto;" onclick="cancelarMotivoArrastreGrilla()">Cancelar</button>
+        <button type="button" id="boton-confirmar-motivo-arrastre-grilla" class="boton-principal" style="width:auto;" onclick="confirmarMotivoArrastreGrilla()">Confirmar reasignación</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>

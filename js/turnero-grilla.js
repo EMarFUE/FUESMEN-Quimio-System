@@ -55,6 +55,10 @@ let cuposCacheGrilla = [];
 // Fase 3 (T6): estado del arrastre en curso (null cuando no se está arrastrando nada).
 let arrastreActivoGrilla = null;
 
+// Etapa T7: arrastre pendiente de motivo (el candidato ya se soltó en un hueco válido,
+// pero todavía no se guardó — espera a que se complete el modal de motivo).
+let arrastrePendienteGrilla = null;
+
 function escaparHtmlGrilla(texto) {
   const div = document.createElement("div");
   div.textContent = texto == null ? "" : String(texto);
@@ -663,7 +667,7 @@ async function soltarArrastreGrilla(evento) {
   }
   if (!candidato) return; // soltó fuera de un hueco válido
 
-  await confirmarArrastreGrilla(estado.turno, candidato);
+  confirmarArrastreGrilla(estado.turno, candidato); // abre el modal de motivo (T7); el guardado real es async y queda en confirmarMotivoArrastreGrilla
 }
 
 function cancelarArrastreGrilla(evento) {
@@ -691,44 +695,124 @@ function limpiarVisualArrastreGrilla(estado) {
   if (estado.elementoTarjeta) estado.elementoTarjeta.classList.remove("arrastrando-grilla");
 }
 
-async function confirmarArrastreGrilla(turno, candidato) {
+// Etapa T7: el arrastre deja de actualizar el turno en el lugar (rastro simple de T6
+// Fase 3) y pasa a usar el mecanismo formal — motivo obligatorio, turno nuevo enlazado,
+// turno viejo anulado sin borrarse (ver anularYCrearTurnoGrilla más abajo). Este primer
+// paso solo abre el modal de motivo; el guardado real queda en confirmarMotivoArrastreGrilla.
+function confirmarArrastreGrilla(turno, candidato) {
   const hueco = candidato.hueco;
 
   const sinCambioReal = turno.fecha === hueco.fecha &&
     turno.horarioInicio === hueco.horaInicio && turno.sillon === hueco.sillon;
   if (sinCambioReal) return; // soltó en el mismo lugar donde ya estaba
 
-  // Rastro de auditoría simple (punto 5 de las decisiones de Fase 3): un único objeto
-  // con la posición anterior, que se pisa en cada arrastre — no un historial completo,
-  // eso queda para el mecanismo formal de la Etapa T7 si hace falta más adelante.
-  const actualizacion = {
-    fecha: hueco.fecha,
-    horarioInicio: hueco.horaInicio,
-    horarioFin: hueco.horaFin,
-    horario: hueco.horaInicio, // compatibilidad con el comprobante, mismo criterio que al cargar
-    sillon: hueco.sillon,
-    modificadoPor: {
-      uid: usuarioActualGrilla.uid,
-      nombre: datosUsuarioActualGrilla.nombre || usuarioActualGrilla.email
-    },
-    modificadoEn: firebase.firestore.FieldValue.serverTimestamp(),
-    ultimaReasignacion: {
-      fecha: turno.fecha,
-      horarioInicio: turno.horarioInicio,
-      horarioFin: turno.horarioFin,
-      sillon: turno.sillon
-    }
-  };
+  arrastrePendienteGrilla = { turno, hueco };
+  const paciente = turno.paciente
+    ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
+    : "el paciente";
+  document.getElementById("texto-motivo-arrastre-grilla").textContent =
+    `Vas a mover el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`;
+  document.getElementById("campo-motivo-arrastre-grilla").value = "";
+  document.getElementById("error-motivo-arrastre-grilla").style.display = "none";
+  document.getElementById("overlay-motivo-arrastre-grilla").style.display = "flex";
+}
+
+function cancelarMotivoArrastreGrilla() {
+  arrastrePendienteGrilla = null;
+  document.getElementById("overlay-motivo-arrastre-grilla").style.display = "none";
+  // Durante el arrastre la tarjeta original queda oculta (visibility:hidden); al
+  // cancelar sin guardar nada hace falta refrescar para que vuelva a aparecer en su
+  // lugar real.
+  cargarYRenderizarGrilla();
+}
+
+async function confirmarMotivoArrastreGrilla() {
+  const motivo = document.getElementById("campo-motivo-arrastre-grilla").value.trim();
+  if (!motivo) {
+    document.getElementById("error-motivo-arrastre-grilla").style.display = "block";
+    return;
+  }
+  if (!arrastrePendienteGrilla) return; // por las dudas, no debería poder pasar
+
+  const { turno, hueco } = arrastrePendienteGrilla;
+  const botonConfirmar = document.getElementById("boton-confirmar-motivo-arrastre-grilla");
+  botonConfirmar.disabled = true;
 
   try {
-    await db.collection("turnos").doc(turno.id).update(actualizacion);
+    await anularYCrearTurnoGrilla(turno, {
+      fecha: hueco.fecha,
+      horarioInicio: hueco.horaInicio,
+      horarioFin: hueco.horaFin,
+      horario: hueco.horaInicio, // compatibilidad con el comprobante, mismo criterio que al cargar
+      sillon: hueco.sillon
+    }, motivo, "reasignado");
+
+    arrastrePendienteGrilla = null;
+    document.getElementById("overlay-motivo-arrastre-grilla").style.display = "none";
     mostrarMensajeAgenda("Turno reasignado correctamente.", "exito");
     await cargarYRenderizarGrilla();
   } catch (error) {
     console.error("Error al reasignar el turno:", error);
-    mostrarMensajeAgenda("No se pudo mover el turno. Reintentá en unos segundos.", "error");
-    await cargarYRenderizarGrilla(); // por las dudas, refresca para reflejar el estado real
+    mostrarMensajeAgenda("No se pudo reasignar el turno. Reintentá en unos segundos.", "error");
+    await cargarYRenderizarGrilla();
+  } finally {
+    botonConfirmar.disabled = false;
   }
+}
+
+// --- Mecanismo formal de trazabilidad (Etapa T7) ---
+// Reemplaza el rastro simple de T6 Fase 3 (que actualizaba el turno en el lugar y
+// pisaba "ultimaReasignacion" en cada movimiento). Acá el turno original nunca se toca
+// más que para anularlo — queda como registro histórico completo — y se crea un turno
+// nuevo enlazado por id en ambas direcciones. Mismo patrón que ya usa correcciones.js
+// con las entregas de Medicación: la referencia del documento nuevo se genera ANTES del
+// batch para poder escribir el enlace cruzado (turnoNuevoId) en la misma operación, sin
+// necesitar una segunda escritura después del commit.
+//
+// turnoOriginal: el turno tal como está en caché (incluye "id").
+// camposNuevos: los campos que cambian respecto del original — se combinan con una
+// copia del resto de los campos del turno original (paciente, médico, protocolos, etc.).
+// motivo: texto obligatorio, se guarda en el turno que se anula.
+// tipoAccion: "reasignado" (cambio de fecha/horario, vía arrastre o formulario) o
+// "modificado" (corrección de otro dato) — define el estado que queda en el turno viejo.
+async function anularYCrearTurnoGrilla(turnoOriginal, camposNuevos, motivo, tipoAccion) {
+  const nuevoRef = db.collection("turnos").doc();
+
+  // Campos exclusivos del turno viejo (rastro de anulación) o generados de nuevo para
+  // el turno que se crea — nunca se copian tal cual de un documento al otro.
+  const camposExcluidos = new Set([
+    "id", "estado", "creadoPor", "creadoEn", "modificadoPor", "modificadoEn",
+    "ultimaReasignacion", "anuladoPor", "anuladoEn", "motivoCambio", "turnoNuevoId",
+    "turnoOriginalId"
+  ]);
+  const docNuevo = {};
+  for (const [clave, valor] of Object.entries(turnoOriginal)) {
+    if (!camposExcluidos.has(clave)) docNuevo[clave] = valor;
+  }
+  Object.assign(docNuevo, camposNuevos);
+  docNuevo.estado = "activo";
+  docNuevo.creadoPor = {
+    uid: usuarioActualGrilla.uid,
+    nombre: datosUsuarioActualGrilla.nombre || usuarioActualGrilla.email
+  };
+  docNuevo.creadoEn = firebase.firestore.FieldValue.serverTimestamp();
+  docNuevo.turnoOriginalId = turnoOriginal.id;
+
+  const datosAnulacion = {
+    estado: tipoAccion,
+    motivoCambio: motivo,
+    anuladoPor: {
+      uid: usuarioActualGrilla.uid,
+      nombre: datosUsuarioActualGrilla.nombre || usuarioActualGrilla.email
+    },
+    anuladoEn: firebase.firestore.FieldValue.serverTimestamp(),
+    turnoNuevoId: nuevoRef.id
+  };
+
+  const batch = db.batch();
+  batch.set(nuevoRef, docNuevo);
+  batch.update(db.collection("turnos").doc(turnoOriginal.id), datosAnulacion);
+  await batch.commit();
 }
 
 // --- Detalle del turno (feedback tras Fase 3) ---
