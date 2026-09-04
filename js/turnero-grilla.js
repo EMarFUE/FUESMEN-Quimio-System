@@ -234,12 +234,54 @@ function observarGuardadoTurnoGrilla() {
   const mensaje = document.getElementById("mensaje-general");
   const observer = new MutationObserver(() => {
     if (mensaje.textContent.trim() === "Turno guardado correctamente.") {
-      cargarYRenderizarGrilla(); // refresca la grilla de fondo sin cerrar el modal,
-      // así se puede seguir cargando turnos para otros pacientes y ver el resultado
+      // Antes (T2) el modal quedaba abierto a propósito para cargar varios turnos
+      // seguidos sin reabrirlo cada vez. A pedido de Elías ahora se cierra solo — se
+      // deja un instante el mensaje de éxito visible antes de cerrar, para que no
+      // desaparezca de golpe sin que se llegue a leer.
+      setTimeout(() => cerrarModalNuevoTurnoGrilla(), 900);
     }
   });
   observer.observe(mensaje, { childList: true, characterData: true, subtree: true });
 }
+
+// Cierre con Escape para los modales de la agenda. A pedido de Elías para el de "nuevo
+// turno"; se generaliza acá a los demás por consistencia. Revisa primero los tres que
+// se superponen al de "nuevo turno" durante la búsqueda (sobreturno/cupo/atadura) —
+// si alguno de esos está abierto, Escape cierra ese y no el de atrás.
+document.addEventListener("keydown", (evento) => {
+  if (evento.key !== "Escape") return;
+
+  const modalSobreturno = document.getElementById("modal-sobreturno");
+  if (modalSobreturno && modalSobreturno.style.display !== "none") {
+    cerrarModalSobreturno();
+    return;
+  }
+  const modalCupo = document.getElementById("modal-bloqueo-cupo");
+  if (modalCupo && modalCupo.style.display !== "none") {
+    cerrarModalBloqueoCupo();
+    return;
+  }
+  const modalAtadura = document.getElementById("modal-bloqueo-atadura");
+  if (modalAtadura && modalAtadura.style.display !== "none") {
+    cerrarModalBloqueoAtadura();
+    return;
+  }
+  const overlayMotivo = document.getElementById("overlay-motivo-arrastre-grilla");
+  if (overlayMotivo && overlayMotivo.style.display !== "none") {
+    cancelarMotivoArrastreGrilla();
+    return;
+  }
+  const overlayDetalle = document.getElementById("overlay-detalle-turno-grilla");
+  if (overlayDetalle && overlayDetalle.style.display !== "none") {
+    cerrarDetalleTurnoGrilla();
+    return;
+  }
+  const overlayNuevoTurno = document.getElementById("overlay-nuevo-turno-grilla");
+  if (overlayNuevoTurno && overlayNuevoTurno.style.display !== "none") {
+    cerrarModalNuevoTurnoGrilla();
+    return;
+  }
+});
 
 // --- Menú de cuenta (contraído por defecto: volver a Turnero / cerrar sesión) ---
 
