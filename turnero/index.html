@@ -34,6 +34,24 @@
       </div>
     </div>
 
+    <!-- Etapa T7, Fase 3: historial de reasignaciones/modificaciones/cancelaciones.
+         Exclusivo administrador y enfermería (expone motivo y usuario de cada cambio,
+         a diferencia de la agenda que ya es de lectura abierta a los cuatro roles) —
+         reforzado también en firestore.rules, no solo acá. -->
+    <div id="bloque-historial-turnos" style="display:none;">
+      <div class="titulo-bloque" style="margin-top:20px;">Historial</div>
+      <div class="tarjetas">
+        <a class="tarjeta" href="historial-turnos.html">
+          <div class="tarjeta-icono">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          </div>
+          <div class="tarjeta-titulo">turnos reasignados, modificados y cancelados</div>
+          <div class="tarjeta-texto">Motivo, usuario y cadena completa de cada cambio. Filtros y exportación a Excel.</div>
+          <div class="tarjeta-enlace">Entrar →</div>
+        </a>
+      </div>
+    </div>
+
     <div id="bloque-admin" style="display:none;">
       <div class="titulo-bloque" style="margin-top:20px;">Datos maestros</div>
       <div class="tarjetas">
@@ -120,8 +138,12 @@
 
       if (datosUsuario.rol === "administrador") {
         document.getElementById("bloque-carga").style.display = "block";
+        document.getElementById("bloque-historial-turnos").style.display = "block";
         document.getElementById("bloque-admin").style.display = "block";
-      } else if (datosUsuario.rol === "enfermeria" || datosUsuario.rol === "medico") {
+      } else if (datosUsuario.rol === "enfermeria") {
+        document.getElementById("bloque-carga").style.display = "block";
+        document.getElementById("bloque-historial-turnos").style.display = "block";
+      } else if (datosUsuario.rol === "medico") {
         document.getElementById("bloque-carga").style.display = "block";
       } else {
         document.getElementById("bloque-no-admin").style.display = "block";

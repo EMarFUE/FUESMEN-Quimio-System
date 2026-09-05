@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Historial de turnos · Turnero</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Turnero</a> &gt; Historial</div>
+        <h1 style="margin-bottom:0;">Historial de turnos</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <!-- Mensaje de acceso denegado para médico/administrativo: mismo patrón que ya usa
+         medicacion/entregas.html para pantallas de dos roles (a diferencia de las
+         admin-only del Turnero, que reemplazan todo el <body>). -->
+    <div id="mensaje-general-historial-turnos" class="mensaje-info" style="display:none;"></div>
+
+    <div id="contenido-historial-turnos" style="display:none;">
+      <div style="font-size:13px;color:var(--color-muted);margin-bottom:14px;">
+        Reasignaciones, modificaciones y cancelaciones de turnos, con motivo y usuario responsable.
+        Restringido a administrador y enfermería.
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+        <button type="button" id="boton-exportar-historial-turnos" class="boton-secundario" onclick="exportarHistorialTurnosAExcel()">Exportar a Excel</button>
+      </div>
+
+      <div class="filtro-tabs" id="filtro-tabs-historial-turnos">
+        <button type="button" class="filtro-tab activo" data-modo="recientes">Recientes</button>
+        <button type="button" class="filtro-tab" data-modo="tipo">Por tipo de acción</button>
+        <button type="button" class="filtro-tab" data-modo="medico">Por médico</button>
+        <button type="button" class="filtro-tab" data-modo="paciente">Por paciente</button>
+        <button type="button" class="filtro-tab" data-modo="fecha">Por rango de fechas</button>
+      </div>
+
+      <!-- Filtro por tipo de acción -->
+      <div id="bloque-filtro-tipo" class="bloque-filtro" style="display:none;">
+        <div class="filtro-tabs" id="selector-tipo-accion-historial-turnos">
+          <button type="button" class="filtro-tab" data-tipo="reasignado">Reasignados</button>
+          <button type="button" class="filtro-tab" data-tipo="modificado">Modificados</button>
+          <button type="button" class="filtro-tab" data-tipo="cancelado">Cancelados</button>
+        </div>
+      </div>
+
+      <!-- Filtro por médico -->
+      <div id="bloque-filtro-medico" class="bloque-filtro" style="display:none;">
+        <select id="campo-filtro-medico" onchange="aplicarFiltroMedicoHistorialTurnos(this.value)">
+          <option value="">Elegí un médico…</option>
+        </select>
+      </div>
+
+      <!-- Filtro por paciente: mismo patrón que medicacion/historial.js -->
+      <div id="bloque-filtro-paciente" class="bloque-filtro" style="display:none;">
+        <div id="bloque-busqueda-paciente-historial-turnos">
+          <input
+            type="text"
+            id="campo-buscar-paciente-historial-turnos"
+            class="campo-busqueda-pacientes"
+            placeholder="Buscar por apellido, nombre o documento"
+            autocomplete="off"
+            style="margin-bottom:8px;"
+          />
+          <div id="resultados-busqueda-paciente-historial-turnos"></div>
+          <div id="sin-resultados-historial-turnos" style="display:none;color:var(--color-muted);font-size:13px;">
+            No se encontraron pacientes.
+          </div>
+        </div>
+        <div id="paciente-seleccionado-historial-turnos" class="paciente-seleccionado" style="display:none;">
+          <span id="texto-paciente-seleccionado-historial-turnos"></span>
+          <button type="button" class="enlace-accion" onclick="quitarPacienteFiltroHistorialTurnos()">quitar</button>
+        </div>
+      </div>
+
+      <!-- Filtro por rango de fechas (sobre la fecha del CAMBIO, no la del turno) -->
+      <div id="bloque-filtro-fecha" class="bloque-filtro" style="display:none;">
+        <div class="fila-2">
+          <div class="campo" style="margin-bottom:0;">
+            <label>Desde</label>
+            <input type="date" id="campo-filtro-fecha-desde-historial-turnos" />
+          </div>
+          <div class="campo" style="margin-bottom:0;">
+            <label>Hasta</label>
+            <input type="date" id="campo-filtro-fecha-hasta-historial-turnos" />
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:var(--color-muted);margin-top:6px;">Filtra por la fecha en que se hizo el cambio, no por la fecha del turno.</div>
+        <button type="button" class="boton-secundario" style="margin-top:12px;" onclick="aplicarFiltroFechaHistorialTurnos()">Buscar</button>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Cuándo</th>
+              <th>Acción</th>
+              <th>Turno</th>
+              <th>Paciente</th>
+              <th>Médico</th>
+              <th>Motivo</th>
+              <th>Quién</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="cuerpo-tabla-historial-turnos">
+            <tr><td colspan="8" style="color:var(--color-muted);">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="zona-cargar-mas-historial-turnos" style="text-align:center;margin-top:8px;">
+        <button type="button" class="boton-secundario" id="boton-cargar-mas-historial-turnos" onclick="cargarMasHistorialTurnos()">Cargar más</button>
+      </div>
+    </div>
+
+    <!-- Cadena completa de un turno (original → reemplazos sucesivos) -->
+    <div id="overlay-cadena-historial-turnos" class="overlay-modal" style="display:none;" onclick="cerrarCadenaHistorialTurnosSiFondo(event)">
+      <div class="modal-panel" id="modal-panel-cadena-historial-turnos"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/turnero-historial.js"></script>
+  <script>
+    const ROLES_PERMITIDOS_HISTORIAL_TURNOS = ["administrador", "enfermeria"];
+
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (!ROLES_PERMITIDOS_HISTORIAL_TURNOS.includes(datosUsuario.rol)) {
+        const mensaje = document.getElementById("mensaje-general-historial-turnos");
+        mensaje.className = "mensaje-info error";
+        mensaje.textContent = "Esta pantalla es exclusiva para administrador y enfermería.";
+        mensaje.style.display = "block";
+        return;
+      }
+
+      document.getElementById("contenido-historial-turnos").style.display = "block";
+      iniciarHistorialTurnos(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>
