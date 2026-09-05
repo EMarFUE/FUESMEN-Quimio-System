@@ -782,20 +782,22 @@ function confirmarArrastreGrilla(turno, candidato) {
     sedeId: hueco.sedeId,
     sedeNombre: hueco.sedeNombre,
     tipoSobreturno: null // un hueco de la grilla semanal siempre es un sillón físico real
-  }, "arrastre", `Vas a mover el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`);
+  }, "arrastre", `Vas a mover el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`, "Confirmar reasignación");
 }
 
-// Abre el modal de motivo compartido entre arrastre, "Reasignar" y "Modificar" — misma
-// pregunta, mismo guardado final (anularYCrearTurnoGrilla con estado "reasignado" o
-// "modificado" según corresponda). "camposNuevos" ya viene armado por quien llama —
-// cada flujo sabe qué campos cambia y con qué valores; acá no se recalcula nada.
+// Abre el modal de motivo compartido entre arrastre, "Reasignar", "Modificar" y
+// "Eliminar" — misma pregunta, mismo guardado final (anularYCrearTurnoGrilla con el
+// estado que corresponda). "camposNuevos" ya viene armado por quien llama — cada flujo
+// sabe qué campos cambia y con qué valores (vacío en "Eliminar", no hay turno nuevo).
 // "origen" decide qué hacer después de guardar/cancelar (ver cancelarMotivoArrastreGrilla
 // y confirmarMotivoArrastreGrilla) y qué estado queda en el turno anulado.
-function abrirModalMotivoGrilla(turno, camposNuevos, origen, textoResumen) {
+// "textoBoton" solo cambia la etiqueta del botón de confirmar, nada más.
+function abrirModalMotivoGrilla(turno, camposNuevos, origen, textoResumen, textoBoton) {
   arrastrePendienteGrilla = { turno, camposNuevos, origen };
   document.getElementById("texto-motivo-arrastre-grilla").textContent = textoResumen;
   document.getElementById("campo-motivo-arrastre-grilla").value = "";
   document.getElementById("error-motivo-arrastre-grilla").style.display = "none";
+  document.getElementById("boton-confirmar-motivo-arrastre-grilla").textContent = textoBoton || "Confirmar";
   document.getElementById("overlay-motivo-arrastre-grilla").style.display = "flex";
 }
 
@@ -814,9 +816,9 @@ function cancelarMotivoArrastreGrilla() {
     document.getElementById("overlay-modificar-grilla").style.display = "flex";
     return;
   }
-  // Arrastre: durante el arrastre la tarjeta original queda oculta (visibility:hidden);
-  // al cancelar sin guardar nada hace falta refrescar para que vuelva a aparecer en su
-  // lugar real.
+  // Arrastre y Eliminar: no hay un modal previo al que volver — durante el arrastre,
+  // además, la tarjeta original queda oculta (visibility:hidden), así que hace falta
+  // refrescar para que vuelva a aparecer en su lugar real.
   cargarYRenderizarGrilla();
 }
 
@@ -829,7 +831,9 @@ async function confirmarMotivoArrastreGrilla() {
   if (!arrastrePendienteGrilla) return; // por las dudas, no debería poder pasar
 
   const { turno, camposNuevos, origen } = arrastrePendienteGrilla;
-  const tipoAccion = origen === "modificarFormulario" ? "modificado" : "reasignado";
+  const tipoAccion = origen === "modificarFormulario" ? "modificado"
+    : origen === "eliminarFormulario" ? "cancelado"
+    : "reasignado";
   const botonConfirmar = document.getElementById("boton-confirmar-motivo-arrastre-grilla");
   botonConfirmar.disabled = true;
 
@@ -846,10 +850,10 @@ async function confirmarMotivoArrastreGrilla() {
       document.getElementById("overlay-modificar-grilla").style.display = "none";
       turnoIdModificarActual = null;
     }
-    mostrarMensajeAgenda(
-      tipoAccion === "modificado" ? "Turno modificado correctamente." : "Turno reasignado correctamente.",
-      "exito"
-    );
+    const mensajeExito = tipoAccion === "modificado" ? "Turno modificado correctamente."
+      : tipoAccion === "cancelado" ? "Turno eliminado correctamente."
+      : "Turno reasignado correctamente.";
+    mostrarMensajeAgenda(mensajeExito, "exito");
     await cargarYRenderizarGrilla();
   } catch (error) {
     console.error("Error al guardar el cambio del turno:", error);
@@ -999,7 +1003,7 @@ function abrirMotivoReasignarGrilla(datosBasicos, hueco, tipoSobreturno) {
     // un sobreturno confirmado) explícito como tal — nunca hereda un tipoSobreturno
     // viejo que ya no corresponde.
     tipoSobreturno: tipoSobreturno || null
-  }, "reasignarFormulario", `Vas a reasignar el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`);
+  }, "reasignarFormulario", `Vas a reasignar el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`, "Confirmar reasignación");
 }
 
 // --- Modificar por formulario (Etapa T7, Fase 1) ---
@@ -1358,7 +1362,7 @@ async function guardarModificacionGrilla() {
       sesion,
       horarioFin,
       paciente: turno.paciente ? { ...turno.paciente, obraSocial: obraSocial || "" } : turno.paciente
-    }, "modificarFormulario", `Vas a modificar el turno de ${paciente}.`);
+    }, "modificarFormulario", `Vas a modificar el turno de ${paciente}.`, "Confirmar modificación");
 
     document.getElementById("overlay-modificar-grilla").style.display = "none";
     mostrarMensajeModificarGrilla("", "info");
@@ -1368,23 +1372,66 @@ async function guardarModificacionGrilla() {
   }
 }
 
+// --- Eliminar (Etapa T7, Fase 2) ---
+// No borra nada — marca el turno como estado "cancelado" con motivo y usuario, y deja
+// de aparecer en la agenda (toda lectura de turnos ya filtra por estado === "activo",
+// no hace falta tocar ninguna consulta). Sin turno de reemplazo, a diferencia de
+// reasignar/modificar. Mismo modal de motivo, mismo mecanismo de guardado
+// (anularYCrearTurnoGrilla), mismo permiso por rol que el resto de T7.
+function abrirEliminarGrilla(turnoId) {
+  const turno = turnosCacheGrilla.find(t => t.id === turnoId);
+  if (!turno || !puedeArrastrarTurnoGrilla(turno)) return; // resguardo — el botón que llama a esto ya está gateado igual
+
+  cerrarDetalleTurnoGrilla();
+
+  const paciente = turno.paciente
+    ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
+    : "el paciente";
+  abrirModalMotivoGrilla(
+    turno,
+    {}, // sin turno de reemplazo, no hace falta armar camposNuevos
+    "eliminarFormulario",
+    `Vas a eliminar el turno de ${paciente} (${turno.fecha || "-"}, ${turno.horarioInicio || "-"}hs). Esta acción no se puede deshacer desde la agenda.`,
+    "Confirmar eliminación"
+  );
+}
 
 // --- Mecanismo formal de trazabilidad (Etapa T7) ---
 // Reemplaza el rastro simple de T6 Fase 3 (que actualizaba el turno en el lugar y
 // pisaba "ultimaReasignacion" en cada movimiento). Acá el turno original nunca se toca
-// más que para anularlo — queda como registro histórico completo — y se crea un turno
-// nuevo enlazado por id en ambas direcciones. Mismo patrón que ya usa correcciones.js
-// con las entregas de Medicación: la referencia del documento nuevo se genera ANTES del
-// batch para poder escribir el enlace cruzado (turnoNuevoId) en la misma operación, sin
-// necesitar una segunda escritura después del commit.
+// más que para anularlo — queda como registro histórico completo. En "reasignado" y
+// "modificado" (Fase 1) además se crea un turno nuevo enlazado por id en ambas
+// direcciones, mismo patrón que ya usa correcciones.js con las entregas de Medicación:
+// la referencia del documento nuevo se genera ANTES del batch para poder escribir el
+// enlace cruzado (turnoNuevoId) en la misma operación, sin necesitar una segunda
+// escritura después del commit. En "cancelado" (Fase 2, eliminar) no hay reemplazo —
+// solo se anula.
 //
 // turnoOriginal: el turno tal como está en caché (incluye "id").
 // camposNuevos: los campos que cambian respecto del original — se combinan con una
 // copia del resto de los campos del turno original (paciente, médico, protocolos, etc.).
+// Ignorado en "cancelado" (no hay turno nuevo que armar).
 // motivo: texto obligatorio, se guarda en el turno que se anula.
-// tipoAccion: "reasignado" (cambio de fecha/horario, vía arrastre o formulario) o
-// "modificado" (corrección de otro dato) — define el estado que queda en el turno viejo.
+// tipoAccion: "reasignado" (cambio de fecha/horario, vía arrastre o formulario),
+// "modificado" (corrección de otro dato) o "cancelado" (eliminar) — define el estado
+// que queda en el turno viejo.
 async function anularYCrearTurnoGrilla(turnoOriginal, camposNuevos, motivo, tipoAccion) {
+  const datosAnulacion = {
+    estado: tipoAccion,
+    motivoCambio: motivo,
+    anuladoPor: {
+      uid: usuarioActualGrilla.uid,
+      nombre: datosUsuarioActualGrilla.nombre || usuarioActualGrilla.email
+    },
+    anuladoEn: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  if (tipoAccion === "cancelado") {
+    // Eliminar (Fase 2): sin turno de reemplazo, una sola escritura alcanza.
+    await db.collection("turnos").doc(turnoOriginal.id).update(datosAnulacion);
+    return;
+  }
+
   const nuevoRef = db.collection("turnos").doc();
 
   // Campos exclusivos del turno viejo (rastro de anulación) o generados de nuevo para
@@ -1407,16 +1454,7 @@ async function anularYCrearTurnoGrilla(turnoOriginal, camposNuevos, motivo, tipo
   docNuevo.creadoEn = firebase.firestore.FieldValue.serverTimestamp();
   docNuevo.turnoOriginalId = turnoOriginal.id;
 
-  const datosAnulacion = {
-    estado: tipoAccion,
-    motivoCambio: motivo,
-    anuladoPor: {
-      uid: usuarioActualGrilla.uid,
-      nombre: datosUsuarioActualGrilla.nombre || usuarioActualGrilla.email
-    },
-    anuladoEn: firebase.firestore.FieldValue.serverTimestamp(),
-    turnoNuevoId: nuevoRef.id
-  };
+  datosAnulacion.turnoNuevoId = nuevoRef.id;
 
   const batch = db.batch();
   batch.set(nuevoRef, docNuevo);
@@ -1466,13 +1504,15 @@ function abrirDetalleTurnoGrilla(turnoId) {
     </div>
   `).join("");
 
-  // Etapa T7, Fase 1: "Reasignar"/"Modificar" respetan el mismo permiso que ya regía el
-  // arrastre (administrador/enfermería sin restricción; médico solo turnos propios y
-  // habilitado).
+  // Etapa T7: "Reasignar"/"Modificar"/"Eliminar" respetan el mismo permiso que ya regía
+  // el arrastre (administrador/enfermería sin restricción; médico solo turnos propios y
+  // habilitado). "Eliminar" se distingue con el color de peligro (--color-danger), nada
+  // más — mismo modal de motivo que las otras dos, sin confirmación aparte.
   const botonesAccionHtml = puedeArrastrarTurnoGrilla(turno)
-    ? `<div style="display:flex;gap:10px;margin-top:16px;">
+    ? `<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
          <button type="button" class="boton-principal" style="width:auto;" onclick="abrirReasignarGrilla('${turno.id}')">Reasignar</button>
          <button type="button" class="boton-secundario" style="width:auto;" onclick="abrirModificarGrilla('${turno.id}')">Modificar</button>
+         <button type="button" class="boton-secundario" style="width:auto;color:var(--color-danger);border-color:var(--color-danger);" onclick="abrirEliminarGrilla('${turno.id}')">Eliminar</button>
        </div>`
     : "";
 
