@@ -880,20 +880,31 @@ async function intentarGuardarTurno() {
     sesion,
     fecha,
     diasSolicitados,
-    fechaCalculadaDesdeDias
+    fechaCalculadaDesdeDias,
+    pacienteObraSocial: pacienteSeleccionadoCarga.obraSocial || "" // T7: ver guardarComoSobreturnoFisico (caso Occhipinti)
   });
 }
 
 // Etapa T3: buscar huecos y guardar automáticamente con el mejor
-async function buscarYMostrarHuecos(datosBasicos) {
+// Etapa T7: acepta un "pacienteInfo" explícito {id, obraSocial} — lo usa "Reasignar"
+// (turnero-grilla.js), donde no hay ningún paciente elegido en el formulario de "nuevo
+// turno": el paciente es el que ya tiene el turno que se está reasignando. Sin este
+// parámetro, sigue usando pacienteSeleccionadoCarga como siempre (alta nueva).
+async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
+  const paciente = pacienteInfo || pacienteSeleccionadoCarga;
+
   buscandoHuecos = true;
   document.getElementById("boton-guardar-turno").disabled = true;
   mostrarMensajeGeneral("Buscando disponibilidad…", "info");
+  // T7: el formulario de "nuevo turno" está cerrado durante una reasignación, así que
+  // mostrarMensajeGeneral (arriba) escribe en un modal que no se ve — se espeja acá en
+  // el propio modal de "Reasignar".
+  if (datosBasicos.modoReasignar) mostrarMensajeReasignarGrilla("Buscando disponibilidad…", "info");
 
   try {
     const resultado = await buscarHuecos(
       datosBasicos.medicoId || datosBasicos.medicoNombre, // Para "Otro", pasamos nombre; el motor lo maneja
-      pacienteSeleccionadoCarga.obraSocial || "",
+      paciente.obraSocial || "",
       datosBasicos.duracionTotalMinutos,
       datosBasicos.fecha,
       medicosCacheCarga,
@@ -902,7 +913,8 @@ async function buscarYMostrarHuecos(datosBasicos) {
       rolActualCarga === "medico",
       datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId, // sede elegida a mano, si aplica
       cuposCacheCarga, // Etapa T4
-      pacienteSeleccionadoCarga.id // regla nueva: un turno por paciente por día (transversal a sedes)
+      paciente.id, // regla nueva: un turno por paciente por día (transversal a sedes)
+      datosBasicos.turnoIdParaReasignar // T7: excluye el propio turno del chequeo de "un turno por día" — undefined en un alta nueva, no afecta nada
     );
 
     ultimaBusquedaHuecos = resultado;
@@ -915,6 +927,7 @@ async function buscarYMostrarHuecos(datosBasicos) {
       // Regla nueva: bloqueo total sin excepción de rol, nunca ofrece sobreturno (a
       // diferencia de cupo/atadura, que sí lo hacen) — se corta acá con un mensaje simple.
       mostrarMensajeGeneral(resultado.sinHuecosMotivo, "error");
+      if (datosBasicos.modoReasignar) mostrarMensajeReasignarGrilla(resultado.sinHuecosMotivo, "error");
     } else if (resultado.bloqueoCupo) {
       // Etapa T4: no es que no haya sillón físico — el médico llegó a su cupo del día
       // pedido. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoCupo).
@@ -929,6 +942,7 @@ async function buscarYMostrarHuecos(datosBasicos) {
   } catch (error) {
     console.error("Error al buscar huecos:", error);
     mostrarMensajeGeneral(`Error en la búsqueda: ${error.message}`, "error");
+    if (datosBasicos.modoReasignar) mostrarMensajeReasignarGrilla(`Error en la búsqueda: ${error.message}`, "error");
   } finally {
     buscandoHuecos = false;
     document.getElementById("boton-guardar-turno").disabled = false;
@@ -1226,9 +1240,11 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
   if (datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID) {
     // Occhipinti: incluso en sobreturno, la sede se determina según la obra social
     // (misma regla de T0 que usa la búsqueda normal, primera opción de la lista).
+    // T7: usa datosBasicos.pacienteObraSocial, no pacienteSeleccionadoCarga directo —
+    // en "Reasignar" no hay ningún paciente elegido en este formulario.
     const sedesCandidatas = await determinarSedesABuscar(
       MEDICO_OCCHIPINTI_ID,
-      pacienteSeleccionadoCarga.obraSocial || "",
+      datosBasicos.pacienteObraSocial || "",
       medicosCacheCarga
     );
     sedeIdSobreturno = sedesCandidatas[0];
@@ -1268,6 +1284,15 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
 }
 
 async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
+  // Etapa T7: en modo reasignar no se guarda directo — hace falta motivo obligatorio
+  // primero (mismo modal que ya usa el arrastre). abrirMotivoReasignarGrilla
+  // (turnero-grilla.js) retoma el guardado real (anular el turno viejo + crear el nuevo
+  // enlazado) una vez confirmado el motivo — ver anularYCrearTurnoGrilla.
+  if (datosBasicos.modoReasignar) {
+    abrirMotivoReasignarGrilla(datosBasicos, hueco, tipoSobreturno);
+    return;
+  }
+
   guardandoTurno = true;
   document.getElementById("boton-guardar-turno").disabled = true;
 

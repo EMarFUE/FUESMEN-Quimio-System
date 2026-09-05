@@ -220,6 +220,24 @@
     </div>
   </div>
 
+  <!-- Reasignar por formulario (Etapa T7, Fase 1) — búsqueda de disponibilidad desde
+       una fecha de referencia elegida a mano, para el mismo médico/protocolo/duración
+       del turno. El paciente/médico/protocolo NO se tocan acá (eso es "Modificar",
+       todavía no construido). -->
+  <div class="overlay-modal" id="overlay-reasignar-grilla" style="display:none;">
+    <div class="modal-panel" style="max-width:420px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarReasignarGrilla()">×</button>
+      </div>
+      <h2 style="margin-top:0;font-size:17px;">Reasignar turno</h2>
+      <div id="resumen-reasignar-grilla" style="margin-bottom:14px;"></div>
+      <label for="campo-fecha-reasignar-grilla" style="font-size:13px;color:var(--color-muted);">Buscar disponibilidad a partir de:</label>
+      <input type="date" id="campo-fecha-reasignar-grilla" style="max-width:200px;display:block;margin-top:4px;" />
+      <div id="mensaje-reasignar-grilla" class="mensaje-info" style="display:none;margin-top:10px;"></div>
+      <button type="button" id="boton-buscar-reasignar-grilla" class="boton-principal" style="margin-top:14px;" onclick="buscarReasignarGrilla()">Buscar disponibilidad</button>
+    </div>
+  </div>
+
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>

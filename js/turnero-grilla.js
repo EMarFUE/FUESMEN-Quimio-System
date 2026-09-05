@@ -56,8 +56,13 @@ let cuposCacheGrilla = [];
 let arrastreActivoGrilla = null;
 
 // Etapa T7: arrastre pendiente de motivo (el candidato ya se soltó en un hueco válido,
-// pero todavía no se guardó — espera a que se complete el modal de motivo).
+// pero todavía no se guardó — espera a que se complete el modal de motivo). También lo
+// usa "Reasignar" por formulario (mismo modal de motivo, otro origen).
 let arrastrePendienteGrilla = null;
+
+// Etapa T7 — Reasignar por formulario: id del turno que se está reasignando mientras el
+// modal de búsqueda está abierto.
+let turnoIdReasignarActual = null;
 
 function escaparHtmlGrilla(texto) {
   const div = document.createElement("div");
@@ -269,6 +274,11 @@ document.addEventListener("keydown", (evento) => {
   const overlayMotivo = document.getElementById("overlay-motivo-arrastre-grilla");
   if (overlayMotivo && overlayMotivo.style.display !== "none") {
     cancelarMotivoArrastreGrilla();
+    return;
+  }
+  const overlayReasignar = document.getElementById("overlay-reasignar-grilla");
+  if (overlayReasignar && overlayReasignar.style.display !== "none") {
+    cerrarReasignarGrilla();
     return;
   }
   const overlayDetalle = document.getElementById("overlay-detalle-turno-grilla");
@@ -748,22 +758,38 @@ function confirmarArrastreGrilla(turno, candidato) {
     turno.horarioInicio === hueco.horaInicio && turno.sillon === hueco.sillon;
   if (sinCambioReal) return; // soltó en el mismo lugar donde ya estaba
 
-  arrastrePendienteGrilla = { turno, hueco };
+  abrirModalMotivoGrilla(turno, hueco, null, "arrastre", "mover");
+}
+
+// Abre el modal de motivo compartido entre el arrastre y "Reasignar" por formulario —
+// misma pregunta, mismo guardado final (anularYCrearTurnoGrilla), solo cambia qué hacer
+// después de guardar/cancelar (ver "origen" en cancelarMotivoArrastreGrilla y
+// confirmarMotivoArrastreGrilla).
+function abrirModalMotivoGrilla(turno, hueco, tipoSobreturno, origen, verbo) {
+  arrastrePendienteGrilla = { turno, hueco, tipoSobreturno, origen };
   const paciente = turno.paciente
     ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
     : "el paciente";
   document.getElementById("texto-motivo-arrastre-grilla").textContent =
-    `Vas a mover el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`;
+    `Vas a ${verbo} el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`;
   document.getElementById("campo-motivo-arrastre-grilla").value = "";
   document.getElementById("error-motivo-arrastre-grilla").style.display = "none";
   document.getElementById("overlay-motivo-arrastre-grilla").style.display = "flex";
 }
 
 function cancelarMotivoArrastreGrilla() {
+  const pendiente = arrastrePendienteGrilla;
   arrastrePendienteGrilla = null;
   document.getElementById("overlay-motivo-arrastre-grilla").style.display = "none";
-  // Durante el arrastre la tarjeta original queda oculta (visibility:hidden); al
-  // cancelar sin guardar nada hace falta refrescar para que vuelva a aparecer en su
+
+  if (pendiente && pendiente.origen === "reasignarFormulario") {
+    // Volver a la búsqueda (sigue con la misma fecha cargada, por si solo quiere
+    // reintentar) en vez de cerrar todo.
+    document.getElementById("overlay-reasignar-grilla").style.display = "flex";
+    return;
+  }
+  // Arrastre: durante el arrastre la tarjeta original queda oculta (visibility:hidden);
+  // al cancelar sin guardar nada hace falta refrescar para que vuelva a aparecer en su
   // lugar real.
   cargarYRenderizarGrilla();
 }
@@ -776,7 +802,7 @@ async function confirmarMotivoArrastreGrilla() {
   }
   if (!arrastrePendienteGrilla) return; // por las dudas, no debería poder pasar
 
-  const { turno, hueco } = arrastrePendienteGrilla;
+  const { turno, hueco, tipoSobreturno, origen } = arrastrePendienteGrilla;
   const botonConfirmar = document.getElementById("boton-confirmar-motivo-arrastre-grilla");
   botonConfirmar.disabled = true;
 
@@ -786,11 +812,24 @@ async function confirmarMotivoArrastreGrilla() {
       horarioInicio: hueco.horaInicio,
       horarioFin: hueco.horaFin,
       horario: hueco.horaInicio, // compatibilidad con el comprobante, mismo criterio que al cargar
-      sillon: hueco.sillon
+      sillon: hueco.sillon,
+      // T7: la sede del hueco encontrado — en el arrastre siempre coincide con la sede
+      // ya seleccionada en la grilla, pero en "Reasignar" con un médico de sede
+      // automática (Occhipinti) el motor puede haber elegido la otra sede.
+      sedeId: hueco.sedeId,
+      sedeNombre: hueco.sedeNombre,
+      // Un hueco encontrado por el motor (arrastre o "Reasignar") siempre es un sillón
+      // físico real (o, si viene de un sobreturno confirmado en "Reasignar", explícito
+      // como tal) — nunca hereda un tipoSobreturno viejo que ya no corresponde.
+      tipoSobreturno: tipoSobreturno || null
     }, motivo, "reasignado");
 
     arrastrePendienteGrilla = null;
     document.getElementById("overlay-motivo-arrastre-grilla").style.display = "none";
+    if (origen === "reasignarFormulario") {
+      document.getElementById("overlay-reasignar-grilla").style.display = "none";
+      turnoIdReasignarActual = null;
+    }
     mostrarMensajeAgenda("Turno reasignado correctamente.", "exito");
     await cargarYRenderizarGrilla();
   } catch (error) {
@@ -800,6 +839,131 @@ async function confirmarMotivoArrastreGrilla() {
   } finally {
     botonConfirmar.disabled = false;
   }
+}
+
+// --- Reasignar por formulario (Etapa T7, Fase 1) ---
+// A diferencia del arrastre (que ya sabe a qué hueco fue soltado), acá hace falta
+// buscar la disponibilidad primero. Reutiliza el mismo motor y la misma orquestación de
+// turnero-carga.js que usa "+ nuevo turno" (buscarYMostrarHuecos, con los tres caminos
+// de reserva de siempre: sobreturno físico, cupo excedido, atadura bloqueada) — la única
+// diferencia es que acá el paciente/médico/protocolo ya están fijos (son los del turno
+// que se reasigna, no se cargan de un formulario), y el guardado final no es un alta
+// nueva sino anularYCrearTurnoGrilla con motivo obligatorio (ver guardarTurnoConHueco en
+// turnero-carga.js, rama "modoReasignar").
+
+async function abrirReasignarGrilla(turnoId) {
+  const turno = turnosCacheGrilla.find(t => t.id === turnoId);
+  if (!turno || !puedeArrastrarTurnoGrilla(turno)) return; // resguardo — el botón que llama a esto ya está gateado igual
+
+  cerrarDetalleTurnoGrilla();
+
+  // T7: turnero-carga.js (buscarYMostrarHuecos, mostrarBloqueoCupo/Atadura) decide qué
+  // mostrarle a cada rol según rolActualCarga — normalmente lo fija iniciarCargaTurno()
+  // al abrir "+ nuevo turno" por primera vez. Si "Reasignar" se usa sin haber abierto
+  // nunca ese modal en esta sesión, rolActualCarga sigue en null y un médico vería por
+  // error la variante de enfermería/administrador. Se fija acá también, sin duplicar el
+  // resto de iniciarCargaTurno (que además engancha listeners del formulario de carga).
+  usuarioActualCarga = usuarioActualGrilla;
+  datosUsuarioActualCarga = datosUsuarioActualGrilla;
+  rolActualCarga = datosUsuarioActualGrilla.rol;
+
+  const paciente = turno.paciente
+    ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
+    : "Sin paciente";
+  const protocolosTexto = (turno.protocolos || []).map(p => p.nombre || p).join(", ") || "-";
+  document.getElementById("resumen-reasignar-grilla").innerHTML = [
+    ["Paciente", paciente],
+    ["Médico", turno.medicoNombre || "-"],
+    ["Protocolo(s)", protocolosTexto],
+    ["Turno actual", `${turno.fecha || "-"}, ${turno.horarioInicio || "-"}hs`]
+  ].map(([etiqueta, valor]) => `
+    <div class="fila-detalle-turno-grilla">
+      <span class="etiqueta-detalle-turno-grilla">${escaparHtmlGrilla(etiqueta)}</span>
+      <span>${escaparHtmlGrilla(valor)}</span>
+    </div>
+  `).join("");
+
+  document.getElementById("campo-fecha-reasignar-grilla").value = turno.fecha || "";
+  document.getElementById("mensaje-reasignar-grilla").style.display = "none";
+  turnoIdReasignarActual = turnoId;
+  document.getElementById("overlay-reasignar-grilla").style.display = "flex";
+
+  // Refrescar los catálogos que el motor necesita — puede que en esta sesión nunca se
+  // haya abierto "+ nuevo turno" y estos cachés (de turnero-carga.js) arranquen vacíos.
+  await Promise.all([
+    cargarMedicosCarga(), cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga()
+  ]);
+}
+
+function cerrarReasignarGrilla() {
+  document.getElementById("overlay-reasignar-grilla").style.display = "none";
+  turnoIdReasignarActual = null;
+}
+
+function mostrarMensajeReasignarGrilla(texto, tipo) {
+  const el = document.getElementById("mensaje-reasignar-grilla");
+  el.textContent = texto;
+  el.className = "mensaje-info " + tipo;
+  el.style.display = "block";
+}
+
+async function buscarReasignarGrilla() {
+  const turno = turnosCacheGrilla.find(t => t.id === turnoIdReasignarActual);
+  if (!turno) {
+    mostrarMensajeReasignarGrilla("El turno ya no está disponible. Cerrá esta ventana y volvé a intentar.", "error");
+    return;
+  }
+  const fechaReferencia = document.getElementById("campo-fecha-reasignar-grilla").value;
+  if (!fechaReferencia) {
+    mostrarMensajeReasignarGrilla("Elegí una fecha de referencia.", "error");
+    return;
+  }
+
+  const datosBasicos = {
+    esMedicoOtro: turno.esMedicoOtro,
+    medicoId: turno.medicoId,
+    medicoNombre: turno.medicoNombre,
+    sedeId: turno.sedeId,
+    sedeNombre: turno.sedeNombre,
+    sedeAutomatica: turno.sedeAutomatica,
+    protocolos: turno.protocolos,
+    premedicacion: turno.premedicacion,
+    duracionTotalMinutos: turno.duracionTotalMinutos,
+    ciclo: turno.ciclo,
+    sesion: turno.sesion,
+    fecha: fechaReferencia,
+    diasSolicitados: null,
+    fechaCalculadaDesdeDias: false,
+    pacienteObraSocial: turno.paciente ? (turno.paciente.obraSocial || "") : "", // T7: ver guardarComoSobreturnoFisico (caso Occhipinti)
+    // T7: le indica a buscarYMostrarHuecos/guardarTurnoConHueco (turnero-carga.js) que
+    // esto no es un alta nueva — hay que pedir motivo y anular+crear en vez de agregar.
+    modoReasignar: true,
+    turnoIdParaReasignar: turno.id
+  };
+
+  const boton = document.getElementById("boton-buscar-reasignar-grilla");
+  boton.disabled = true;
+  mostrarMensajeReasignarGrilla("Buscando disponibilidad…", "info");
+  try {
+    await buscarYMostrarHuecos(datosBasicos, {
+      id: turno.paciente ? turno.paciente.id : null,
+      obraSocial: turno.paciente ? turno.paciente.obraSocial : ""
+    });
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+// Retoma turnero-carga.js → guardarTurnoConHueco cuando modoReasignar está activo: en
+// vez de guardar directo, pide el motivo obligatorio (mismo modal que el arrastre).
+function abrirMotivoReasignarGrilla(datosBasicos, hueco, tipoSobreturno) {
+  const turno = turnosCacheGrilla.find(t => t.id === datosBasicos.turnoIdParaReasignar);
+  if (!turno) {
+    mostrarMensajeReasignarGrilla("El turno original ya no está disponible. Cerrá esta ventana y volvé a intentar.", "error");
+    return;
+  }
+  document.getElementById("overlay-reasignar-grilla").style.display = "none";
+  abrirModalMotivoGrilla(turno, hueco, tipoSobreturno, "reasignarFormulario", "reasignar");
 }
 
 // --- Mecanismo formal de trazabilidad (Etapa T7) ---
@@ -899,9 +1063,16 @@ function abrirDetalleTurnoGrilla(turnoId) {
     </div>
   `).join("");
 
+  // Etapa T7, Fase 1: "Reasignar" respeta el mismo permiso que ya regía el arrastre
+  // (administrador/enfermería sin restricción; médico solo turnos propios y habilitado).
+  const botonReasignarHtml = puedeArrastrarTurnoGrilla(turno)
+    ? `<button type="button" class="boton-principal" style="margin-top:16px;" onclick="abrirReasignarGrilla('${turno.id}')">Reasignar</button>`
+    : "";
+
   document.getElementById("contenido-detalle-turno-grilla").innerHTML = `
     <h2 style="margin-top:0;">Detalle del turno</h2>
     ${filasHtml}
+    ${botonReasignarHtml}
   `;
   document.getElementById("overlay-detalle-turno-grilla").style.display = "flex";
 }
@@ -913,9 +1084,3 @@ function cerrarDetalleTurnoGrilla() {
 function cerrarDetalleTurnoGrillaSiFondo(evento) {
   if (evento.target.id === "overlay-detalle-turno-grilla") cerrarDetalleTurnoGrilla();
 }
-
-document.addEventListener("keydown", (evento) => {
-  if (evento.key !== "Escape") return;
-  const overlay = document.getElementById("overlay-detalle-turno-grilla");
-  if (overlay && overlay.style.display !== "none") cerrarDetalleTurnoGrilla();
-});
