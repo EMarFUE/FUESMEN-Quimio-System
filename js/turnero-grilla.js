@@ -64,6 +64,10 @@ let arrastrePendienteGrilla = null;
 // modal de búsqueda está abierto.
 let turnoIdReasignarActual = null;
 
+// Etapa T7 — Modificar por formulario: id del turno que se está modificando mientras el
+// modal de edición está abierto.
+let turnoIdModificarActual = null;
+
 function escaparHtmlGrilla(texto) {
   const div = document.createElement("div");
   div.textContent = texto == null ? "" : String(texto);
@@ -279,6 +283,11 @@ document.addEventListener("keydown", (evento) => {
   const overlayReasignar = document.getElementById("overlay-reasignar-grilla");
   if (overlayReasignar && overlayReasignar.style.display !== "none") {
     cerrarReasignarGrilla();
+    return;
+  }
+  const overlayModificar = document.getElementById("overlay-modificar-grilla");
+  if (overlayModificar && overlayModificar.style.display !== "none") {
+    cerrarModificarGrilla();
     return;
   }
   const overlayDetalle = document.getElementById("overlay-detalle-turno-grilla");
@@ -758,20 +767,33 @@ function confirmarArrastreGrilla(turno, candidato) {
     turno.horarioInicio === hueco.horaInicio && turno.sillon === hueco.sillon;
   if (sinCambioReal) return; // soltó en el mismo lugar donde ya estaba
 
-  abrirModalMotivoGrilla(turno, hueco, null, "arrastre", "mover");
-}
-
-// Abre el modal de motivo compartido entre el arrastre y "Reasignar" por formulario —
-// misma pregunta, mismo guardado final (anularYCrearTurnoGrilla), solo cambia qué hacer
-// después de guardar/cancelar (ver "origen" en cancelarMotivoArrastreGrilla y
-// confirmarMotivoArrastreGrilla).
-function abrirModalMotivoGrilla(turno, hueco, tipoSobreturno, origen, verbo) {
-  arrastrePendienteGrilla = { turno, hueco, tipoSobreturno, origen };
   const paciente = turno.paciente
     ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
     : "el paciente";
-  document.getElementById("texto-motivo-arrastre-grilla").textContent =
-    `Vas a ${verbo} el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`;
+  abrirModalMotivoGrilla(turno, {
+    fecha: hueco.fecha,
+    horarioInicio: hueco.horaInicio,
+    horarioFin: hueco.horaFin,
+    horario: hueco.horaInicio, // compatibilidad con el comprobante, mismo criterio que al cargar
+    sillon: hueco.sillon,
+    // T7: la sede del hueco encontrado — en el arrastre siempre coincide con la sede ya
+    // seleccionada en la grilla, pero en "Reasignar" con un médico de sede automática
+    // (Occhipinti) el motor puede haber elegido la otra sede.
+    sedeId: hueco.sedeId,
+    sedeNombre: hueco.sedeNombre,
+    tipoSobreturno: null // un hueco de la grilla semanal siempre es un sillón físico real
+  }, "arrastre", `Vas a mover el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`);
+}
+
+// Abre el modal de motivo compartido entre arrastre, "Reasignar" y "Modificar" — misma
+// pregunta, mismo guardado final (anularYCrearTurnoGrilla con estado "reasignado" o
+// "modificado" según corresponda). "camposNuevos" ya viene armado por quien llama —
+// cada flujo sabe qué campos cambia y con qué valores; acá no se recalcula nada.
+// "origen" decide qué hacer después de guardar/cancelar (ver cancelarMotivoArrastreGrilla
+// y confirmarMotivoArrastreGrilla) y qué estado queda en el turno anulado.
+function abrirModalMotivoGrilla(turno, camposNuevos, origen, textoResumen) {
+  arrastrePendienteGrilla = { turno, camposNuevos, origen };
+  document.getElementById("texto-motivo-arrastre-grilla").textContent = textoResumen;
   document.getElementById("campo-motivo-arrastre-grilla").value = "";
   document.getElementById("error-motivo-arrastre-grilla").style.display = "none";
   document.getElementById("overlay-motivo-arrastre-grilla").style.display = "flex";
@@ -788,6 +810,10 @@ function cancelarMotivoArrastreGrilla() {
     document.getElementById("overlay-reasignar-grilla").style.display = "flex";
     return;
   }
+  if (pendiente && pendiente.origen === "modificarFormulario") {
+    document.getElementById("overlay-modificar-grilla").style.display = "flex";
+    return;
+  }
   // Arrastre: durante el arrastre la tarjeta original queda oculta (visibility:hidden);
   // al cancelar sin guardar nada hace falta refrescar para que vuelva a aparecer en su
   // lugar real.
@@ -802,27 +828,13 @@ async function confirmarMotivoArrastreGrilla() {
   }
   if (!arrastrePendienteGrilla) return; // por las dudas, no debería poder pasar
 
-  const { turno, hueco, tipoSobreturno, origen } = arrastrePendienteGrilla;
+  const { turno, camposNuevos, origen } = arrastrePendienteGrilla;
+  const tipoAccion = origen === "modificarFormulario" ? "modificado" : "reasignado";
   const botonConfirmar = document.getElementById("boton-confirmar-motivo-arrastre-grilla");
   botonConfirmar.disabled = true;
 
   try {
-    await anularYCrearTurnoGrilla(turno, {
-      fecha: hueco.fecha,
-      horarioInicio: hueco.horaInicio,
-      horarioFin: hueco.horaFin,
-      horario: hueco.horaInicio, // compatibilidad con el comprobante, mismo criterio que al cargar
-      sillon: hueco.sillon,
-      // T7: la sede del hueco encontrado — en el arrastre siempre coincide con la sede
-      // ya seleccionada en la grilla, pero en "Reasignar" con un médico de sede
-      // automática (Occhipinti) el motor puede haber elegido la otra sede.
-      sedeId: hueco.sedeId,
-      sedeNombre: hueco.sedeNombre,
-      // Un hueco encontrado por el motor (arrastre o "Reasignar") siempre es un sillón
-      // físico real (o, si viene de un sobreturno confirmado en "Reasignar", explícito
-      // como tal) — nunca hereda un tipoSobreturno viejo que ya no corresponde.
-      tipoSobreturno: tipoSobreturno || null
-    }, motivo, "reasignado");
+    await anularYCrearTurnoGrilla(turno, camposNuevos, motivo, tipoAccion);
 
     arrastrePendienteGrilla = null;
     document.getElementById("overlay-motivo-arrastre-grilla").style.display = "none";
@@ -830,11 +842,18 @@ async function confirmarMotivoArrastreGrilla() {
       document.getElementById("overlay-reasignar-grilla").style.display = "none";
       turnoIdReasignarActual = null;
     }
-    mostrarMensajeAgenda("Turno reasignado correctamente.", "exito");
+    if (origen === "modificarFormulario") {
+      document.getElementById("overlay-modificar-grilla").style.display = "none";
+      turnoIdModificarActual = null;
+    }
+    mostrarMensajeAgenda(
+      tipoAccion === "modificado" ? "Turno modificado correctamente." : "Turno reasignado correctamente.",
+      "exito"
+    );
     await cargarYRenderizarGrilla();
   } catch (error) {
-    console.error("Error al reasignar el turno:", error);
-    mostrarMensajeAgenda("No se pudo reasignar el turno. Reintentá en unos segundos.", "error");
+    console.error("Error al guardar el cambio del turno:", error);
+    mostrarMensajeAgenda("No se pudo guardar el cambio. Reintentá en unos segundos.", "error");
     await cargarYRenderizarGrilla();
   } finally {
     botonConfirmar.disabled = false;
@@ -850,6 +869,7 @@ async function confirmarMotivoArrastreGrilla() {
 // que se reasigna, no se cargan de un formulario), y el guardado final no es un alta
 // nueva sino anularYCrearTurnoGrilla con motivo obligatorio (ver guardarTurnoConHueco en
 // turnero-carga.js, rama "modoReasignar").
+
 
 async function abrirReasignarGrilla(turnoId) {
   const turno = turnosCacheGrilla.find(t => t.id === turnoId);
@@ -963,8 +983,391 @@ function abrirMotivoReasignarGrilla(datosBasicos, hueco, tipoSobreturno) {
     return;
   }
   document.getElementById("overlay-reasignar-grilla").style.display = "none";
-  abrirModalMotivoGrilla(turno, hueco, tipoSobreturno, "reasignarFormulario", "reasignar");
+
+  const paciente = turno.paciente
+    ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
+    : "el paciente";
+  abrirModalMotivoGrilla(turno, {
+    fecha: hueco.fecha,
+    horarioInicio: hueco.horaInicio,
+    horarioFin: hueco.horaFin,
+    horario: hueco.horaInicio, // compatibilidad con el comprobante, mismo criterio que al cargar
+    sillon: hueco.sillon,
+    sedeId: hueco.sedeId,
+    sedeNombre: hueco.sedeNombre,
+    // Un hueco encontrado por el motor siempre es un sillón físico real, o (si viene de
+    // un sobreturno confirmado) explícito como tal — nunca hereda un tipoSobreturno
+    // viejo que ya no corresponde.
+    tipoSobreturno: tipoSobreturno || null
+  }, "reasignarFormulario", `Vas a reasignar el turno de ${paciente} a ${hueco.fechaLegible || hueco.fecha}, ${hueco.horaInicio}hs.`);
 }
+
+// --- Modificar por formulario (Etapa T7, Fase 1) ---
+// A diferencia de Reasignar, acá la fecha y la hora de inicio NUNCA cambian — solo
+// sillón, médico, protocolo(s)/premedicación/duración, ciclo/sesión u obra social
+// (dato guardado en el turno, no la ficha del paciente). Interfaz propia, no comparte
+// campos con "+ nuevo turno" (decisión con Elías: la selección de protocolos de ese
+// formulario es una sola instancia con ids/variables globales fijos — reusarla ahí
+// significaba tocar ese formulario o duplicar la lógica; se eligió duplicar, así no se
+// arriesga nada de lo que ya funciona en "+ nuevo turno"). Si la nueva duración no entra
+// en el sillón elegido a esa hora, o el cambio de médico no pasa atadura/cupo, se avisa
+// y no se guarda nada — no ofrece buscar otro horario, para eso ya está "Reasignar"
+// (confirmado con Elías).
+
+let protocolosSeleccionadosModificar = {};
+let contadorFilasProtocoloModificar = 0;
+
+async function abrirModificarGrilla(turnoId) {
+  const turno = turnosCacheGrilla.find(t => t.id === turnoId);
+  if (!turno || !puedeArrastrarTurnoGrilla(turno)) return; // resguardo — el botón que llama a esto ya está gateado igual
+
+  cerrarDetalleTurnoGrilla();
+
+  // Mismo motivo que en abrirReasignarGrilla: turnero-carga.js decide qué mostrarle a
+  // cada rol según rolActualCarga, que normalmente fija iniciarCargaTurno() al abrir
+  // "+ nuevo turno" por primera vez.
+  usuarioActualCarga = usuarioActualGrilla;
+  datosUsuarioActualCarga = datosUsuarioActualGrilla;
+  rolActualCarga = datosUsuarioActualGrilla.rol;
+
+  turnoIdModificarActual = turno.id;
+
+  await Promise.all([
+    cargarMedicosCarga(), cargarSedesCarga(), cargarProtocolosCarga(),
+    cargarTurnosExistentes(), cargarCuposCarga()
+  ]);
+
+  const paciente = turno.paciente
+    ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
+    : "Sin paciente";
+  document.getElementById("resumen-modificar-grilla").innerHTML = [
+    ["Paciente", paciente],
+    ["Turno (fijo acá)", `${turno.fecha || "-"}, ${turno.horarioInicio || "-"}hs — para cambiar día u horario, usá Reasignar`]
+  ].map(([etiqueta, valor]) => `
+    <div class="fila-detalle-turno-grilla">
+      <span class="etiqueta-detalle-turno-grilla">${escaparHtmlGrilla(etiqueta)}</span>
+      <span>${escaparHtmlGrilla(valor)}</span>
+    </div>
+  `).join("");
+
+  poblarSelectMedicoModificar(turno);
+  poblarSelectSillonModificar(turno);
+
+  document.getElementById("lista-protocolos-modificar").innerHTML = "";
+  protocolosSeleccionadosModificar = {};
+  contadorFilasProtocoloModificar = 0;
+  const protocolosDelTurno = (turno.protocolos && turno.protocolos.length > 0) ? turno.protocolos : [null];
+  protocolosDelTurno.forEach(p => agregarFilaProtocoloModificar(p));
+
+  document.getElementById("campo-premedicacion-modificar").checked = turno.premedicacion === true;
+  document.getElementById("campo-ciclo-modificar").value = turno.ciclo ?? "";
+  document.getElementById("campo-sesion-modificar").value = turno.sesion ?? "";
+  document.getElementById("campo-obra-social-modificar").value = (turno.paciente && turno.paciente.obraSocial) || "";
+  actualizarResumenDuracionModificar();
+
+  document.getElementById("mensaje-modificar-grilla").style.display = "none";
+  document.getElementById("overlay-modificar-grilla").style.display = "flex";
+}
+
+function cerrarModificarGrilla() {
+  document.getElementById("overlay-modificar-grilla").style.display = "none";
+  turnoIdModificarActual = null;
+}
+
+function mostrarMensajeModificarGrilla(texto, tipo) {
+  const el = document.getElementById("mensaje-modificar-grilla");
+  el.textContent = texto;
+  el.className = "mensaje-info " + tipo;
+  el.style.display = "block";
+}
+
+// El médico no puede reasignarse ni modificarse a otro médico distinto por acá — mismo
+// criterio que "+ nuevo turno" (poblarSelectMedico): un médico solo puede tocar sus
+// propios turnos, nunca dárselos a otro médico.
+function poblarSelectMedicoModificar(turno) {
+  const select = document.getElementById("campo-medico-modificar");
+  select.innerHTML = "";
+
+  if (rolActualGrilla === "medico") {
+    const medicoPropio = medicosCacheCarga.find(m => m.id === datosUsuarioActualGrilla.medicoId);
+    const option = document.createElement("option");
+    option.value = medicoPropio ? medicoPropio.id : (turno.medicoId || "");
+    option.textContent = medicoPropio ? medicoPropio.nombre : turno.medicoNombre;
+    select.appendChild(option);
+    select.value = option.value;
+    select.disabled = true;
+    document.getElementById("bloque-medico-otro-modificar").style.display = "none";
+    return;
+  }
+
+  medicosCacheCarga.forEach(m => {
+    const option = document.createElement("option");
+    option.value = m.id;
+    option.textContent = m.nombre;
+    select.appendChild(option);
+  });
+  const optionOtro = document.createElement("option");
+  optionOtro.value = "otro";
+  optionOtro.textContent = "Otro";
+  select.appendChild(optionOtro);
+
+  select.disabled = false;
+  select.value = turno.esMedicoOtro ? "otro" : (turno.medicoId || "");
+  document.getElementById("campo-medico-otro-nombre-modificar").value = turno.esMedicoOtro ? (turno.medicoNombre || "") : "";
+  actualizarBloqueMedicoOtroModificar();
+}
+
+function actualizarBloqueMedicoOtroModificar() {
+  const esOtro = document.getElementById("campo-medico-modificar").value === "otro";
+  document.getElementById("bloque-medico-otro-modificar").style.display = esOtro ? "block" : "none";
+}
+
+// A diferencia de "+ nuevo turno" (que asigna el sillón automáticamente y nunca deja
+// elegirlo a mano), acá SÍ se elige a mano — es una corrección puntual de un dato ya
+// cargado, no una búsqueda de disponibilidad.
+function poblarSelectSillonModificar(turno) {
+  const select = document.getElementById("campo-sillon-modificar");
+  select.innerHTML = '<option value="">Sin asignar (sobreturno)</option>';
+  const sedeDoc = sedesCacheCarga.find(s => s.id === turno.sedeId);
+  const sillones = sedeDoc
+    ? (sedeDoc.sillones || []).filter(s => s.tipo === "regular" || s.tipo === "backup")
+    : [];
+  sillones.forEach(s => {
+    const option = document.createElement("option");
+    option.value = String(s.numero);
+    option.textContent = `Sillón ${s.numero}${s.tipo === "backup" ? " (backup)" : ""}`;
+    select.appendChild(option);
+  });
+  select.value = turno.sillon != null ? String(turno.sillon) : "";
+}
+
+// --- Selección de protocolos — copia deliberada de agregarFilaProtocolo/
+// actualizarBuscadorProtocolo/quitarFilaProtocolo/actualizarResumenDuracion
+// (turnero-carga.js), con contenedor y variables propias, para no tocar el formulario
+// de "+ nuevo turno" (ver nota de diseño arriba). protocoloExistente es opcional —
+// permite precargar una fila con un protocolo ya elegido (usado al abrir el modal).
+function agregarFilaProtocoloModificar(protocoloExistente) {
+  const id = `fila-protocolo-modificar-${contadorFilasProtocoloModificar++}`;
+  const lista = document.getElementById("lista-protocolos-modificar");
+
+  const fila = document.createElement("div");
+  fila.id = id;
+  fila.className = "fila-medicamento";
+
+  fila.innerHTML = `
+    <div class="fila-medicamento-encabezado">
+      <span>protocolo ${contadorFilasProtocoloModificar}</span>
+      <button type="button" class="enlace-accion peligro" data-quitar="${id}">quitar</button>
+    </div>
+    <div class="campo" style="margin-bottom:0;">
+      <label>Nombre del protocolo</label>
+      <input type="text" class="inp-buscar-protocolo" value="${protocoloExistente ? escaparHtmlGrilla(protocoloExistente.nombre) : ""}" placeholder="Escribí el nombre o parte del nombre" />
+      <div class="resultados-protocolo"></div>
+    </div>
+  `;
+
+  fila.querySelector("[data-quitar]").addEventListener("click", () => quitarFilaProtocoloModificar(id));
+  fila.querySelector(".inp-buscar-protocolo").addEventListener("input", (e) => actualizarBuscadorProtocoloModificar(id, e.target.value));
+
+  lista.appendChild(fila);
+
+  protocolosSeleccionadosModificar[id] = protocoloExistente
+    ? {
+        protocoloId: protocoloExistente.protocoloId || null,
+        nombre: protocoloExistente.nombre,
+        duracionMinutos: protocoloExistente.duracionMinutos
+      }
+    : null;
+}
+
+function actualizarBuscadorProtocoloModificar(filaId, texto) {
+  const resultados = document.querySelector(`#${filaId} .resultados-protocolo`);
+  resultados.innerHTML = "";
+
+  if (!texto.trim()) {
+    protocolosSeleccionadosModificar[filaId] = null;
+    actualizarResumenDuracionModificar();
+    return;
+  }
+
+  const norm = normalizarTexto(texto);
+  const encontrados = protocolosCacheCarga.filter(p => normalizarTexto(p.nombre).includes(norm));
+
+  encontrados.slice(0, 5).forEach(p => {
+    const div = document.createElement("div");
+    div.className = "resultado-busqueda";
+    div.innerHTML = `<span>${escaparHtmlGrilla(p.nombre)} (${p.duracionMinutos} min)</span>
+      <button type="button" class="enlace-accion">usar</button>`;
+    div.querySelector("button").addEventListener("click", () => {
+      protocolosSeleccionadosModificar[filaId] = { protocoloId: p.id, nombre: p.nombre, duracionMinutos: p.duracionMinutos };
+      document.querySelector(`#${filaId} input`).value = p.nombre;
+      resultados.innerHTML = "";
+      actualizarResumenDuracionModificar();
+    });
+    resultados.appendChild(div);
+  });
+}
+
+function quitarFilaProtocoloModificar(filaId) {
+  const filas = document.querySelectorAll("#lista-protocolos-modificar .fila-medicamento");
+  if (filas.length <= 1) {
+    alert("Tiene que quedar al menos un protocolo cargado.");
+    return;
+  }
+  delete protocolosSeleccionadosModificar[filaId];
+  document.getElementById(filaId).remove();
+  actualizarResumenDuracionModificar();
+}
+
+function actualizarResumenDuracionModificar() {
+  const sumaProtocolos = Object.values(protocolosSeleccionadosModificar)
+    .filter(p => p !== null)
+    .reduce((total, p) => total + (Number(p.duracionMinutos) || 0), 0);
+  const premedicacion = document.getElementById("campo-premedicacion-modificar").checked;
+  const total = sumaProtocolos + (premedicacion ? PREMEDICACION_MINUTOS : 0);
+  const detalle = premedicacion
+    ? `${sumaProtocolos} min de protocolo(s) + ${PREMEDICACION_MINUTOS} min de premedicación`
+    : `${sumaProtocolos} min de protocolo(s)`;
+  document.getElementById("resumen-duracion-modificar").textContent = `Duración total: ${total} min (${detalle}).`;
+}
+
+// Traduce el resultado de validarModificacionTurno (turnero-motor.js) a un mensaje para
+// mostrar en el modal — sin ofrecer ninguna excepción/override, a diferencia de los
+// carteles de cupo/atadura de "+ nuevo turno"/Reasignar (decisión con Elías: si no
+// entra, avisa y no guarda).
+function mensajeValidacionModificarGrilla(validacion, medicoNombre) {
+  switch (validacion.motivo) {
+    case "sillonOcupado":
+      return "Ese sillón ya está ocupado a esa hora. Elegí otro.";
+    case "horario":
+      return "El horario resultante, con la nueva duración, queda fuera del horario de atención de la sede.";
+    case "atadura": {
+      const dias = formatearListaDiasLegibles(validacion.diasAtencionMedico);
+      return dias
+        ? `${medicoNombre} no atiende los ${diaLegible(validacion.nombreDiaSolicitado)} en esta sede. Atiende los ${dias}.`
+        : `${medicoNombre} no tiene días configurados en esta sede.`;
+    }
+    case "cupo": {
+      const restantes = Math.max(0, Math.round(validacion.techoMinutos - validacion.minutosUsados));
+      return `${medicoNombre} ya usó el tiempo que tiene asignado ese día en esta sede (le quedan ${restantes} minutos disponibles y este cambio necesita más).`;
+    }
+    case "sedeNoEncontrada":
+      return "No se encontró la sede de este turno en el catálogo. Refrescá la página e intentá de nuevo.";
+    default:
+      return "No se pudo validar el cambio.";
+  }
+}
+
+async function guardarModificacionGrilla() {
+  const turno = turnosCacheGrilla.find(t => t.id === turnoIdModificarActual);
+  if (!turno) {
+    mostrarMensajeModificarGrilla("El turno ya no está disponible. Cerrá esta ventana y volvé a intentar.", "error");
+    return;
+  }
+
+  const medicoValor = document.getElementById("campo-medico-modificar").value;
+  const esMedicoOtro = medicoValor === "otro";
+  let medicoId = null;
+  let medicoNombre = "";
+  if (esMedicoOtro) {
+    medicoNombre = document.getElementById("campo-medico-otro-nombre-modificar").value.trim();
+    if (!medicoNombre) {
+      mostrarMensajeModificarGrilla("Cargá el nombre del profesional.", "error");
+      return;
+    }
+  } else {
+    if (!medicoValor) {
+      mostrarMensajeModificarGrilla("Elegí un médico.", "error");
+      return;
+    }
+    const medicoDoc = medicosCacheCarga.find(m => m.id === medicoValor);
+    if (!medicoDoc) {
+      mostrarMensajeModificarGrilla("El médico elegido ya no está disponible. Volvé a elegirlo.", "error");
+      return;
+    }
+    medicoId = medicoDoc.id;
+    medicoNombre = medicoDoc.nombre;
+  }
+
+  const sillonValor = document.getElementById("campo-sillon-modificar").value;
+  const sillon = sillonValor === "" ? null : Number(sillonValor);
+
+  const protocolos = Object.values(protocolosSeleccionadosModificar).filter(p => p !== null);
+  if (protocolos.length === 0) {
+    mostrarMensajeModificarGrilla("Cargá al menos un protocolo válido.", "error");
+    return;
+  }
+  const premedicacion = document.getElementById("campo-premedicacion-modificar").checked;
+  const duracionTotalMinutos = protocolos.reduce((acc, p) => acc + (Number(p.duracionMinutos) || 0), 0) +
+    (premedicacion ? PREMEDICACION_MINUTOS : 0);
+
+  const ciclo = parseInt(document.getElementById("campo-ciclo-modificar").value, 10);
+  const sesion = parseInt(document.getElementById("campo-sesion-modificar").value, 10);
+  if (!Number.isInteger(ciclo) || ciclo < 1 || !Number.isInteger(sesion) || sesion < 1) {
+    mostrarMensajeModificarGrilla("Cargá ciclo y sesión (números enteros de 1 en adelante).", "error");
+    return;
+  }
+
+  const obraSocial = document.getElementById("campo-obra-social-modificar").value.trim();
+
+  // La fecha y la hora de inicio no cambian acá (eso es "Reasignar"). Si la duración
+  // cambió, la hora de fin sí se recalcula a partir de la misma hora de inicio.
+  const horarioInicio = turno.horarioInicio;
+  const horarioFin = stringDesdeMinuto(minutoDesdeString(horarioInicio) + duracionTotalMinutos);
+
+  const boton = document.getElementById("boton-guardar-modificar-grilla");
+  boton.disabled = true;
+  mostrarMensajeModificarGrilla("Validando…", "info");
+
+  try {
+    const validacion = validarModificacionTurno(
+      esMedicoOtro ? null : medicoId,
+      turno.sedeId,
+      turno.fecha,
+      horarioInicio,
+      horarioFin,
+      sillon,
+      medicosCacheCarga,
+      sedesCacheCarga,
+      turnosExistentes,
+      cuposCacheCarga,
+      turno.id
+    );
+
+    if (!validacion.valido) {
+      mostrarMensajeModificarGrilla(mensajeValidacionModificarGrilla(validacion, medicoNombre), "error");
+      return;
+    }
+
+    const paciente = turno.paciente
+      ? `${turno.paciente.apellido || ""}, ${turno.paciente.nombre || ""}`.trim()
+      : "el paciente";
+
+    abrirModalMotivoGrilla(turno, {
+      medicoId: esMedicoOtro ? null : medicoId,
+      medicoNombre,
+      esMedicoOtro,
+      sillon,
+      // Si ahora tiene un sillón físico real, cualquier marca de sobreturno vieja ya no
+      // corresponde. Si sigue sin sillón, se mantiene la que tenía.
+      tipoSobreturno: sillon != null ? null : turno.tipoSobreturno,
+      protocolos,
+      premedicacion,
+      duracionTotalMinutos,
+      ciclo,
+      sesion,
+      horarioFin,
+      paciente: turno.paciente ? { ...turno.paciente, obraSocial: obraSocial || "" } : turno.paciente
+    }, "modificarFormulario", `Vas a modificar el turno de ${paciente}.`);
+
+    document.getElementById("overlay-modificar-grilla").style.display = "none";
+    mostrarMensajeModificarGrilla("", "info");
+    document.getElementById("mensaje-modificar-grilla").style.display = "none";
+  } finally {
+    boton.disabled = false;
+  }
+}
+
 
 // --- Mecanismo formal de trazabilidad (Etapa T7) ---
 // Reemplaza el rastro simple de T6 Fase 3 (que actualizaba el turno en el lugar y
@@ -1063,16 +1466,20 @@ function abrirDetalleTurnoGrilla(turnoId) {
     </div>
   `).join("");
 
-  // Etapa T7, Fase 1: "Reasignar" respeta el mismo permiso que ya regía el arrastre
-  // (administrador/enfermería sin restricción; médico solo turnos propios y habilitado).
-  const botonReasignarHtml = puedeArrastrarTurnoGrilla(turno)
-    ? `<button type="button" class="boton-principal" style="margin-top:16px;" onclick="abrirReasignarGrilla('${turno.id}')">Reasignar</button>`
+  // Etapa T7, Fase 1: "Reasignar"/"Modificar" respetan el mismo permiso que ya regía el
+  // arrastre (administrador/enfermería sin restricción; médico solo turnos propios y
+  // habilitado).
+  const botonesAccionHtml = puedeArrastrarTurnoGrilla(turno)
+    ? `<div style="display:flex;gap:10px;margin-top:16px;">
+         <button type="button" class="boton-principal" style="width:auto;" onclick="abrirReasignarGrilla('${turno.id}')">Reasignar</button>
+         <button type="button" class="boton-secundario" style="width:auto;" onclick="abrirModificarGrilla('${turno.id}')">Modificar</button>
+       </div>`
     : "";
 
   document.getElementById("contenido-detalle-turno-grilla").innerHTML = `
     <h2 style="margin-top:0;">Detalle del turno</h2>
     ${filasHtml}
-    ${botonReasignarHtml}
+    ${botonesAccionHtml}
   `;
   document.getElementById("overlay-detalle-turno-grilla").style.display = "flex";
 }

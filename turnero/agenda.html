@@ -222,8 +222,7 @@
 
   <!-- Reasignar por formulario (Etapa T7, Fase 1) — búsqueda de disponibilidad desde
        una fecha de referencia elegida a mano, para el mismo médico/protocolo/duración
-       del turno. El paciente/médico/protocolo NO se tocan acá (eso es "Modificar",
-       todavía no construido). -->
+       del turno. El paciente/médico/protocolo NO se tocan acá (eso es "Modificar"). -->
   <div class="overlay-modal" id="overlay-reasignar-grilla" style="display:none;">
     <div class="modal-panel" style="max-width:420px;">
       <div class="modal-encabezado">
@@ -235,6 +234,66 @@
       <input type="date" id="campo-fecha-reasignar-grilla" style="max-width:200px;display:block;margin-top:4px;" />
       <div id="mensaje-reasignar-grilla" class="mensaje-info" style="display:none;margin-top:10px;"></div>
       <button type="button" id="boton-buscar-reasignar-grilla" class="boton-principal" style="margin-top:14px;" onclick="buscarReasignarGrilla()">Buscar disponibilidad</button>
+    </div>
+  </div>
+
+  <!-- Modificar por formulario (Etapa T7, Fase 1) — corrige sillón, médico,
+       protocolo(s)/duración, ciclo/sesión u obra social sin tocar fecha/horario de
+       inicio (eso es "Reasignar"). Interfaz propia, no comparte campos con
+       "+ nuevo turno" (ver nota de diseño en turnero-grilla.js). -->
+  <div class="overlay-modal" id="overlay-modificar-grilla" style="display:none;">
+    <div class="modal-panel" style="max-width:520px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarModificarGrilla()">×</button>
+      </div>
+      <h2 style="margin-top:0;font-size:17px;">Modificar turno</h2>
+      <div id="resumen-modificar-grilla" style="margin-bottom:14px;"></div>
+
+      <div class="titulo-bloque">Médico tratante</div>
+      <div class="campo" style="margin-bottom:0;">
+        <select id="campo-medico-modificar" onchange="actualizarBloqueMedicoOtroModificar()"></select>
+      </div>
+      <div class="campo" id="bloque-medico-otro-modificar" style="display:none;">
+        <label>Nombre del profesional</label>
+        <input type="text" id="campo-medico-otro-nombre-modificar" placeholder="Nombre y apellido" />
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:14px;">Sillón</div>
+      <div class="campo" style="margin-bottom:0;">
+        <select id="campo-sillon-modificar"></select>
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:14px;">Protocolo(s)</div>
+      <div id="lista-protocolos-modificar"></div>
+      <button type="button" class="enlace-accion" onclick="agregarFilaProtocoloModificar()" style="margin-bottom:12px;">+ agregar otro protocolo</button>
+
+      <label class="check-linea">
+        <input type="checkbox" id="campo-premedicacion-modificar" onchange="actualizarResumenDuracionModificar()" />
+        Premedicación / control de signos vitales (+30 min fijos)
+      </label>
+
+      <div id="resumen-duracion-modificar" class="resumen-suma ok" style="margin:0 0 20px;"></div>
+
+      <div class="titulo-bloque">Ciclo y sesión</div>
+      <div class="fila-2">
+        <div class="campo" style="margin-bottom:0;">
+          <label>Ciclo</label>
+          <input type="number" id="campo-ciclo-modificar" min="1" step="1" />
+        </div>
+        <div class="campo" style="margin-bottom:0;">
+          <label>Sesión</label>
+          <input type="number" id="campo-sesion-modificar" min="1" step="1" />
+        </div>
+      </div>
+
+      <div class="titulo-bloque">Obra social</div>
+      <div class="campo" style="margin-bottom:0;">
+        <input type="text" id="campo-obra-social-modificar" placeholder="Obra social" />
+        <div style="font-size:12px;color:var(--color-muted);margin-top:4px;">Corrige el dato guardado en este turno — no modifica la ficha del paciente.</div>
+      </div>
+
+      <div id="mensaje-modificar-grilla" class="mensaje-info" style="display:none;margin-top:14px;"></div>
+      <button type="button" id="boton-guardar-modificar-grilla" class="boton-principal" style="margin-top:16px;" onclick="guardarModificacionGrilla()">Guardar cambios</button>
     </div>
   </div>
 

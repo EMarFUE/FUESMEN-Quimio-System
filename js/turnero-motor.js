@@ -862,6 +862,120 @@ async function buscarHuecos(
   }
 }
 
+// --- Etapa T7, Fase 1 (Modificar): validar un candidato puntual ---
+//
+// A diferencia de buscarHuecos/evaluarDiaEnSede (que barren el horario buscando huecos
+// libres), acá el sillón y el horario ya están definidos de antemano — "Modificar" no
+// busca, cambia sillón, protocolo/duración o médico de un turno sin tocar su fecha ni
+// su horario de inicio (eso es "Reasignar"). Valida el candidato contra las mismas tres
+// reglas de fondo: atadura de día, cupo por porcentaje y superposición física de
+// sillón. turnoIdExcluir es el propio turno que se está modificando — nunca debe contar
+// contra sí mismo, ni en el cupo ni en la superposición.
+function validarHuecoEspecificoEnSede({
+  sedeId, sedeNombre, nombreDiaActual, fechaActualISO,
+  horaAperturaMinutos, horaCierreMinutos,
+  horaInicioMinutos, horaFinMinutos, sillon,
+  sillonesDisponibles,
+  turnosExistentesEnSede,
+  turnoIdExcluir,
+  medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura
+}) {
+  if (horaInicioMinutos < horaAperturaMinutos || horaFinMinutos > horaCierreMinutos) {
+    return { valido: false, motivo: "horario" };
+  }
+
+  // --- Atadura de día (igual criterio que evaluarDiaEnSede) ---
+  if (usaAtaduraDia && medicoDoc) {
+    const diasDelMedicoEnSede = (medicoDoc.diasPorSede && medicoDoc.diasPorSede[sedeNombre]) || [];
+    if (!diasDelMedicoEnSede.includes(nombreDiaActual)) {
+      return {
+        valido: false, motivo: "atadura",
+        nombreDiaSolicitado: nombreDiaActual, diasAtencionMedico: diasDelMedicoEnSede
+      };
+    }
+  }
+
+  // --- Cupo por porcentaje (igual criterio que evaluarDiaEnSede, pero excluyendo el
+  // propio turno del total ya usado — si no, se contaría dos veces: como ya cargado y
+  // como el candidato nuevo). ---
+  if (usaCuposPorcentaje && medicoDoc) {
+    const cupoDoc = (cuposCacheLectura || []).find(c => c.sedeId === sedeId && c.dia === nombreDiaActual);
+    const porcentaje = cupoDoc && cupoDoc.cupos && cupoDoc.cupos[medicoId] != null ? cupoDoc.cupos[medicoId] : null;
+
+    if (porcentaje != null) {
+      const totalMinutosSede = (horaCierreMinutos - horaAperturaMinutos) * sillonesDisponibles.length;
+      const techoMinutos = totalMinutosSede * porcentaje / 100;
+      const minutosUsadosMedico = turnosExistentesEnSede
+        .filter(t => t.medicoId === medicoId && t.fecha === fechaActualISO && t.id !== turnoIdExcluir)
+        .reduce((acc, t) => acc + (Number(t.duracionTotalMinutos) || 0), 0);
+      const duracionCandidato = horaFinMinutos - horaInicioMinutos;
+
+      if (minutosUsadosMedico + duracionCandidato > techoMinutos) {
+        return {
+          valido: false, motivo: "cupo",
+          porcentaje, minutosUsados: minutosUsadosMedico, techoMinutos
+        };
+      }
+    } else {
+      console.warn(`Cupo activo en ${sedeNombre} pero sin porcentaje configurado para "${medicoId}" el ${nombreDiaActual}. No se aplica tope ese día.`);
+    }
+  }
+
+  // --- Superposición física en el sillón elegido, excluyendo el propio turno ---
+  const conflicto = turnosExistentesEnSede.some(t => {
+    if (t.id === turnoIdExcluir) return false;
+    if (t.fecha !== fechaActualISO || t.sillon !== sillon) return false;
+    if (typeof t.horarioInicio !== "string" || typeof t.horarioFin !== "string") return false;
+    const inicio = minutoDesdeString(t.horarioInicio);
+    const fin = minutoDesdeString(t.horarioFin);
+    return horaInicioMinutos < fin && horaFinMinutos > inicio;
+  });
+  if (conflicto) {
+    return { valido: false, motivo: "sillonOcupado" };
+  }
+
+  return { valido: true };
+}
+
+// Envoltorio de alto nivel, mismo estilo que buscarHuecos: resuelve medicoDoc/sedeDoc/
+// día de la semana a partir de ids y caches, y llama a validarHuecoEspecificoEnSede.
+function validarModificacionTurno(
+  medicoId, sedeId, fechaISOCandidato, horaInicioString, horaFinString, sillon,
+  medicosCacheLectura, sedesCacheLectura, turnosExistentes, cuposCacheLectura, turnoIdExcluir
+) {
+  const medicoDoc = (medicosCacheLectura || []).find(m => m.id === medicoId);
+  const sedeDoc = (sedesCacheLectura || []).find(s => s.id === sedeId);
+  if (!sedeDoc) {
+    return { valido: false, motivo: "sedeNoEncontrada" };
+  }
+
+  const fechaObjeto = fechaDesdeISO(fechaISOCandidato);
+  const dayIndex = fechaObjeto.getDay();
+  const diasEnEspanol = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+  const nombreDiaActual = diasEnEspanol[dayIndex];
+
+  const sillonesDisponibles = (sedeDoc.sillones || [])
+    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .map(s => s.numero);
+  const turnosExistentesEnSede = (turnosExistentes || []).filter(t => t.sedeId === sedeId);
+
+  return validarHuecoEspecificoEnSede({
+    sedeId, sedeNombre: sedeDoc.nombre, nombreDiaActual, fechaActualISO: fechaISOCandidato,
+    horaAperturaMinutos: minutoDesdeString(sedeDoc.horaApertura),
+    horaCierreMinutos: minutoDesdeString(sedeDoc.horaCierre),
+    horaInicioMinutos: minutoDesdeString(horaInicioString),
+    horaFinMinutos: minutoDesdeString(horaFinString),
+    sillon,
+    sillonesDisponibles,
+    turnosExistentesEnSede,
+    turnoIdExcluir,
+    medicoId, medicoDoc,
+    usaAtaduraDia: sedeDoc.usaAtaduraDia === true,
+    usaCuposPorcentaje: sedeDoc.usaCuposPorcentaje === true,
+    cuposCacheLectura
+  });
+}
+
 // --- Para testeo en consola ---
 // Exportar funciones si estamos en Node (para testing), pero evitar errores en navegador
 if (typeof module !== "undefined" && module.exports) {
@@ -873,6 +987,8 @@ if (typeof module !== "undefined" && module.exports) {
     evaluarDiaEnSede,
     diasBloqueadosPorPaciente,
     encontrarPrimerHuecoFisico,
+    validarHuecoEspecificoEnSede,
+    validarModificacionTurno,
     minutoDesdeString,
     stringDesdeMinuto,
     fechaDesdeISO,
