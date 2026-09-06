@@ -186,11 +186,6 @@ h1 {
   display: block;
 }
 
-.tarjeta.deshabilitada {
-  color: var(--color-muted);
-  cursor: default;
-}
-
 .tarjeta-icono {
   width: 40px;
   height: 40px;
@@ -201,11 +196,6 @@ h1 {
   margin-bottom: 16px;
   background: var(--color-accent-soft);
   color: var(--color-accent);
-}
-
-.tarjeta.deshabilitada .tarjeta-icono {
-  background: #eceeec;
-  color: var(--color-muted);
 }
 
 .tarjeta-icono svg {
@@ -234,14 +224,6 @@ h1 {
   font-size: 13px;
   color: var(--color-accent);
   font-weight: 500;
-}
-
-.etiqueta-proximamente {
-  font-size: 11px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: 2px 8px;
-  color: var(--color-muted);
 }
 
 /* Login */
@@ -956,25 +938,6 @@ h1 {
   font-family: var(--font);
 }
 
-.grid-dias {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-bottom: 4px;
-}
-
-.grid-dias label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  color: var(--color-text);
-}
-
-.grid-dias input {
-  width: auto;
-}
-
 .tabla-medicos th,
 .tabla-medicos td {
   text-align: center;
@@ -1347,12 +1310,6 @@ h1 {
   color: var(--color-danger);
 }
 
-.linea-superior-turno-grilla {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
 .badge-sillon-grilla {
   /* Ya NO lleva align-self:flex-start — ese estilo venía de cuando el badge vivía
      dentro de otra fila (.linea-superior-turno-grilla, ya no existe). Ahora que es
@@ -1400,21 +1357,10 @@ h1 {
   min-width: 0;
 }
 
-.horario-turno-grilla {
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.paciente-turno-grilla,
-.medico-turno-grilla,
 .detalle-turno-grilla {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
-}
-
-.medico-turno-grilla,
-.detalle-turno-grilla {
   color: var(--color-muted);
 }
 
