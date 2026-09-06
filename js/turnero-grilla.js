@@ -120,6 +120,9 @@ async function iniciarAgenda(user, datosUsuario) {
   // (administrativo queda sin este botón, solo lectura de la agenda).
   if (rolActualGrilla !== "administrativo") {
     document.getElementById("boton-nuevo-turno-grilla").style.display = "inline-block";
+    // Etapa T10: mismos roles que "+ nuevo turno" (administrativo queda sin esto
+    // tampoco, aunque no guarde nada — decisión explícita con Elías).
+    document.getElementById("boton-consultar-disponibilidad-grilla").style.display = "inline-block";
   }
 
   try {
@@ -316,6 +319,11 @@ document.addEventListener("keydown", (evento) => {
   const overlayNuevoTurno = document.getElementById("overlay-nuevo-turno-grilla");
   if (overlayNuevoTurno && overlayNuevoTurno.style.display !== "none") {
     cerrarModalNuevoTurnoGrilla();
+    return;
+  }
+  const overlayConsultaDisponibilidad = document.getElementById("overlay-consulta-disponibilidad-grilla");
+  if (overlayConsultaDisponibilidad && overlayConsultaDisponibilidad.style.display !== "none") {
+    cerrarConsultaDisponibilidadGrilla();
     return;
   }
 });
@@ -1528,6 +1536,417 @@ async function guardarModificacionGrilla() {
   } finally {
     boton.disabled = false;
   }
+}
+
+// --- Consulta de disponibilidad sin cargar (Etapa T10) ---
+//
+// Simulador de solo lectura: llama directo a buscarHuecosEnSede() (turnero-motor.js,
+// sin cambios, sin wrapper propio — decisión con Elías) con sede siempre manual (nunca
+// hay paciente acá para resolver "sede automática por obra social"), médico opcional
+// (salvo rol médico, fijo en sí mismo igual que "+ nuevo turno" — decisión con Elías) y
+// protocolo(s) del catálogo real. No pide paciente ni guarda nada en Firestore.
+//
+// Reutiliza los cachés y los "cargarXxxCarga()" de turnero-carga.js (medicosCacheCarga,
+// sedesCacheCarga, protocolosCacheCarga, cuposCacheCarga, bloqueosCacheCarga,
+// turnosExistentes), refrescándolos al abrir — mismo criterio que ya usan Reasignar y
+// Modificar por formulario más arriba, para no depender de que "+ nuevo turno" se haya
+// abierto antes en la sesión. turnosExistentes viene de TODAS las sedes: se filtra acá
+// por la sede elegida, igual que hace buscarHuecos() (la función de más alto nivel que
+// esta pantalla no usa, justamente porque esa resuelve sede automática y esta no).
+//
+// La selección de protocolos es una copia deliberada del mismo patrón que ya usa
+// Modificar (agregarFilaProtocoloModificar/actualizarBuscadorProtocoloModificar): un
+// buscador de texto con resultados, no las filas de "+ nuevo turno" (mismo motivo ya
+// documentado ahí: esas filas usan ids/variables globales fijos de ese formulario).
+
+let modalConsultaDisponibilidadInicializadoGrilla = false;
+let protocolosSeleccionadosConsultaGrilla = {};
+let contadorFilasProtocoloConsultaGrilla = 0;
+// Guarda lo necesario para "Cargar este turno" después de una búsqueda exitosa — se
+// arma de nuevo en cada buscarDisponibilidadGrilla(), null hasta la primera búsqueda o
+// si la búsqueda no encontró nada.
+let ultimoResultadoConsultaDisponibilidadGrilla = null;
+
+async function abrirConsultaDisponibilidadGrilla() {
+  document.getElementById("overlay-consulta-disponibilidad-grilla").style.display = "flex";
+
+  // Mismo motivo que en Reasignar/Modificar: turnero-carga.js decide qué mostrarle a
+  // cada rol según rolActualCarga, que normalmente fija iniciarCargaTurno().
+  usuarioActualCarga = usuarioActualGrilla;
+  datosUsuarioActualCarga = datosUsuarioActualGrilla;
+  rolActualCarga = datosUsuarioActualGrilla.rol;
+
+  await Promise.all([
+    cargarMedicosCarga(), cargarSedesCarga(), cargarProtocolosCarga(),
+    cargarTurnosExistentes(), cargarCuposCarga(), cargarBloqueosCarga()
+  ]);
+
+  poblarSelectSedeConsultaGrilla();
+  poblarSelectMedicoConsultaGrilla();
+
+  document.getElementById("lista-protocolos-consulta-grilla").innerHTML = "";
+  protocolosSeleccionadosConsultaGrilla = {};
+  agregarFilaProtocoloConsultaGrilla();
+
+  document.getElementById("campo-premedicacion-consulta-grilla").checked = false;
+  document.getElementById("campo-fecha-consulta-grilla").value = "";
+  document.getElementById("campo-fecha-consulta-grilla").min = fechaLocalHoy();
+  document.getElementById("resultado-disponibilidad-grilla").innerHTML = "";
+  document.getElementById("mensaje-consulta-disponibilidad-grilla").style.display = "none";
+  ultimoResultadoConsultaDisponibilidadGrilla = null;
+  actualizarResumenDuracionConsultaGrilla();
+
+  modalConsultaDisponibilidadInicializadoGrilla = true;
+}
+
+function cerrarConsultaDisponibilidadGrilla() {
+  document.getElementById("overlay-consulta-disponibilidad-grilla").style.display = "none";
+}
+
+function mostrarMensajeConsultaDisponibilidadGrilla(texto, tipo) {
+  const el = document.getElementById("mensaje-consulta-disponibilidad-grilla");
+  el.textContent = texto;
+  el.className = "mensaje-info " + tipo;
+  el.style.display = "block";
+}
+
+function poblarSelectSedeConsultaGrilla() {
+  const select = document.getElementById("select-sede-consulta-grilla");
+  select.innerHTML = '<option value="">Elegir sede</option>';
+  sedesCacheCarga.forEach((s) => {
+    const option = document.createElement("option");
+    option.value = s.id;
+    option.textContent = s.nombre;
+    select.appendChild(option);
+  });
+}
+
+// A diferencia de "+ nuevo turno", acá el médico es opcional para administrador y
+// enfermería (opción en blanco = sin médico específico). Para rol médico, queda fijo
+// en sí mismo — decisión explícita con Elías, mismo criterio que "+ nuevo turno".
+function poblarSelectMedicoConsultaGrilla() {
+  const select = document.getElementById("select-medico-consulta-grilla");
+  select.innerHTML = "";
+
+  if (rolActualGrilla === "medico") {
+    const medicoPropio = medicosCacheCarga.find((m) => m.id === datosUsuarioActualGrilla.medicoId);
+    const option = document.createElement("option");
+    option.value = medicoPropio ? medicoPropio.id : "";
+    option.textContent = medicoPropio ? medicoPropio.nombre : "Sin médico asociado";
+    select.appendChild(option);
+    select.value = option.value;
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+  const optionNinguno = document.createElement("option");
+  optionNinguno.value = "";
+  optionNinguno.textContent = "Sin médico específico";
+  select.appendChild(optionNinguno);
+
+  medicosCacheCarga.forEach((m) => {
+    const option = document.createElement("option");
+    option.value = m.id;
+    option.textContent = m.nombre;
+    select.appendChild(option);
+  });
+}
+
+// --- Selección de protocolos de la consulta — misma copia deliberada que Modificar ---
+
+function agregarFilaProtocoloConsultaGrilla() {
+  const id = `fila-protocolo-consulta-grilla-${contadorFilasProtocoloConsultaGrilla++}`;
+  const lista = document.getElementById("lista-protocolos-consulta-grilla");
+
+  const fila = document.createElement("div");
+  fila.id = id;
+  fila.className = "fila-medicamento";
+
+  fila.innerHTML = `
+    <div class="fila-medicamento-encabezado">
+      <span>protocolo</span>
+      <button type="button" class="enlace-accion peligro" data-quitar="${id}">quitar</button>
+    </div>
+    <div class="campo" style="margin-bottom:0;">
+      <label>Nombre del protocolo</label>
+      <input type="text" class="inp-buscar-protocolo" placeholder="Escribí el nombre o parte del nombre" />
+      <div class="resultados-protocolo"></div>
+    </div>
+  `;
+
+  fila.querySelector("[data-quitar]").addEventListener("click", () => quitarFilaProtocoloConsultaGrilla(id));
+  fila.querySelector(".inp-buscar-protocolo").addEventListener("input", (e) => actualizarBuscadorProtocoloConsultaGrilla(id, e.target.value));
+
+  lista.appendChild(fila);
+  protocolosSeleccionadosConsultaGrilla[id] = null;
+}
+
+function actualizarBuscadorProtocoloConsultaGrilla(filaId, texto) {
+  const resultados = document.querySelector(`#${filaId} .resultados-protocolo`);
+  resultados.innerHTML = "";
+
+  if (!texto.trim()) {
+    protocolosSeleccionadosConsultaGrilla[filaId] = null;
+    actualizarResumenDuracionConsultaGrilla();
+    return;
+  }
+
+  const norm = normalizarTexto(texto);
+  const encontrados = protocolosCacheCarga.filter(p => normalizarTexto(p.nombre).includes(norm));
+
+  encontrados.slice(0, 5).forEach(p => {
+    const div = document.createElement("div");
+    div.className = "resultado-busqueda";
+    div.innerHTML = `<span>${escaparHtmlGrilla(p.nombre)} (${p.duracionMinutos} min)</span>
+      <button type="button" class="enlace-accion">usar</button>`;
+    div.querySelector("button").addEventListener("click", () => {
+      protocolosSeleccionadosConsultaGrilla[filaId] = { protocoloId: p.id, nombre: p.nombre, duracionMinutos: p.duracionMinutos };
+      document.querySelector(`#${filaId} input`).value = p.nombre;
+      resultados.innerHTML = "";
+      actualizarResumenDuracionConsultaGrilla();
+    });
+    resultados.appendChild(div);
+  });
+}
+
+function quitarFilaProtocoloConsultaGrilla(filaId) {
+  const filas = document.querySelectorAll("#lista-protocolos-consulta-grilla .fila-medicamento");
+  if (filas.length <= 1) {
+    alert("Tiene que quedar al menos un protocolo cargado.");
+    return;
+  }
+  delete protocolosSeleccionadosConsultaGrilla[filaId];
+  document.getElementById(filaId).remove();
+  actualizarResumenDuracionConsultaGrilla();
+}
+
+function actualizarResumenDuracionConsultaGrilla() {
+  const sumaProtocolos = Object.values(protocolosSeleccionadosConsultaGrilla)
+    .filter(p => p !== null)
+    .reduce((total, p) => total + (Number(p.duracionMinutos) || 0), 0);
+  const premedicacion = document.getElementById("campo-premedicacion-consulta-grilla").checked;
+  const total = sumaProtocolos + (premedicacion ? PREMEDICACION_MINUTOS : 0);
+  const detalle = premedicacion
+    ? `${sumaProtocolos} min de protocolo(s) + ${PREMEDICACION_MINUTOS} min de premedicación`
+    : `${sumaProtocolos} min de protocolo(s)`;
+  const el = document.getElementById("resumen-duracion-consulta-grilla");
+  el.textContent = `Duración total: ${total} min (${detalle}).`;
+  el.className = "resumen-suma " + (total > 0 ? "ok" : "error");
+}
+
+// --- Búsqueda (llamado directo a buscarHuecosEnSede, sin wrapper propio) ---
+
+async function buscarDisponibilidadGrilla() {
+  const sedeId = document.getElementById("select-sede-consulta-grilla").value;
+  if (!sedeId) {
+    mostrarMensajeConsultaDisponibilidadGrilla("Elegí una sede.", "error");
+    return;
+  }
+
+  const protocolosElegidos = Object.values(protocolosSeleccionadosConsultaGrilla).filter(p => p !== null);
+  if (protocolosElegidos.length === 0) {
+    mostrarMensajeConsultaDisponibilidadGrilla("Elegí al menos un protocolo.", "error");
+    return;
+  }
+
+  const premedicacion = document.getElementById("campo-premedicacion-consulta-grilla").checked;
+  const duracionMinutos = protocolosElegidos.reduce((total, p) => total + (Number(p.duracionMinutos) || 0), 0)
+    + (premedicacion ? PREMEDICACION_MINUTOS : 0);
+
+  const medicoId = document.getElementById("select-medico-consulta-grilla").value || null;
+  const medicoDoc = medicoId ? medicosCacheCarga.find(m => m.id === medicoId) : undefined;
+
+  const sedeDoc = sedesCacheCarga.find(s => s.id === sedeId);
+  if (!sedeDoc) {
+    mostrarMensajeConsultaDisponibilidadGrilla("No se pudo leer la información de la sede. Reintentá en unos segundos.", "error");
+    return;
+  }
+
+  const fechaElegida = document.getElementById("campo-fecha-consulta-grilla").value;
+  const fechaInicioBusqueda = fechaElegida ? fechaDesdeISO(fechaElegida) : fechaDesdeISO(fechaLocalHoy());
+
+  const sillones = (sedeDoc.sillones || [])
+    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .map(s => s.numero);
+  const turnosEnSede = turnosExistentes.filter(t => t.sedeId === sedeId);
+
+  const boton = document.getElementById("boton-buscar-disponibilidad-grilla");
+  boton.disabled = true;
+  mostrarMensajeConsultaDisponibilidadGrilla("Buscando…", "info");
+  document.getElementById("resultado-disponibilidad-grilla").innerHTML = "";
+  ultimoResultadoConsultaDisponibilidadGrilla = null;
+
+  try {
+    const resultado = await buscarHuecosEnSede(
+      sedeId,
+      sedeDoc.nombre,
+      fechaInicioBusqueda,
+      duracionMinutos,
+      sedeDoc.horaApertura,
+      sedeDoc.horaCierre,
+      sedeDoc.diasAtencion || [],
+      turnosEnSede,
+      sillones,
+      medicoId,
+      medicoDoc,
+      sedeDoc.usaAtaduraDia === true,
+      sedeDoc.usaCuposPorcentaje === true,
+      cuposCacheCarga,
+      undefined, // diasBloqueadosPaciente: no aplica, esta pantalla no pide paciente
+      bloqueosCacheCarga
+    );
+
+    // Para poder avisar con precisión cuándo la atadura de día es la causa real de "sin
+    // huecos" (y no simplemente que no había lugar físico ningún día): se calcula acá,
+    // con los mismos datos que usa resolverSedesPosiblesMedico() en turnero-carga.js, si
+    // el médico elegido atiende esta sede el día de la semana puntualmente pedido.
+    const DIAS_SEMANA_ES = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+    const nombreDiaPedido = DIAS_SEMANA_ES[fechaInicioBusqueda.getDay()];
+    const diasDelMedicoEnEstaSede = medicoDoc && medicoDoc.diasPorSede ? (medicoDoc.diasPorSede[sedeDoc.nombre] || []) : null;
+    const ataduraBloqueaDiaPedido = sedeDoc.usaAtaduraDia === true && !!medicoId
+      && diasDelMedicoEnEstaSede !== null && !diasDelMedicoEnEstaSede.includes(nombreDiaPedido);
+
+    document.getElementById("mensaje-consulta-disponibilidad-grilla").style.display = "none";
+    renderizarResultadoDisponibilidadGrilla(resultado, {
+      sedeId, sedeNombre: sedeDoc.nombre,
+      medicoId, medicoNombre: medicoDoc ? medicoDoc.nombre : null,
+      protocolosElegidos, premedicacion,
+      fechaPedidaISO: fechaElegida || null,
+      ataduraBloqueaDiaPedido
+    });
+  } catch (error) {
+    console.error("Error al buscar disponibilidad:", error);
+    mostrarMensajeConsultaDisponibilidadGrilla("No se pudo completar la búsqueda. Reintentá en unos segundos.", "error");
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+// Arma el bloque de resultado. buscarHuecosEnSede ya corta en el primer día con huecos
+// y los devuelve todos ordenados por mejor ajuste (no solo el mejor) — se muestran
+// todos, tal cual vienen. Contempla los dos casos de uso confirmados con Elías: fecha
+// puntual (aclara si el motor tuvo que correrse a otro día) y pregunta abierta (muestra
+// directo la primera fecha con lugar).
+function renderizarResultadoDisponibilidadGrilla(resultado, contexto) {
+  const cont = document.getElementById("resultado-disponibilidad-grilla");
+
+  if (resultado.huecos.length > 0) {
+    const fechaEncontrada = resultado.huecos[0].fecha;
+    const fechaLegible = resultado.huecos[0].fechaLegible || fechaEncontrada;
+    let aviso = "";
+    // Fecha puntual pedida pero el motor se corrió a un día posterior: aclarar (decisión
+    // con Elías — sugerir la fecha más próxima en vez de un mensaje seco).
+    if (contexto.fechaPedidaISO && contexto.fechaPedidaISO !== fechaEncontrada) {
+      aviso = `<p style="font-size:13px;color:var(--color-muted);margin-top:0;">
+        Ese día no había lugar. El próximo espacio disponible es el <strong>${escaparHtmlGrilla(fechaLegible)}</strong>:
+      </p>`;
+    } else {
+      aviso = `<p style="font-size:13px;margin-top:0;">Hay lugar el <strong>${escaparHtmlGrilla(fechaLegible)}</strong>:</p>`;
+    }
+
+    const filasHuecos = resultado.huecos.map(h => `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--color-border);font-size:13.5px;">
+        <span>Sillón ${h.sillon}</span>
+        <span>${h.horaInicio} a ${h.horaFin}</span>
+      </div>
+    `).join("");
+
+    cont.innerHTML = `
+      ${aviso}
+      <div>${filasHuecos}</div>
+      <button type="button" id="boton-cargar-este-turno-consulta-grilla" class="boton-principal" style="margin-top:14px;" onclick="cargarEsteTurnoDesdeConsultaGrilla()">Cargar este turno</button>
+    `;
+
+    ultimoResultadoConsultaDisponibilidadGrilla = {
+      sedeId: contexto.sedeId,
+      medicoId: contexto.medicoId,
+      medicoNombre: contexto.medicoNombre,
+      protocolosElegidos: contexto.protocolosElegidos,
+      premedicacion: contexto.premedicacion,
+      fechaEncontrada
+    };
+    return;
+  }
+
+  // Sin huecos. Distinguir el caso de atadura de día, porque ahí el motor no busca
+  // fecha alternativa (corta directo si el día pedido no es del médico) — a diferencia
+  // de cupo, que sí sigue buscando pero puede agotar los 10 días igual.
+  if (contexto.ataduraBloqueaDiaPedido) {
+    cont.innerHTML = `<p style="font-size:13px;color:var(--color-danger);margin:0;">
+      ${escaparHtmlGrilla(contexto.medicoNombre || "Este médico")} no atiende en ${escaparHtmlGrilla(contexto.sedeNombre)}
+      el día pedido. El motor no busca una fecha alternativa en este caso — probá con otro día
+      donde el médico sí atienda esa sede.
+    </p>`;
+    return;
+  }
+
+  if (resultado.candidatoCupoExcedido) {
+    cont.innerHTML = `<p style="font-size:13px;color:var(--color-danger);margin:0;">
+      Había lugar físico ese día, pero ${escaparHtmlGrilla(contexto.medicoNombre || "el médico")} ya alcanzó
+      su cupo. Esta pantalla no ofrece cargar como excepción — para eso, usá "+ Nuevo turno".
+    </p>`;
+    return;
+  }
+
+  cont.innerHTML = `<p style="font-size:13px;color:var(--color-danger);margin:0;">
+    No se encontró lugar en los próximos 10 días con estos datos.
+  </p>`;
+}
+
+// Cierra la consulta y abre "+ nuevo turno" con médico/protocolo(s)/fecha precargados.
+// El paciente se elige recién en "+ nuevo turno", con el flujo de guardado de siempre —
+// esta función nunca escribe en Firestore. Toca variables globales de turnero-carga.js
+// a propósito (protocolosSeleccionados, contadorFilasProtocolo, modoFechaTurno), mismo
+// criterio ya usado por Reasignar/Modificar más arriba.
+async function cargarEsteTurnoDesdeConsultaGrilla() {
+  const datos = ultimoResultadoConsultaDisponibilidadGrilla;
+  if (!datos) return;
+
+  cerrarConsultaDisponibilidadGrilla();
+  await abrirModalNuevoTurnoGrilla();
+
+  // Médico: si el rol es médico, "+ nuevo turno" ya lo fija en sí mismo (coincide con
+  // la consulta, que también lo fija) — no se toca el select. Para administrador/
+  // enfermería, se precarga acá.
+  if (rolActualCarga !== "medico") {
+    const selectMedico = document.getElementById("campo-medico");
+    selectMedico.value = datos.medicoId || "otro"; // "Sin médico específico" en la consulta → "Otro" acá
+    actualizarBloqueMedico();
+  }
+  // Sede manual: independiente del rol — un médico que atiende las dos sedes (ej.
+  // Occhipinti) también ve este selector en "+ nuevo turno", igual que administrador/
+  // enfermería con médico "Otro" o con más de una sede posible. Si el formulario la
+  // dejó automática (un único posible, o Occhipinti por obra social — recién se resuelve
+  // al elegir paciente), no se toca; puede no coincidir con la sede de acá si la obra
+  // social deriva a la otra sede (comportamiento ya existente, no nuevo de esta etapa).
+  const selectSedeManual = document.getElementById("campo-sede-manual");
+  if (selectSedeManual.style.display !== "none") {
+    selectSedeManual.value = datos.sedeId;
+  }
+
+  // Protocolos: reconstruir las filas para que coincidan exactamente con lo elegido en
+  // la consulta (agregarFilaProtocolo() no acepta prellenado, a diferencia de la copia
+  // de Modificar — se arma la fila vacía y se completa a mano acá).
+  document.getElementById("lista-protocolos").innerHTML = "";
+  protocolosSeleccionados = {};
+  datos.protocolosElegidos.forEach(p => {
+    agregarFilaProtocolo();
+    const filas = document.querySelectorAll("#lista-protocolos .fila-medicamento");
+    const filaNueva = filas[filas.length - 1];
+    filaNueva.querySelector(".inp-buscar-protocolo").value = p.nombre;
+    protocolosSeleccionados[filaNueva.id] = { protocoloId: p.protocoloId, nombre: p.nombre, duracionMinutos: p.duracionMinutos };
+  });
+
+  document.getElementById("campo-premedicacion").checked = datos.premedicacion === true;
+
+  // Fecha: pasar a modo calendario con la fecha exacta donde se encontró el hueco.
+  modoFechaTurno = "calendario";
+  renderizarModoFecha();
+  document.getElementById("campo-fecha").value = datos.fechaEncontrada;
+
+  actualizarResumenDuracion();
+  mostrarMensajeGeneral("Datos precargados desde la consulta de disponibilidad. Elegí el paciente y confirmá.", "info");
 }
 
 // --- Eliminar (Etapa T7, Fase 2) ---

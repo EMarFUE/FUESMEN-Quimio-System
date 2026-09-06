@@ -17,6 +17,10 @@
       </select>
       <button type="button" id="boton-nuevo-turno-grilla" class="boton-principal" style="display:none;width:auto;"
         onclick="abrirModalNuevoTurnoGrilla()">+ Nuevo turno</button>
+      <!-- Etapa T10: mismo criterio de rol que "+ Nuevo turno" (administrativo no lo ve) —
+           ver iniciarAgenda() en turnero-grilla.js. -->
+      <button type="button" id="boton-consultar-disponibilidad-grilla" class="boton-secundario" style="display:none;width:auto;"
+        onclick="abrirConsultaDisponibilidadGrilla()">Consultar disponibilidad</button>
       <div class="navegacion-semana-grilla">
         <button type="button" onclick="cambiarSemanaGrilla(-1)">‹ Semana anterior</button>
         <span class="etiqueta-semana-grilla" id="etiqueta-semana-grilla"></span>
@@ -188,6 +192,59 @@
           <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Buscar disponibilidad y guardar turno</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Consulta de disponibilidad sin cargar (Etapa T10) — simulador de solo lectura:
+       corre el mismo motor que "+ nuevo turno" (buscarHuecosEnSede, llamado directo,
+       sin wrapper propio) pero nunca guarda nada. No pide paciente. Si se encuentra
+       lugar, "Cargar este turno" cierra este modal y abre "+ nuevo turno" con
+       médico/protocolo(s)/fecha precargados — el paciente se elige recién ahí, con el
+       flujo de guardado de siempre (ver cargarEsteTurnoDesdeConsultaGrilla). -->
+  <div class="overlay-modal" id="overlay-consulta-disponibilidad-grilla" style="display:none;">
+    <div class="modal-panel" style="max-width:560px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarConsultaDisponibilidadGrilla()">×</button>
+      </div>
+      <h2 style="margin-top:0;font-size:17px;">Consultar disponibilidad</h2>
+      <p style="font-size:12.5px;color:var(--color-muted);margin-top:0;">
+        Simulador: busca con el mismo motor que "+ Nuevo turno", pero no guarda nada.
+        Dejá la fecha en blanco para saber cuándo entraría; elegí una fecha puntual para
+        saber si ese día hay lugar.
+      </p>
+
+      <div class="fila-2">
+        <div class="campo" style="margin-bottom:0;">
+          <label>Sede</label>
+          <select id="select-sede-consulta-grilla"></select>
+        </div>
+        <div class="campo" style="margin-bottom:0;">
+          <label>Médico (opcional)</label>
+          <select id="select-medico-consulta-grilla"></select>
+        </div>
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:8px;">Protocolo(s)</div>
+      <div id="lista-protocolos-consulta-grilla"></div>
+      <button type="button" class="enlace-accion" onclick="agregarFilaProtocoloConsultaGrilla()" style="margin-bottom:12px;">+ agregar otro protocolo</button>
+
+      <label class="check-linea">
+        <input type="checkbox" id="campo-premedicacion-consulta-grilla" onchange="actualizarResumenDuracionConsultaGrilla()" />
+        Premedicación / control de signos vitales (+30 min fijos)
+      </label>
+
+      <div id="resumen-duracion-consulta-grilla" class="resumen-suma ok" style="margin:0 0 20px;"></div>
+
+      <div class="campo">
+        <label>Fecha (opcional — vacío = buscar desde hoy)</label>
+        <input type="date" id="campo-fecha-consulta-grilla" style="max-width:200px;" />
+      </div>
+
+      <div id="mensaje-consulta-disponibilidad-grilla" class="mensaje-info" style="display:none;"></div>
+
+      <button type="button" id="boton-buscar-disponibilidad-grilla" class="boton-principal" style="margin-top:8px;" onclick="buscarDisponibilidadGrilla()">Buscar disponibilidad</button>
+
+      <div id="resultado-disponibilidad-grilla" style="margin-top:16px;"></div>
     </div>
   </div>
 
