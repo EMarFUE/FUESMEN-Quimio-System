@@ -78,6 +78,7 @@ let medicosCacheCarga = [];
 let protocolosCacheCarga = [];
 let sedesCacheCarga = [];
 let cuposCacheCarga = []; // T4: array de docs de turneroCupos
+let bloqueosCacheCarga = []; // T9: array de docs de turneroBloqueos (activos)
 
 let pacienteSeleccionadoCarga = null;
 let protocolosSeleccionados = {}; // filaId -> { protocoloId, nombre, duracionMinutos }
@@ -303,7 +304,7 @@ async function iniciarCargaTurno(user, datosUsuario) {
     campoBuscarPaciente.placeholder = "Buscar por apellido, nombre o documento";
   });
 
-  await Promise.all([cargarMedicosCarga(), cargarProtocolosCarga(), cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga()]);
+  await Promise.all([cargarMedicosCarga(), cargarProtocolosCarga(), cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga(), cargarBloqueosCarga()]);
   poblarSelectMedico();
   poblarSelectSedeManual();
   agregarFilaProtocolo();
@@ -348,6 +349,19 @@ async function cargarCuposCarga() {
   } catch (error) {
     console.warn("No se pudieron cargar los cupos para el motor:", error);
     cuposCacheCarga = [];
+  }
+}
+
+// Etapa T9: cargar bloqueos vigentes para que el motor descuente sillones/franjas/días
+// bloqueados al calcular huecos. Mismo criterio defensivo que cargarCuposCarga(): si
+// falla, sigue sin bloqueos en vez de romper la carga de turnos.
+async function cargarBloqueosCarga() {
+  try {
+    const snapshot = await db.collection("turneroBloqueos").where("activo", "==", true).get();
+    bloqueosCacheCarga = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.warn("No se pudieron cargar los bloqueos para el motor:", error);
+    bloqueosCacheCarga = [];
   }
 }
 
@@ -948,7 +962,8 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
       datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId, // sede elegida a mano, si aplica
       cuposCacheCarga, // Etapa T4
       paciente.id, // regla nueva: un turno por paciente por día (transversal a sedes)
-      datosBasicos.turnoIdParaReasignar // T7: excluye el propio turno del chequeo de "un turno por día" — undefined en un alta nueva, no afecta nada
+      datosBasicos.turnoIdParaReasignar, // T7: excluye el propio turno del chequeo de "un turno por día" — undefined en un alta nueva, no afecta nada
+      bloqueosCacheCarga // Etapa T9
     );
 
     ultimaBusquedaHuecos = resultado;
@@ -1295,11 +1310,28 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
   const turnosDelDiaEnSede = turnosExistentes.filter((t) =>
     t.sedeId === sedeIdSobreturno && t.fecha === datosBasicos.fecha
   );
+  // Etapa T9: un sobreturno por falta de disponibilidad física es el último recurso del
+  // motor (agotó los 10 días sin encontrar nada) — antes de esta etapa no tenía en cuenta
+  // los bloqueos, así que podía terminar cayendo en pleno mantenimiento o ausencia de
+  // personal, sin ningún aviso. Se agregan los bloqueos vigentes de ese día como si fueran
+  // "el último turno cargado" a los efectos de este cálculo (mismo mecanismo de
+  // pseudoTurnosBloqueoEnFecha que usa el resto del motor) — sillonesDisponibles no
+  // importa acá porque el sobreturno nunca ocupa un sillón real (sillon: null), así que
+  // alcanza con que el bloqueo aporte su horarioFin para correr el punto de partida.
+  const sillonesSobreturno = sedeDocParaHorario
+    ? (sedeDocParaHorario.sillones || []).map((s) => s.numero)
+    : [];
+  const pseudoTurnosBloqueoSobreturno = sedeDocParaHorario
+    ? pseudoTurnosBloqueoEnFecha(
+        bloqueosCacheCarga, sedeIdSobreturno, datosBasicos.fecha,
+        sillonesSobreturno, sedeDocParaHorario.horaApertura, sedeDocParaHorario.horaCierre
+      )
+    : [];
   const bloque = sedeDocParaHorario
     ? calcularBloqueSobreturno(
         sedeDocParaHorario.horaApertura,
         sedeDocParaHorario.horaCierre,
-        turnosDelDiaEnSede,
+        [...turnosDelDiaEnSede, ...pseudoTurnosBloqueoSobreturno],
         datosBasicos.duracionTotalMinutos
       )
     : { horaInicio: "09:00", horaFin: "10:00" }; // resguardo si la sede no está en caché

@@ -51,6 +51,7 @@ let modalNuevoTurnoInicializadoGrilla = false;
 // sedesCacheGrilla.
 let medicosCacheGrilla = [];
 let cuposCacheGrilla = [];
+let bloqueosCacheGrilla = []; // T9: array de docs de turneroBloqueos (activos)
 
 // Fase 3 (T6): estado del arrastre en curso (null cuando no se está arrastrando nada).
 let arrastreActivoGrilla = null;
@@ -122,7 +123,7 @@ async function iniciarAgenda(user, datosUsuario) {
   }
 
   try {
-    await Promise.all([cargarSedesGrilla(), cargarMedicosGrilla(), cargarCuposGrilla()]);
+    await Promise.all([cargarSedesGrilla(), cargarMedicosGrilla(), cargarCuposGrilla(), cargarBloqueosGrilla()]);
   } catch (error) {
     console.error("Error al cargar sedes:", error);
     document.getElementById("grilla-contenedor").innerHTML =
@@ -158,6 +159,13 @@ async function cargarMedicosGrilla() {
 async function cargarCuposGrilla() {
   const snapshot = await db.collection("turneroCupos").get();
   cuposCacheGrilla = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+// Etapa T9: bloqueos vigentes, para que el arrastre respete sillones/franjas/días
+// bloqueados igual que la búsqueda por formulario.
+async function cargarBloqueosGrilla() {
+  const snapshot = await db.collection("turneroBloqueos").where("activo", "==", true).get();
+  bloqueosCacheGrilla = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 function renderizarSelectorSedeGrilla() {
@@ -226,7 +234,7 @@ async function abrirModalNuevoTurnoGrilla() {
   } else {
     await Promise.all([
       cargarPacientesCarga(), cargarMedicosCarga(), cargarProtocolosCarga(),
-      cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga()
+      cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga(), cargarBloqueosCarga()
     ]);
     poblarSelectMedico();
     poblarSelectSedeManual();
@@ -641,7 +649,7 @@ async function armarArrastreGrilla(estado) {
     turno.duracionTotalMinutos, sede.horaApertura, sede.horaCierre, sede.diasAtencion,
     turnosSinElArrastrado, sillones,
     turno.medicoId, medicoDoc, sede.usaAtaduraDia === true, sede.usaCuposPorcentaje === true,
-    cuposCacheGrilla, diasBloqueadosPaciente
+    cuposCacheGrilla, diasBloqueadosPaciente, bloqueosCacheGrilla
   );
 
   document.querySelectorAll(".pista-dia-grilla").forEach(pista => {
@@ -924,7 +932,7 @@ async function abrirReasignarGrilla(turnoId) {
   // Refrescar los catálogos que el motor necesita — puede que en esta sesión nunca se
   // haya abierto "+ nuevo turno" y estos cachés (de turnero-carga.js) arranquen vacíos.
   await Promise.all([
-    cargarMedicosCarga(), cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga()
+    cargarMedicosCarga(), cargarSedesCarga(), cargarTurnosExistentes(), cargarCuposCarga(), cargarBloqueosCarga()
   ]);
 }
 
@@ -1047,7 +1055,7 @@ async function abrirModificarGrilla(turnoId) {
 
   await Promise.all([
     cargarMedicosCarga(), cargarSedesCarga(), cargarProtocolosCarga(),
-    cargarTurnosExistentes(), cargarCuposCarga()
+    cargarTurnosExistentes(), cargarCuposCarga(), cargarBloqueosCarga()
   ]);
 
   const paciente = turno.paciente
@@ -1252,6 +1260,8 @@ function mensajeValidacionModificarGrilla(validacion, medicoNombre) {
   switch (validacion.motivo) {
     case "sillonOcupado":
       return "Ese sillón ya está ocupado a esa hora. Elegí otro.";
+    case "bloqueado":
+      return `Ese sillón está bloqueado a esa hora (motivo: ${validacion.motivoBloqueo || "sin especificar"}). Elegí otro sillón u horario.`;
     case "horario":
       return "El horario resultante, con la nueva duración, queda fuera del horario de atención de la sede.";
     case "atadura": {
@@ -1344,7 +1354,8 @@ async function guardarModificacionGrilla() {
       sedesCacheCarga,
       turnosExistentes,
       cuposCacheCarga,
-      turno.id
+      turno.id,
+      bloqueosCacheCarga
     );
 
     if (!validacion.valido) {

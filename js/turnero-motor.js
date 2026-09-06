@@ -186,6 +186,51 @@ function diasBloqueadosPorPaciente(pacienteId, turnosExistentesTodasSedes, turno
   return fechas;
 }
 
+// --- Etapa T9, Fase 2: bloqueos administrativos ---
+//
+// Un bloqueo nunca se trata como un caso especial dentro del loop físico de
+// evaluarDiaEnSede: se lo convierte en una o más entradas con la misma forma mínima que
+// ya usan turnosDelDia/turnosDelDiaEnSede en todo este archivo (sillon, horarioInicio,
+// horarioFin) y se las suma a esa lista ANTES de que el loop corra. Para el loop de
+// conflictos, encontrarPrimerHuecoFisico() y calcularBloqueSobreturno(), un bloqueo es
+// indistinguible de un turno real ya ocupando ese sillón en esa franja — así que el
+// orden "primero decide el horario, después el sillón" y el cálculo de "mejor ajuste"
+// (que mira el próximo evento en el mismo sillón) siguen funcionando sin ningún cambio,
+// tanto para bloqueos como para lo que ya existía.
+//
+// A propósito, estas entradas jamás se agregan a turnosExistentesEnSede (la lista cruda
+// que usa el cupo por porcentaje y la atadura de día para sumar minutos por médico) —
+// solo se mezclan en turnosDelDia/turnosDelDiaEnSede. Un bloqueo no tiene medicoId, así
+// que si por error terminara en ese cálculo no rompería nada por sí solo, pero para no
+// depender de esa casualidad, nunca se lo mezcla ahí.
+function bloqueoVigenteEnFecha(bloqueo, fechaActualISO) {
+  if (bloqueo.tipo === "recurrente") {
+    const diasEnEspanol = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+    const nombreDiaActual = diasEnEspanol[fechaDesdeISO(fechaActualISO).getDay()];
+    return bloqueo.diaSemana === nombreDiaActual &&
+      !(bloqueo.fechasExceptuadas || []).includes(fechaActualISO);
+  }
+  return fechaActualISO >= bloqueo.fechaInicio && fechaActualISO <= bloqueo.fechaFin;
+}
+
+function pseudoTurnosBloqueoEnFecha(bloqueosCacheLectura, sedeId, fechaActualISO, sillonesDisponibles, horaAperturaString, horaCierreString) {
+  const pseudoTurnos = [];
+  for (const bloqueo of (bloqueosCacheLectura || [])) {
+    if (bloqueo.activo === false) continue; // defensivo: lo normal es que ya venga filtrado
+    if (bloqueo.sedeId !== sedeId) continue;
+    if (!bloqueoVigenteEnFecha(bloqueo, fechaActualISO)) continue;
+
+    const horarioInicio = bloqueo.horaInicio || horaAperturaString;
+    const horarioFin = bloqueo.horaFin || horaCierreString;
+    const sillonesAfectados = bloqueo.sillon != null ? [bloqueo.sillon] : sillonesDisponibles;
+
+    for (const sillon of sillonesAfectados) {
+      pseudoTurnos.push({ sillon, horarioInicio, horarioFin, esBloqueo: true, motivoBloqueo: bloqueo.motivo });
+    }
+  }
+  return pseudoTurnos;
+}
+
 // --- Evaluación de un solo día (T6 Fase 3: extraído de buscarHuecosEnSede) ---
 //
 // Contiene, sin cambios de comportamiento respecto de la versión anterior, la atadura
@@ -388,7 +433,10 @@ async function buscarHuecosEnSede(
   usaAtaduraDia, // T4: bool, de turneroSedes.usaAtaduraDia
   usaCuposPorcentaje, // T4: bool, de turneroSedes.usaCuposPorcentaje
   cuposCacheLectura, // T4: array de docs de turneroCupos
-  diasBloqueadosPaciente // opcional: Set de fechas ISO donde el paciente ya tiene otro turno
+  diasBloqueadosPaciente, // opcional: Set de fechas ISO donde el paciente ya tiene otro turno
+  bloqueosCacheLectura // T9: array de docs de turneroBloqueos, activos, cualquier sede
+                        // (se filtra por sedeId acá adentro) — opcional, un llamador que
+                        // no lo pasa se comporta exactamente igual que antes de esta etapa.
 ) {
   // Retorna { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia }.
   // huecos: array de huecos válidos (de mayor a menor ajuste), ya filtrados por paciente/atadura/cupo.
@@ -433,11 +481,19 @@ async function buscarHuecosEnSede(
     // Se descartan turnos que no tengan horarioInicio/horarioFin como string: son
     // turnos cargados antes de la Etapa T3 (T1/T2), que todavía no tenían estos
     // campos — considerarlos rompería el cálculo de conflictos más abajo.
-    const turnosDelDia = turnosExistentesEnSede.filter(turno =>
+    const turnosDelDiaReales = turnosExistentesEnSede.filter(turno =>
       turno.fecha === fechaActualISO &&
       typeof turno.horarioInicio === "string" &&
       typeof turno.horarioFin === "string"
     );
+    // T9: los bloqueos se suman acá, nunca a turnosExistentesEnSede (ver comentario en
+    // pseudoTurnosBloqueoEnFecha) — así el cupo por porcentaje y la atadura de día,
+    // que usan turnosExistentesEnSede tal cual, no se enteran de que existen.
+    const turnosDelDia = bloqueosCacheLectura
+      ? [...turnosDelDiaReales, ...pseudoTurnosBloqueoEnFecha(
+          bloqueosCacheLectura, sedeId, fechaActualISO, sillonesDisponibles, horaAperturaString, horaCierreString
+        )]
+      : turnosDelDiaReales;
 
     const resultadoDia = evaluarDiaEnSede({
       sedeId, sedeNombre, fechaActual, fechaActualISO, nombreDiaActual,
@@ -520,7 +576,8 @@ async function buscarHuecosSemanaEnSede(
   usaAtaduraDia,
   usaCuposPorcentaje,
   cuposCacheLectura,
-  diasBloqueadosPaciente // opcional: Set de fechas ISO donde el paciente ya tiene otro turno
+  diasBloqueadosPaciente, // opcional: Set de fechas ISO donde el paciente ya tiene otro turno
+  bloqueosCacheLectura // T9: array de docs de turneroBloqueos, activos, cualquier sede
 ) {
   // Retorna un objeto { "2026-09-08": resultadoDelDia, ... } con una entrada por cada
   // fecha de fechasVisibles. resultadoDelDia:
@@ -551,11 +608,16 @@ async function buscarHuecosSemanaEnSede(
       continue;
     }
 
-    const turnosDelDia = turnosExistentesEnSede.filter(turno =>
+    const turnosDelDiaReales = turnosExistentesEnSede.filter(turno =>
       turno.fecha === fechaActualISO &&
       typeof turno.horarioInicio === "string" &&
       typeof turno.horarioFin === "string"
     );
+    const turnosDelDia = bloqueosCacheLectura
+      ? [...turnosDelDiaReales, ...pseudoTurnosBloqueoEnFecha(
+          bloqueosCacheLectura, sedeId, fechaActualISO, sillonesDisponibles, horaAperturaString, horaCierreString
+        )]
+      : turnosDelDiaReales;
 
     const resultadoDia = evaluarDiaEnSede({
       sedeId, sedeNombre, fechaActual, fechaActualISO, nombreDiaActual,
@@ -633,7 +695,8 @@ async function buscarHuecos(
                 // médico que atiende ambas sedes), buscar SOLO ahí, sin recalcular.
   cuposCacheLectura, // T4: array de docs de turneroCupos (opcional; si no se pasa, sin cupo)
   pacienteId, // opcional: id del paciente, para la regla "un turno por día" (transversal a sedes)
-  turnoIdExcluir // opcional: id del propio turno a excluir del chequeo (uso: reasignación)
+  turnoIdExcluir, // opcional: id del propio turno a excluir del chequeo (uso: reasignación)
+  bloqueosCacheLectura // T9: array de docs de turneroBloqueos, activos, cualquier sede (opcional)
 ) {
   // Retorna la estructura de resultado del motor.
 
@@ -704,7 +767,8 @@ async function buscarHuecos(
         usaAtaduraDia,
         usaCuposPorcentaje,
         cuposCacheLectura,
-        diasBloqueadosPaciente
+        diasBloqueadosPaciente,
+        bloqueosCacheLectura
       );
 
       const huecos = resultadoSede.huecos;
@@ -878,7 +942,8 @@ function validarHuecoEspecificoEnSede({
   sillonesDisponibles,
   turnosExistentesEnSede,
   turnoIdExcluir,
-  medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura
+  medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura,
+  bloqueosCacheLectura // T9: array de docs de turneroBloqueos, activos, cualquier sede (opcional)
 }) {
   if (horaInicioMinutos < horaAperturaMinutos || horaFinMinutos > horaCierreMinutos) {
     return { valido: false, motivo: "horario" };
@@ -921,6 +986,28 @@ function validarHuecoEspecificoEnSede({
     }
   }
 
+  // --- T9: bloqueo vigente sobre el sillón elegido. Solo aplica si se eligió un sillón
+  // físico real (sillon != null) — "sin asignar (sobreturno)" no reclama ningún recurso
+  // físico, así que no hay nada que un bloqueo pueda chocar acá. Se reutiliza el mismo
+  // pseudoTurnosBloqueoEnFecha() del resto del motor, acotado a este único sillón, para
+  // no mantener una segunda forma de leer un bloqueo. ---
+  if (sillon != null && bloqueosCacheLectura) {
+    const pseudoTurnosBloqueo = pseudoTurnosBloqueoEnFecha(
+      bloqueosCacheLectura, sedeId, fechaActualISO, [sillon],
+      stringDesdeMinuto(horaAperturaMinutos), stringDesdeMinuto(horaCierreMinutos)
+    );
+    const bloqueoQueChoca = pseudoTurnosBloqueo.find(pt => {
+      if (pt.sillon !== sillon) return false; // un bloqueo con sillón propio ignora el
+                                                // "sillonesDisponibles" que le pasamos acá
+      const inicio = minutoDesdeString(pt.horarioInicio);
+      const fin = minutoDesdeString(pt.horarioFin);
+      return horaInicioMinutos < fin && horaFinMinutos > inicio;
+    });
+    if (bloqueoQueChoca) {
+      return { valido: false, motivo: "bloqueado", motivoBloqueo: bloqueoQueChoca.motivoBloqueo };
+    }
+  }
+
   // --- Superposición física en el sillón elegido, excluyendo el propio turno ---
   const conflicto = turnosExistentesEnSede.some(t => {
     if (t.id === turnoIdExcluir) return false;
@@ -941,7 +1028,8 @@ function validarHuecoEspecificoEnSede({
 // día de la semana a partir de ids y caches, y llama a validarHuecoEspecificoEnSede.
 function validarModificacionTurno(
   medicoId, sedeId, fechaISOCandidato, horaInicioString, horaFinString, sillon,
-  medicosCacheLectura, sedesCacheLectura, turnosExistentes, cuposCacheLectura, turnoIdExcluir
+  medicosCacheLectura, sedesCacheLectura, turnosExistentes, cuposCacheLectura, turnoIdExcluir,
+  bloqueosCacheLectura // T9: array de docs de turneroBloqueos, activos, cualquier sede (opcional)
 ) {
   const medicoDoc = (medicosCacheLectura || []).find(m => m.id === medicoId);
   const sedeDoc = (sedesCacheLectura || []).find(s => s.id === sedeId);
@@ -972,7 +1060,8 @@ function validarModificacionTurno(
     medicoId, medicoDoc,
     usaAtaduraDia: sedeDoc.usaAtaduraDia === true,
     usaCuposPorcentaje: sedeDoc.usaCuposPorcentaje === true,
-    cuposCacheLectura
+    cuposCacheLectura,
+    bloqueosCacheLectura
   });
 }
 
@@ -987,6 +1076,8 @@ if (typeof module !== "undefined" && module.exports) {
     evaluarDiaEnSede,
     diasBloqueadosPorPaciente,
     encontrarPrimerHuecoFisico,
+    bloqueoVigenteEnFecha,
+    pseudoTurnosBloqueoEnFecha,
     validarHuecoEspecificoEnSede,
     validarModificacionTurno,
     minutoDesdeString,
