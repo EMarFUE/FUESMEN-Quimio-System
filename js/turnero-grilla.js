@@ -1546,13 +1546,25 @@ function abrirDetalleTurnoGrilla(turnoId) {
   // el arrastre (administrador/enfermería sin restricción; médico solo turnos propios y
   // habilitado). "Eliminar" se distingue con el color de peligro (--color-danger), nada
   // más — mismo modal de motivo que las otras dos, sin confirmación aparte.
-  const botonesAccionHtml = puedeArrastrarTurnoGrilla(turno)
-    ? `<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
-         <button type="button" class="boton-principal" style="width:auto;" onclick="abrirReasignarGrilla('${turno.id}')">Reasignar</button>
-         <button type="button" class="boton-secundario" style="width:auto;" onclick="abrirModificarGrilla('${turno.id}')">Modificar</button>
-         <button type="button" class="boton-secundario" style="width:auto;color:var(--color-danger);border-color:var(--color-danger);" onclick="abrirEliminarGrilla('${turno.id}')">Eliminar</button>
-       </div>`
+  //
+  // Ajuste post-entrega de la Etapa T8, a pedido de Elías: "Reimprimir" (solo ícono, más
+  // chico que los otros tres) va SIEMPRE, sin depender de puedeArrastrarTurnoGrilla() —
+  // reimprimir el comprobante es una acción de lectura, igual que en el historial, no
+  // una edición del turno. abrirComprobanteTurno() está definida en turnero-carga.js,
+  // que se carga antes que este archivo en agenda.html.
+  const botonReimprimirHtml = `
+    <button type="button" class="boton-icono" title="Reimprimir comprobante" aria-label="Reimprimir comprobante" onclick="abrirComprobanteTurno('${turno.id}')">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+    </button>`;
+  const botonesEdicionHtml = puedeArrastrarTurnoGrilla(turno)
+    ? `<button type="button" class="boton-principal" style="width:auto;" onclick="abrirReasignarGrilla('${turno.id}')">Reasignar</button>
+       <button type="button" class="boton-secundario" style="width:auto;" onclick="abrirModificarGrilla('${turno.id}')">Modificar</button>
+       <button type="button" class="boton-secundario" style="width:auto;color:var(--color-danger);border-color:var(--color-danger);" onclick="abrirEliminarGrilla('${turno.id}')">Eliminar</button>`
     : "";
+  const botonesAccionHtml = `<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;align-items:center;">
+         ${botonReimprimirHtml}
+         ${botonesEdicionHtml}
+       </div>`;
 
   document.getElementById("contenido-detalle-turno-grilla").innerHTML = `
     <h2 style="margin-top:0;">Detalle del turno</h2>

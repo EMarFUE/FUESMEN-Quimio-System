@@ -97,6 +97,35 @@ h1 {
   background: var(--color-surface);
 }
 
+/* Botón de acción solo-ícono, chico y cuadrado — mismo criterio visual que
+   .boton-menu-cuenta-grilla, pero de uso general (no exclusivo de la agenda). Pensado
+   para una acción secundaria dentro de una fila de botones de texto más grandes, como
+   "Reimprimir" en el detalle de turno. */
+.boton-icono {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-muted);
+  padding: 0;
+}
+
+.boton-icono:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.boton-icono svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Tarjetas de módulo */
 .tarjetas {
   display: grid;
@@ -1399,13 +1428,14 @@ h1 {
   }
 }
 
-/* Historial de turnos (Etapa T8, ajuste post-entrega): con seis pestañas de filtro y
-   ocho columnas de tabla (más "Reimprimir" agregado a las acciones de cada fila), el
-   ".contenedor" de base (720px) quedaba muy angosto — las pestañas se partían en dos
-   filas asimétricas y la tabla se apretaba. No se tocó ".contenedor" (lo usan casi
-   todas las pantallas) ni ".contenedor-ancho" (pensado para la grilla semanal, con
-   padding mucho más chico) — esta clase solo suma un max-width intermedio, sin cambiar
-   el padding/margin ya heredado de ".contenedor" en turnero/historial-turnos.html. */
-.contenedor.contenedor-historial-turnos {
+/* Historial con filtros en pestañas + tabla ancha (Turnero T8, ajuste post-entrega;
+   replicado también en medicacion/historial.html a pedido de Elías). El ".contenedor"
+   de base (720px) queda angosto para varias pestañas de filtro en una fila y tablas de
+   muchas columnas con más de una acción por fila (se aprieta todo, pestañas partidas en
+   dos filas asimétricas). No se tocó ".contenedor" (lo usan casi todas las pantallas) ni
+   ".contenedor-ancho" (pensado para la grilla semanal, con padding mucho más chico) —
+   esta clase solo suma un max-width intermedio, sin cambiar el padding/margin ya
+   heredado de ".contenedor". */
+.contenedor.contenedor-historial {
   max-width: 1100px;
 }
