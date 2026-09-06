@@ -110,6 +110,43 @@ h1 {
   }
 }
 
+/* Variante compacta (ajuste del panel de inicio de Turnero, post T7 Fase 3): más
+   columnas por fila y tarjetas más chicas, para que una sección con pocas tarjetas no
+   ocupe una fila entera de alto completo. Se usa junto con ".tarjetas"/".tarjeta"
+   (agrega las dos clases al mismo elemento) — no reemplaza esas reglas de base, así que
+   medicacion/index.html, herramientas.html y el selector de módulos raíz siguen iguales. */
+.tarjetas-compactas {
+  /* 150px calculado para que las 4 tarjetas de "Datos maestros" entren en una sola fila
+     dentro de ".contenedor" (720px, con box-sizing:border-box y padding 24px a cada
+     lado = 672px de ancho útil): (672 - 3*16) / 4 = 156px, con margen. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.tarjeta-compacta {
+  padding: 16px;
+}
+
+.tarjeta-compacta .tarjeta-icono {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 10px;
+}
+
+.tarjeta-compacta .tarjeta-icono svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tarjeta-compacta .tarjeta-titulo {
+  font-size: 14px;
+  margin-bottom: 3px;
+}
+
+.tarjeta-compacta .tarjeta-texto {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
 .tarjeta {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);

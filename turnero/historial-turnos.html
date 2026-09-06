@@ -27,8 +27,8 @@
 
     <div id="contenido-historial-turnos" style="display:none;">
       <div style="font-size:13px;color:var(--color-muted);margin-bottom:14px;">
-        Reasignaciones, modificaciones y cancelaciones de turnos, con motivo y usuario responsable.
-        Restringido a administrador y enfermería.
+        Todos los turnos — otorgados, reasignados, modificados y cancelados —, con motivo y
+        usuario responsable en los que tuvieron algún cambio. Restringido a administrador y enfermería.
       </div>
 
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
@@ -46,6 +46,7 @@
       <!-- Filtro por tipo de acción -->
       <div id="bloque-filtro-tipo" class="bloque-filtro" style="display:none;">
         <div class="filtro-tabs" id="selector-tipo-accion-historial-turnos">
+          <button type="button" class="filtro-tab" data-tipo="activo">Otorgados</button>
           <button type="button" class="filtro-tab" data-tipo="reasignado">Reasignados</button>
           <button type="button" class="filtro-tab" data-tipo="modificado">Modificados</button>
           <button type="button" class="filtro-tab" data-tipo="cancelado">Cancelados</button>
@@ -93,7 +94,7 @@
             <input type="date" id="campo-filtro-fecha-hasta-historial-turnos" />
           </div>
         </div>
-        <div style="font-size:12.5px;color:var(--color-muted);margin-top:6px;">Filtra por la fecha en que se hizo el cambio, no por la fecha del turno.</div>
+        <div style="font-size:12.5px;color:var(--color-muted);margin-top:6px;">Filtra por la fecha para la que está programado el turno, no por cuándo se cargó o cambió el registro.</div>
         <button type="button" class="boton-secundario" style="margin-top:12px;" onclick="aplicarFiltroFechaHistorialTurnos()">Buscar</button>
       </div>
 

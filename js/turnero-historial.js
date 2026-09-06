@@ -1,10 +1,12 @@
-// Historial de turnos reasignados/modificados/cancelados (Etapa T7, Fase 3).
-// Página independiente (turnero/historial-turnos.html), mismo criterio de independencia
-// por página que ya usa el resto del sistema — no depende de turnero-motor.js,
-// turnero-carga.js ni turnero-grilla.js (esos tres sí comparten scope entre sí en
-// agenda.html; este archivo no convive con ellos en ninguna página, así que no hace
-// falta chequear colisión de nombres contra ellos, pero se mantiene igual el sufijo
-// "HistorialTurnos" en todo lo propio de este archivo, por prolijidad).
+// Historial de TODOS los turnos — otorgados con normalidad, reasignados, modificados y
+// cancelados (Etapa T7, Fase 3; ampliado a pedido de Elías tras la primera entrega, que
+// solo traía los tres tipos de cambio). Página independiente
+// (turnero/historial-turnos.html), mismo criterio de independencia por página que ya usa
+// el resto del sistema — no depende de turnero-motor.js, turnero-carga.js ni
+// turnero-grilla.js (esos tres sí comparten scope entre sí en agenda.html; este archivo
+// no convive con ellos en ninguna página, así que no hace falta chequear colisión de
+// nombres contra ellos, pero se mantiene igual el sufijo "HistorialTurnos" en todo lo
+// propio de este archivo, por prolijidad).
 //
 // Restringida a administrador y enfermería (a diferencia de la agenda, de lectura
 // abierta a los cuatro roles): acá se expone motivo y usuario de cada cambio. La
@@ -12,25 +14,38 @@
 // condición nueva al "allow read" de /turnos — ver Handoff de esta fase). Esta pantalla
 // además nunca aparece en el menú para médico/administrativo (ver turnero/index.html).
 //
-// Diseño de los filtros: cuatro modos MUTUAMENTE EXCLUYENTES (uno a la vez), mismo
+// Diseño de los filtros: cinco modos MUTUAMENTE EXCLUYENTES (uno a la vez), mismo
 // criterio que ya usa medicacion/historial.js para entregas/egresos — evita depender de
-// índices compuestos innecesarios. "Por tipo de acción" reemplaza el filtro base
-// (reasignado/modificado/cancelado) por un único valor; "Por médico"/"Por
-// paciente"/"Por rango de fechas" agregan una condición más, pero siguen trayendo los
-// tres tipos de acción para ese médico/paciente/rango.
+// índices compuestos innecesarios. "Recientes"/"Por médico"/"Por paciente" traen los
+// CUATRO estados (activo, reasignado, modificado, cancelado); "Por tipo de acción" los
+// separa uno por uno, incluido "Otorgado" (estado "activo", el turno tal como quedó,
+// sin ningún cambio posterior); "Por rango de fechas" filtra por la fecha del TURNO
+// (ver más abajo), no por estado.
 //
 // Índices de Firestore que Firebase puede llegar a pedir la primera vez que se usa cada
 // filtro (mismo aviso que ya deja medicacion/historial.js): la consola del navegador
 // (F12) trae un enlace directo para crearlos con un clic la primera vez que hace falta.
 //
-// Campo elegido para ordenar y para el filtro de fecha: "anuladoEn" (cuándo se hizo el
-// cambio), no "fecha" (la fecha del turno en sí) — esta pantalla es un registro de
-// auditoría de cambios, no una agenda por fecha de tratamiento.
+// Campos de fecha usados (dos, con propósitos distintos — no confundirlos):
+// - "creadoEn": cuándo se cargó ESTE documento (alta original o el turno de reemplazo
+//   de una reasignación/modificación). Lo tiene el 100% de los turnos, a diferencia de
+//   "anuladoEn" (que un turno "activo" nunca tocado no tiene). Es el campo de orden por
+//   defecto en Recientes/Por tipo/Por médico/Por paciente, y el que se muestra en la
+//   columna "Cuándo" — salvo que el turno YA fue anulado, en cuyo caso se muestra
+//   "anuladoEn" (cuándo pasó el cambio que describe esa fila), más informativo para esa
+//   fila puntual. El campo de orden real para paginar sigue siendo "creadoEn" siempre,
+//   así la paginación no se rompe por documentos sin "anuladoEn".
+// - "fecha": la fecha PARA LA QUE está programado el turno (la que ve el paciente).
+//   Confirmado con Elías: el filtro "por rango de fechas" usa este campo, no "creadoEn"
+//   ni "anuladoEn" — responde "qué turnos hay/hubo en tal semana", mezclando los cuatro
+//   estados. Al filtrar por "fecha" hace falta ordenar también por "fecha" (Firestore
+//   exige que el primer orderBy coincida con el campo del filtro por rango) — es el
+//   único modo que no ordena por "creadoEn".
 
 const TAMANO_PAGINA_HISTORIAL_TURNOS = 25;
-const ESTADOS_ANULADOS_HISTORIAL_TURNOS = ["reasignado", "modificado", "cancelado"];
 
 const ETIQUETAS_TIPO_ACCION_HISTORIAL_TURNOS = {
+  activo: "Otorgado",
   reasignado: "Reasignado",
   modificado: "Modificado",
   cancelado: "Cancelado"
@@ -39,7 +54,8 @@ const ETIQUETAS_TIPO_ACCION_HISTORIAL_TURNOS = {
 // Mismos tokens de color que ya define css/styles.css (--color-accent, --color-accent-secondary,
 // --color-danger, y sus variantes "-soft") — sin agregar clases nuevas a la hoja de estilos,
 // mismo criterio que ya usó turnero-grilla.js para el botón "Eliminar" (estilo inline sobre
-// la clase genérica ".badge").
+// la clase genérica ".badge"). "activo"/"Otorgado" no lleva estilo propio: usa el gris
+// neutro por defecto de ".badge", porque es el estado de base, no un cambio a destacar.
 const ESTILOS_BADGE_TIPO_ACCION_HISTORIAL_TURNOS = {
   reasignado: "background:var(--color-accent-soft);color:var(--color-accent);border-color:var(--color-accent-soft);",
   modificado: "background:var(--color-accent-secondary-soft);color:#3b6d11;border-color:var(--color-accent-secondary-soft);",
@@ -367,25 +383,26 @@ function quitarPacienteFiltroHistorialTurnos() {
   mostrarPlaceholderHistorialTurnos("Elegí un paciente para ver su historial.");
 }
 
-// --- Filtro "por rango de fechas" (sobre "anuladoEn", ver nota al principio del archivo) ---
+// --- Filtro "por rango de fechas" (sobre "fecha" DEL TURNO, no sobre cuándo se cargó o
+// cambió el registro — ver nota al principio del archivo) ---
 
 function aplicarFiltroFechaHistorialTurnos() {
-  const desdeStr = document.getElementById("campo-filtro-fecha-desde-historial-turnos").value;
-  const hastaStr = document.getElementById("campo-filtro-fecha-hasta-historial-turnos").value;
+  const desde = document.getElementById("campo-filtro-fecha-desde-historial-turnos").value;
+  const hasta = document.getElementById("campo-filtro-fecha-hasta-historial-turnos").value;
 
-  if (!desdeStr || !hastaStr) {
+  if (!desde || !hasta) {
     alert("Completá las dos fechas.");
     return;
   }
-
-  const desde = new Date(desdeStr + "T00:00:00");
-  const hasta = new Date(hastaStr + "T23:59:59");
-
   if (desde > hasta) {
     alert('La fecha "desde" no puede ser posterior a la fecha "hasta".');
     return;
   }
 
+  // "fecha" se guarda como string "YYYY-MM-DD" (ver turnero-motor.js, fechaISO()): mismo
+  // formato que ya devuelve <input type="date">, así que se compara tal cual, sin pasar
+  // por Date — la comparación lexicográfica de un ISO con ceros a la izquierda ya
+  // ordena cronológicamente.
   estadoFiltroHistorialTurnos.fechaDesde = desde;
   estadoFiltroHistorialTurnos.fechaHasta = hasta;
   cargarPaginaHistorialTurnos(true);
@@ -395,12 +412,13 @@ function aplicarFiltroFechaHistorialTurnos() {
 
 function construirConsultaHistorialTurnos(paraExportar) {
   let consulta = db.collection("turnos");
+  let ordenarPor = "creadoEn";
 
   if (estadoFiltroHistorialTurnos.modo === "tipo" && estadoFiltroHistorialTurnos.tipoAccion) {
     consulta = consulta.where("estado", "==", estadoFiltroHistorialTurnos.tipoAccion);
-  } else {
-    consulta = consulta.where("estado", "in", ESTADOS_ANULADOS_HISTORIAL_TURNOS);
   }
+  // "recientes"/"medico"/"paciente" no agregan filtro de estado: traen los cuatro
+  // (otorgado, reasignado, modificado, cancelado).
 
   if (estadoFiltroHistorialTurnos.modo === "medico") {
     if (estadoFiltroHistorialTurnos.medicoEsOtro) {
@@ -411,12 +429,16 @@ function construirConsultaHistorialTurnos(paraExportar) {
   } else if (estadoFiltroHistorialTurnos.modo === "paciente" && estadoFiltroHistorialTurnos.pacienteId) {
     consulta = consulta.where("paciente.id", "==", estadoFiltroHistorialTurnos.pacienteId);
   } else if (estadoFiltroHistorialTurnos.modo === "fecha" && estadoFiltroHistorialTurnos.fechaDesde && estadoFiltroHistorialTurnos.fechaHasta) {
+    // Filtro por rango + orderBy: Firestore exige que el primer orderBy coincida con el
+    // campo del filtro por rango — por eso este modo, único, ordena por "fecha" y no
+    // por "creadoEn".
     consulta = consulta
-      .where("anuladoEn", ">=", estadoFiltroHistorialTurnos.fechaDesde)
-      .where("anuladoEn", "<=", estadoFiltroHistorialTurnos.fechaHasta);
+      .where("fecha", ">=", estadoFiltroHistorialTurnos.fechaDesde)
+      .where("fecha", "<=", estadoFiltroHistorialTurnos.fechaHasta);
+    ordenarPor = "fecha";
   }
 
-  consulta = consulta.orderBy("anuladoEn", "desc");
+  consulta = consulta.orderBy(ordenarPor, "desc");
 
   if (!paraExportar) {
     consulta = consulta.limit(TAMANO_PAGINA_HISTORIAL_TURNOS);
@@ -494,15 +516,20 @@ function badgeTipoAccionHistorialTurnos(estado) {
 function filaHistorialTurnos(id, d) {
   const tr = document.createElement("tr");
   const paciente = d.paciente || {};
+  // Un turno "activo" (otorgado, nunca tocado) no tiene "anuladoEn" — mostrar "cuándo se
+  // cargó" (creadoEn) en su lugar. Uno ya anulado muestra cuándo pasó ESE cambio
+  // (anuladoEn), más útil para esa fila puntual que su fecha de alta original.
+  const cuando = d.anuladoEn ? d.anuladoEn : d.creadoEn;
+  const esActivo = d.estado === "activo";
 
   tr.innerHTML = `
-    <td>${formatearFechaHoraHistorialTurnos(d.anuladoEn)}</td>
+    <td>${formatearFechaHoraHistorialTurnos(cuando)}</td>
     <td>${badgeTipoAccionHistorialTurnos(d.estado)}</td>
     <td>${escaparHtml(d.fecha || "-")}<br><span style="color:var(--color-muted);font-size:12px;">${escaparHtml(d.horarioInicio || "-")}–${escaparHtml(d.horarioFin || "-")}</span></td>
     <td>${escaparHtml(paciente.apellido || "")}, ${escaparHtml(paciente.nombre || "")}</td>
     <td>${escaparHtml(d.medicoNombre || "-")}</td>
-    <td>${escaparHtml(d.motivoCambio || "-")}</td>
-    <td>${escaparHtml((d.anuladoPor && d.anuladoPor.nombre) || "-")}</td>
+    <td>${esActivo ? "—" : escaparHtml(d.motivoCambio || "-")}</td>
+    <td>${esActivo ? "—" : escaparHtml((d.anuladoPor && d.anuladoPor.nombre) || "-")}</td>
     <td class="acciones-fila"></td>
   `;
 
@@ -688,16 +715,18 @@ async function exportarHistorialTurnosAExcel() {
     const filas = snapshot.docs.map((doc) => {
       const d = doc.data();
       const paciente = d.paciente || {};
+      const esActivo = d.estado === "activo";
+      const cuando = d.anuladoEn ? d.anuladoEn : d.creadoEn;
       return {
-        "Cuándo (cambio)": formatearFechaHoraHistorialTurnos(d.anuladoEn),
+        "Cuándo": formatearFechaHoraHistorialTurnos(cuando),
         "Tipo de acción": ETIQUETAS_TIPO_ACCION_HISTORIAL_TURNOS[d.estado] || d.estado,
         "Fecha del turno": d.fecha || "",
         "Horario": `${d.horarioInicio || ""}–${d.horarioFin || ""}`,
         "Paciente": `${paciente.apellido || ""}, ${paciente.nombre || ""}`,
         Documento: paciente.numeroDocumento || "",
         Médico: d.medicoNombre || "",
-        Motivo: d.motivoCambio || "",
-        "Realizado por": (d.anuladoPor && d.anuladoPor.nombre) || ""
+        Motivo: esActivo ? "" : (d.motivoCambio || ""),
+        "Realizado por": esActivo ? "" : ((d.anuladoPor && d.anuladoPor.nombre) || "")
       };
     });
 
