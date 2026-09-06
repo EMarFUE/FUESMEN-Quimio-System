@@ -30,7 +30,7 @@
     </p>
 
     <div class="tarjeta-formulario">
-      <div class="titulo-bloque" style="margin-bottom:12px;">Crear bloqueo</div>
+      <div class="titulo-bloque" style="margin-bottom:12px;" id="titulo-formulario-bloqueo">Crear bloqueo</div>
       <form id="form-nuevo-bloqueo">
         <div class="fila-2">
           <div class="campo">
@@ -107,21 +107,67 @@
           </div>
         </div>
 
-        <button type="submit" class="boton-principal" style="width:auto; padding:10px 22px; margin-top:4px;">Crear bloqueo</button>
+        <button type="submit" class="boton-principal" id="boton-submit-bloqueo" style="width:auto; padding:10px 22px; margin-top:4px;">Crear bloqueo</button>
+        <button type="button" class="enlace-accion" id="boton-cancelar-edicion-bloqueo" style="display:none; margin-left:12px;" onclick="cancelarEdicionBloqueo()">Cancelar edición</button>
       </form>
     </div>
 
-    <div class="titulo-bloque" style="margin-top:24px;">Bloqueos vigentes</div>
-    <p style="color:var(--color-muted); font-size:13px; margin-bottom:12px;">
-      Listado simple para confirmar lo cargado. Levantar, modificar o eliminar un bloqueo
-      llega en la próxima entrega de esta etapa.
-    </p>
+    <div class="titulo-bloque" style="margin-top:24px;">Gestión de bloqueos</div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+      <div class="filtro-tabs" id="filtro-tabs-bloqueos" style="margin-bottom:0;">
+        <button type="button" class="filtro-tab activo" data-modo="vigentes">Vigentes</button>
+        <button type="button" class="filtro-tab" data-modo="inactivos">Inactivos</button>
+        <button type="button" class="filtro-tab" data-modo="todos">Todos</button>
+      </div>
+      <button type="button" id="boton-exportar-bloqueos" class="boton-secundario" onclick="exportarBloqueosAExcel()">Exportar a Excel</button>
+    </div>
+
     <div id="contenedor-bloqueos"></div>
+  </div>
+
+  <!-- Modal "levantar fecha" (Fase 3): agrega una fecha puntual a fechasExceptuadas de
+       un bloqueo recurrente, sin tocar la regla general. -->
+  <div id="overlay-levantar-bloqueo" class="overlay-modal" style="display:none;" onclick="cerrarModalLevantarBloqueoSiFondo(event)">
+    <div class="modal-panel">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarModalLevantarBloqueo()">&times;</button>
+      </div>
+      <div class="titulo-bloque" style="margin-bottom:8px;">Levantar una fecha puntual</div>
+      <p id="texto-modal-levantar-bloqueo" style="color:var(--color-muted); font-size:13px; margin-bottom:16px;"></p>
+      <div class="campo">
+        <label for="campo-fecha-levantar-bloqueo">Fecha a levantar</label>
+        <input type="date" id="campo-fecha-levantar-bloqueo" />
+      </div>
+      <p style="font-size:12.5px; color:var(--color-muted); margin-bottom:16px;">
+        Ya levantadas: <span id="lista-excepciones-levantar-bloqueo"></span>
+      </p>
+      <button type="button" class="boton-principal" style="width:auto; padding:8px 18px;" onclick="confirmarLevantarBloqueo()">Confirmar</button>
+      <button type="button" class="boton-secundario" style="width:auto; padding:8px 18px; margin-left:8px;" onclick="cerrarModalLevantarBloqueo()">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Modal "eliminar" (Fase 3): baja lógica con motivo obligatorio. -->
+  <div id="overlay-eliminar-bloqueo" class="overlay-modal" style="display:none;" onclick="cerrarModalEliminarBloqueoSiFondo(event)">
+    <div class="modal-panel">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarModalEliminarBloqueo()">&times;</button>
+      </div>
+      <div class="titulo-bloque" style="margin-bottom:8px;">Eliminar bloqueo</div>
+      <p id="texto-modal-eliminar-bloqueo" style="color:var(--color-muted); font-size:13px; margin-bottom:16px;"></p>
+      <div class="campo">
+        <label for="campo-motivo-eliminar-bloqueo">Motivo</label>
+        <input type="text" id="campo-motivo-eliminar-bloqueo" maxlength="200" />
+      </div>
+      <button type="button" class="boton-principal" style="width:auto; padding:8px 18px;" onclick="confirmarEliminarBloqueo()">Confirmar</button>
+      <button type="button" class="boton-secundario" style="width:auto; padding:8px 18px; margin-left:8px;" onclick="cerrarModalEliminarBloqueo()">Cancelar</button>
+    </div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="../js/firebase-config.js"></script>
   <script src="../js/auth.js"></script>
   <script src="../js/turnero-bloqueos.js"></script>
