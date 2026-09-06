@@ -18,6 +18,23 @@ const MEDICO_OCCHIPINTI_ID = "occhipinti";
 const ROLES_MEDICO_OTRO = ["administrador", "enfermeria"];
 const PREMEDICACION_MINUTOS = 30;
 const TOPE_DIAS_TURNO = 60;
+// Etapa T12: tope de anticipación máxima para agendar un turno, acordado con Elías —
+// aplica tanto al modo "calendario" (que hasta ahora no tenía ningún tope) como a los
+// selectores de fecha de referencia de "Reasignar" y "Consulta de disponibilidad" en
+// turnero-grilla.js. El modo "días" ya queda cubierto de por sí (TOPE_DIAS_TURNO=60 +
+// hasta 10 días de margen de búsqueda del motor = 70 días como máximo, siempre por
+// debajo de este tope). Solo del lado del cliente — ver nota en cargarTurnosExistentes()
+// sobre por qué no se replica esto en firestore.rules.
+const TOPE_DIAS_ANTICIPACION = 90;
+// Margen de la consulta de turnos existentes que usa el motor: un poco más amplio que
+// TOPE_DIAS_ANTICIPACION (que es el máximo que puede pedir un usuario) para no cortar
+// justo en el límite si el margen de búsqueda del motor (10 días) empuja la fecha
+// encontrada un poco más allá del máximo solicitado.
+const MARGEN_LECTURA_TURNOS_DIAS = 100;
+
+function fechaMaximaAnticipacionISO() {
+  return fechaISODesdeObjeto(fechaObjetoDesdeDiasHoy(TOPE_DIAS_ANTICIPACION));
+}
 
 // Catálogo de obras sociales (reutilizado de pacientes.js)
 // Nota: OBRA_SOCIAL_POP ya está declarada en turnero-motor.js (se carga antes que este
@@ -296,6 +313,7 @@ async function iniciarCargaTurno(user, datosUsuario) {
   document.getElementById("campo-dias-turno").addEventListener("input", actualizarFechaCalculada);
   document.getElementById("campo-dias-turno").max = String(TOPE_DIAS_TURNO);
   document.getElementById("campo-fecha").min = fechaLocalHoy();
+  document.getElementById("campo-fecha").max = fechaMaximaAnticipacionISO();
 
   campoBuscarPaciente.disabled = true;
   campoBuscarPaciente.placeholder = "Cargando listado de pacientes…";
@@ -366,9 +384,21 @@ async function cargarBloqueosCarga() {
 }
 
 // Etapa T3: cargar turnos existentes para que el motor valide no superposición
+// Etapa T12: antes traía TODOS los turnos activos de la historia completa del sistema,
+// sin ningún límite de fecha — cada apertura de "+ Nuevo turno" leía más y más
+// documentos a medida que se acumulaba historial real. El motor nunca necesita turnos
+// fuera de esta ventana (nunca busca en el pasado, y el máximo que puede buscar hacia
+// adelante es TOPE_DIAS_ANTICIPACION + el margen de búsqueda del motor), así que
+// acotar acá no cambia ningún resultado, solo el costo de leerlo.
 async function cargarTurnosExistentes() {
   try {
-    const snapshot = await db.collection("turnos").where("estado", "==", "activo").get();
+    const desde = fechaISODesdeObjeto(fechaObjetoDesdeDiasHoy(-1));
+    const hasta = fechaISODesdeObjeto(fechaObjetoDesdeDiasHoy(MARGEN_LECTURA_TURNOS_DIAS));
+    const snapshot = await db.collection("turnos")
+      .where("estado", "==", "activo")
+      .where("fecha", ">=", desde)
+      .where("fecha", "<=", hasta)
+      .get();
     turnosExistentes = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data()
@@ -1011,6 +1041,13 @@ async function intentarGuardarTurno() {
     const fechaManual = document.getElementById("campo-fecha").value;
     if (!fechaManual) {
       mostrarMensajeGeneral("Falta elegir la fecha del turno.", "error");
+      return;
+    }
+    // Etapa T12: el atributo "max" del input ya lo impide en la mayoría de los
+    // navegadores, pero se valida también acá — mismo criterio que
+    // leerDiasTurnoValidos(), que tampoco confía solo en el "max" del HTML.
+    if (fechaManual > fechaMaximaAnticipacionISO()) {
+      mostrarMensajeGeneral(`No se pueden agendar turnos con más de ${TOPE_DIAS_ANTICIPACION} días de anticipación.`, "error");
       return;
     }
     fecha = fechaManual;

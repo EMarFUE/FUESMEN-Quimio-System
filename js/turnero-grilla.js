@@ -346,10 +346,24 @@ document.addEventListener("click", (evento) => {
 
 // --- Carga de turnos de la sede activa ---
 
+// Etapa T12: antes traía TODOS los turnos activos de la sede, sin límite de fecha —
+// cada cambio de semana, cada guardado, cada arrastre volvía a leer la historia
+// completa. El arrastre solo calcula huecos contra la semana visible
+// (obtenerDiasVisiblesGrilla(), ver armarArrastreGrilla()), y Elías pidió dejar
+// margen para poder reasignar a la semana siguiente sin sentirse limitado — por eso
+// la ventana son dos semanas (la visible + la que sigue), no una sola.
 async function cargarTurnosGrilla() {
+  const diasVisibles = obtenerDiasVisiblesGrilla();
+  const desde = fechaISO(diasVisibles[0]);
+  const hastaDate = new Date(diasVisibles[0]);
+  hastaDate.setDate(hastaDate.getDate() + 14);
+  const hasta = fechaISO(hastaDate);
+
   const snapshot = await db.collection("turnos")
     .where("sedeId", "==", sedeSeleccionadaGrilla)
     .where("estado", "==", "activo")
+    .where("fecha", ">=", desde)
+    .where("fecha", "<=", hasta)
     .get();
   turnosCacheGrilla = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
@@ -1071,6 +1085,8 @@ async function abrirReasignarGrilla(turnoId) {
   `).join("");
 
   document.getElementById("campo-fecha-reasignar-grilla").value = turno.fecha || "";
+  document.getElementById("campo-fecha-reasignar-grilla").min = fechaLocalHoy();
+  document.getElementById("campo-fecha-reasignar-grilla").max = fechaMaximaAnticipacionISO();
   document.getElementById("mensaje-reasignar-grilla").style.display = "none";
   turnoIdReasignarActual = turnoId;
   document.getElementById("overlay-reasignar-grilla").style.display = "flex";
@@ -1103,6 +1119,10 @@ async function buscarReasignarGrilla() {
   const fechaReferencia = document.getElementById("campo-fecha-reasignar-grilla").value;
   if (!fechaReferencia) {
     mostrarMensajeReasignarGrilla("Elegí una fecha de referencia.", "error");
+    return;
+  }
+  if (fechaReferencia > fechaMaximaAnticipacionISO()) {
+    mostrarMensajeReasignarGrilla(`No se puede buscar disponibilidad con más de ${TOPE_DIAS_ANTICIPACION} días de anticipación.`, "error");
     return;
   }
 
@@ -1591,6 +1611,7 @@ async function abrirConsultaDisponibilidadGrilla() {
   document.getElementById("campo-premedicacion-consulta-grilla").checked = false;
   document.getElementById("campo-fecha-consulta-grilla").value = "";
   document.getElementById("campo-fecha-consulta-grilla").min = fechaLocalHoy();
+  document.getElementById("campo-fecha-consulta-grilla").max = fechaMaximaAnticipacionISO();
   document.getElementById("resultado-disponibilidad-grilla").innerHTML = "";
   document.getElementById("mensaje-consulta-disponibilidad-grilla").style.display = "none";
   ultimoResultadoConsultaDisponibilidadGrilla = null;
