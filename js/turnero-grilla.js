@@ -242,7 +242,12 @@ function cerrarModalNuevoTurnoGrilla() {
 function observarGuardadoTurnoGrilla() {
   const mensaje = document.getElementById("mensaje-general");
   const observer = new MutationObserver(() => {
-    if (mensaje.textContent.trim() === "Turno guardado correctamente.") {
+    // Ojo si se cambia el texto de éxito en turnero-carga.js: este chequeo tiene que
+    // seguir empezando igual. Bug real de la Etapa T8: al agregar "Abriendo
+    // comprobante…" al final del mensaje, la comparación exacta de acá dejó de
+    // cumplirse y el modal quedó de nuevo abierto — cambiado a startsWith() para que no
+    // dependa de que el mensaje completo quede idéntico letra por letra.
+    if (mensaje.textContent.trim().startsWith("Turno guardado correctamente.")) {
       // Antes (T2) el modal quedaba abierto a propósito para cargar varios turnos
       // seguidos sin reabrirlo cada vez. A pedido de Elías ahora se cierra solo — se
       // deja un instante el mensaje de éxito visible antes de cerrar, para que no
