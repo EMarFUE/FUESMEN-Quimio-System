@@ -308,6 +308,11 @@ document.addEventListener("keydown", (evento) => {
     cerrarDetalleTurnoGrilla();
     return;
   }
+  const overlayDetalleBloqueo = document.getElementById("overlay-detalle-bloqueo-grilla");
+  if (overlayDetalleBloqueo && overlayDetalleBloqueo.style.display !== "none") {
+    cerrarDetalleBloqueoGrilla();
+    return;
+  }
   const overlayNuevoTurno = document.getElementById("overlay-nuevo-turno-grilla");
   if (overlayNuevoTurno && overlayNuevoTurno.style.display !== "none") {
     cerrarModalNuevoTurnoGrilla();
@@ -459,9 +464,35 @@ function renderizarGrilla() {
     const turnosDelDia = turnosVisibles.filter(t =>
       t.fecha === fechaDiaISO && typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
     );
-    const lanesDelDia = calcularLanesDiaGrilla(turnosDelDia);
-    const tarjetasHtml = turnosDelDia
-      .map(turno => renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, lanesDelDia.get(turno.id)))
+
+    // Fase 4 (T9): indicador visual de bloqueos. Un bloqueo de UN sillón puntual entra
+    // al MISMO cálculo de carriles que los turnos reales, como una tarjeta más — así
+    // nunca se superpone visualmente con un turno de otro sillón a la misma hora,
+    // mismo criterio que ya usa el motor puertas adentro (pseudoTurnosBloqueoEnFecha en
+    // turnero-motor.js) para el cálculo de huecos. Un bloqueo de TODOS los sillones
+    // (franja o día completo) no compite por carril: se resuelve aparte como una banda
+    // de fondo (ver renderizarBandasBloqueoGrilla), porque no tiene sentido que le gane
+    // el lugar a un turno real — decisión ya tomada con Elías: el bloqueo no le hace
+    // nada a un turno ya otorgado, solo avisa.
+    const bloqueosDelDia = bloqueosVigentesEnFechaGrilla(fechaDiaISO);
+    const bloqueosSillonPuntual = bloqueosDelDia.filter(b => b.sillon != null);
+    const pseudoTarjetasBloqueo = bloqueosSillonPuntual.map(b => ({
+      id: `bloqueo-${b.id}`,
+      horarioInicio: b.horaInicio || sede.horaApertura,
+      horarioFin: b.horaFin || sede.horaCierre,
+      esBloqueoVisual: true,
+      bloqueoOriginal: b
+    }));
+
+    const itemsParaLanes = [...turnosDelDia, ...pseudoTarjetasBloqueo];
+    const lanesDelDia = calcularLanesDiaGrilla(itemsParaLanes);
+
+    const bandasHtml = renderizarBandasBloqueoGrilla(bloqueosDelDia, minutoApertura, minutoCierre);
+    const tarjetasHtml = itemsParaLanes
+      .map(item => item.esBloqueoVisual
+        ? renderizarTarjetaBloqueoGrilla(item, minutoApertura, lanesDelDia.get(item.id))
+        : renderizarTarjetaTurnoGrilla(item, minutoApertura, sede, lanesDelDia.get(item.id))
+      )
       .join("");
 
     return `
@@ -471,7 +502,7 @@ function renderizarGrilla() {
           <span class="fecha-dia-grilla">${String(dia.getDate()).padStart(2, "0")}/${String(dia.getMonth() + 1).padStart(2, "0")}</span>
         </div>
         <div class="pista-dia-grilla" data-fecha="${fechaDiaISO}" style="height:${alturaTotal}px;">
-          ${tarjetasHtml || ""}
+          ${bandasHtml}${tarjetasHtml || ""}
         </div>
       </div>
     `;
@@ -552,6 +583,113 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
       <span class="apellido-turno-grilla">${escaparHtmlGrilla(nombreMostrado)}</span>
     </div>
   `;
+}
+
+// --- Fase 4 (T9): indicador visual de bloqueos ---
+//
+// bloqueosCacheGrilla ya está cargado (Fase 2, cargarBloqueosGrilla) y solo trae
+// documentos con activo == true. bloqueoVigenteEnFecha() es la misma función de
+// turnero-motor.js que ya usa el motor para descontar huecos — evita reimplementar acá
+// el criterio de "puntual dentro de rango" / "recurrente salvo fechasExceptuadas".
+function bloqueosVigentesEnFechaGrilla(fechaISO) {
+  return (bloqueosCacheGrilla || []).filter(b =>
+    b.sedeId === sedeSeleccionadaGrilla && bloqueoVigenteEnFecha(b, fechaISO)
+  );
+}
+
+// Banda de fondo para un bloqueo de "todos los sillones" (franja o día completo) — no
+// entra al cálculo de carriles, se dibuja ANTES que las tarjetas de turnos en el HTML
+// (ver renderizarGrilla) para quedar detrás sin necesitar z-index.
+function renderizarBandasBloqueoGrilla(bloqueosDelDia, minutoApertura, minutoCierre) {
+  return bloqueosDelDia
+    .filter(b => b.sillon == null)
+    .map(bloqueo => {
+      const inicio = bloqueo.horaInicio ? minutoDesdeString(bloqueo.horaInicio) : minutoApertura;
+      const fin = bloqueo.horaFin ? minutoDesdeString(bloqueo.horaFin) : minutoCierre;
+      const top = (inicio - minutoApertura) * PIXELES_POR_MINUTO_GRILLA;
+      const alto = Math.max((fin - inicio) * PIXELES_POR_MINUTO_GRILLA, 18);
+
+      return `
+        <div class="banda-bloqueo-grilla" style="top:${top}px;height:${alto}px;"
+          title="Bloqueado: ${escaparHtmlGrilla(bloqueo.motivo)}" onclick="abrirDetalleBloqueoGrilla('${bloqueo.id}')">
+          <span class="etiqueta-banda-bloqueo-grilla">Bloqueado: ${escaparHtmlGrilla(bloqueo.motivo)}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+// Pseudo-tarjeta para un bloqueo de UN sillón puntual — comparte el sistema de carriles
+// con renderizarTarjetaTurnoGrilla (mismo "item" con horarioInicio/horarioFin, ver el
+// armado de pseudoTarjetasBloqueo en renderizarGrilla), por eso recibe laneInfo igual.
+function renderizarTarjetaBloqueoGrilla(item, minutoApertura, laneInfo) {
+  const bloqueo = item.bloqueoOriginal;
+  const inicio = minutoDesdeString(item.horarioInicio);
+  const fin = minutoDesdeString(item.horarioFin);
+  const top = (inicio - minutoApertura) * PIXELES_POR_MINUTO_GRILLA;
+  const alto = Math.max((fin - inicio) * PIXELES_POR_MINUTO_GRILLA, 18);
+
+  const { lane, totalLanes } = laneInfo || { lane: 0, totalLanes: 1 };
+  const posicionHtml = totalLanes > 1
+    ? `left:calc(4px + (100% - 8px) * ${lane} / ${totalLanes} + 1px);width:calc((100% - 8px) / ${totalLanes} - 2px);`
+    : `left:4px;right:4px;`;
+
+  const tituloCompleto = escaparHtmlGrilla(`Sillón ${bloqueo.sillon} bloqueado · ${bloqueo.motivo}`);
+
+  return `
+    <div class="tarjeta-bloqueo-grilla" style="top:${top}px;height:${alto}px;${posicionHtml}"
+      title="${tituloCompleto}" onclick="abrirDetalleBloqueoGrilla('${bloqueo.id}')">
+      <span class="badge-bloqueo-grilla">S${bloqueo.sillon}</span>
+      <span class="motivo-bloqueo-grilla">${escaparHtmlGrilla(bloqueo.motivo)}</span>
+    </div>
+  `;
+}
+
+// Detalle al hacer clic/toque — mismo patrón que abrirDetalleTurnoGrilla (más abajo),
+// de solo lectura para los cuatro roles; administrador recibe además un enlace directo
+// a la gestión completa.
+function abrirDetalleBloqueoGrilla(bloqueoId) {
+  const bloqueo = (bloqueosCacheGrilla || []).find(b => b.id === bloqueoId);
+  if (!bloqueo) return;
+
+  const cuando = bloqueo.tipo === "recurrente"
+    ? `Todos los ${DIAS_LABEL_GRILLA[bloqueo.diaSemana] || bloqueo.diaSemana}`
+    : (bloqueo.fechaInicio === bloqueo.fechaFin ? bloqueo.fechaInicio : `${bloqueo.fechaInicio} al ${bloqueo.fechaFin}`);
+
+  const filas = [
+    ["Sede", bloqueo.sedeNombre],
+    ["Cuándo", cuando],
+    ["Sillón", bloqueo.sillon == null ? "Todos" : `Sillón ${bloqueo.sillon}`],
+    ["Franja", (bloqueo.horaInicio && bloqueo.horaFin) ? `${bloqueo.horaInicio} a ${bloqueo.horaFin}` : "Todo el horario"],
+    ["Motivo", bloqueo.motivo],
+    ["Creado por", (bloqueo.creadoPor && bloqueo.creadoPor.nombre) || "-"]
+  ];
+
+  const filasHtml = filas.map(([etiqueta, valor]) => `
+    <div class="fila-detalle-turno-grilla">
+      <span class="etiqueta-detalle-turno-grilla">${escaparHtmlGrilla(etiqueta)}</span>
+      <span>${escaparHtmlGrilla(valor)}</span>
+    </div>
+  `).join("");
+
+  const enlaceGestion = rolActualGrilla === "administrador"
+    ? `<div style="margin-top:14px;"><a class="enlace-accion" href="bloqueos.html" target="_blank">Ir a gestión de bloqueos</a></div>`
+    : "";
+
+  document.getElementById("contenido-detalle-bloqueo-grilla").innerHTML = `
+    <h2 style="margin-top:0;font-size:16px;">Bloqueado</h2>
+    ${filasHtml}
+    ${enlaceGestion}
+  `;
+  document.getElementById("overlay-detalle-bloqueo-grilla").style.display = "flex";
+}
+
+function cerrarDetalleBloqueoGrilla() {
+  document.getElementById("overlay-detalle-bloqueo-grilla").style.display = "none";
+}
+
+function cerrarDetalleBloqueoGrillaSiFondo(evento) {
+  if (evento.target.id === "overlay-detalle-bloqueo-grilla") cerrarDetalleBloqueoGrilla();
 }
 
 // --- Fase 3 (T6): arrastre de turnos ---

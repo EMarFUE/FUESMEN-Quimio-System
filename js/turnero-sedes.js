@@ -7,6 +7,14 @@ const DIAS_LABEL = {
   lunes: "Lunes", martes: "Martes", miercoles: "Miércoles",
   jueves: "Jueves", viernes: "Viernes"
 };
+// Etapa T9, Fase 4: a diferencia de DIAS_SEMANA/DIAS_LABEL de arriba (que siguen usándose
+// tal cual para el seed inicial), este control nuevo permite que "diasAtencion" incluya
+// sábado — hasta esta fase era un array fijo, nunca editable desde acá.
+const DIAS_SEMANA_ATENCION = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+const DIAS_LABEL_ATENCION = {
+  lunes: "Lunes", martes: "Martes", miercoles: "Miércoles",
+  jueves: "Jueves", viernes: "Viernes", sabado: "Sábado"
+};
 
 // Datos de referencia según "Alcance definitivo - Módulo de Turnero.md", punto 3.
 const SEDES_INICIALES = [
@@ -118,6 +126,9 @@ function renderizarSedes() {
 
   sedesCache.forEach(sede => {
     document.getElementById(`form-horario-${sede.id}`).addEventListener("submit", (e) => onGuardarHorario(e, sede.id));
+    DIAS_SEMANA_ATENCION.forEach(dia => {
+      document.getElementById(`check-dia-${dia}-${sede.id}`).addEventListener("change", (e) => onCambiarDiaAtencion(e, sede.id, dia));
+    });
     document.getElementById(`check-sabados-${sede.id}`).addEventListener("change", (e) => onCambiarSabados(e, sede.id));
     document.getElementById(`check-cupos-${sede.id}`).addEventListener("change", (e) => onCambiarUsaCupos(e, sede.id));
     document.getElementById(`check-atadura-${sede.id}`).addEventListener("change", (e) => onCambiarUsaAtaduraDia(e, sede.id));
@@ -159,6 +170,23 @@ function renderizarTarjetaSede(sede) {
           </div>
         </div>
       </form>
+
+      <div class="campo" style="margin-top:12px; margin-bottom:16px;">
+        <label style="margin-bottom:6px;">Días de atención</label>
+        <div style="display:flex; flex-wrap:wrap; gap:6px 18px;">
+          ${DIAS_SEMANA_ATENCION.map(dia => `
+            <label style="display:flex; align-items:center; gap:6px; font-weight:400; font-size:13.5px; color:var(--color-text);">
+              <input type="checkbox" id="check-dia-${dia}-${sede.id}" style="width:auto;" ${(sede.diasAtencion || []).includes(dia) ? "checked" : ""} />
+              ${DIAS_LABEL_ATENCION[dia]}
+            </label>
+          `).join("")}
+        </div>
+        <span style="font-size:12px;color:var(--color-muted);">
+          Etapa T9: para habilitar los sábados puntuales de Emilio Civit hace falta tildar
+          "Sábado" acá — el bloqueo recurrente de sábados (pantalla de Bloqueos) se encarga
+          de que solo entren turnos las fechas puntuales que levantes vos.
+        </span>
+      </div>
 
       <label class="check-linea">
         <input type="checkbox" id="check-sabados-${sede.id}" ${sede.sabadosEspeciales ? "checked" : ""} />
@@ -213,6 +241,24 @@ async function onGuardarHorario(evento, sedeId) {
   } catch (error) {
     console.error("Error al guardar horario:", error);
     mostrarMensajeSedes("No se pudo guardar el horario.", "error");
+  }
+}
+
+async function onCambiarDiaAtencion(evento, sedeId, dia) {
+  const sede = sedesCache.find(s => s.id === sedeId);
+  const diasActuales = (sede && sede.diasAtencion) || [];
+  const nuevosDias = evento.target.checked
+    ? [...diasActuales, dia]
+    : diasActuales.filter(d => d !== dia);
+
+  try {
+    await db.collection("turneroSedes").doc(sedeId).update({ diasAtencion: nuevosDias });
+    mostrarMensajeSedes("Actualizado.", "exito");
+    cargarSedes();
+  } catch (error) {
+    console.error("Error al actualizar días de atención:", error);
+    mostrarMensajeSedes("No se pudo actualizar.", "error");
+    evento.target.checked = !evento.target.checked;
   }
 }
 

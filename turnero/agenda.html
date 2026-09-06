@@ -202,6 +202,17 @@
     </div>
   </div>
 
+  <!-- Detalle de bloqueo (Fase 4) — de solo lectura para los cuatro roles; administrador
+       recibe además un enlace directo a la gestión completa de bloqueos. -->
+  <div class="overlay-modal" id="overlay-detalle-bloqueo-grilla" style="display:none;" onclick="cerrarDetalleBloqueoGrillaSiFondo(event)">
+    <div class="modal-panel" style="max-width:420px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarDetalleBloqueoGrilla()">×</button>
+      </div>
+      <div id="contenido-detalle-bloqueo-grilla"></div>
+    </div>
+  </div>
+
   <!-- Motivo obligatorio del arrastre (Etapa T7) — se abre después de soltar en un
        hueco válido, antes de guardar nada. -->
   <div class="overlay-modal" id="overlay-motivo-arrastre-grilla" style="display:none;">

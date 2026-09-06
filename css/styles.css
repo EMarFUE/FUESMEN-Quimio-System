@@ -1439,3 +1439,67 @@ h1 {
 .contenedor.contenedor-historial {
   max-width: 1100px;
 }
+
+/* Etapa T9, Fase 4: indicador visual de bloqueos en la grilla (turnero-grilla.js).
+   Dos tratamientos, según a cuántos sillones afecta el bloqueo:
+   - Un sillón puntual: tarjeta que compite por su carril igual que un turno real
+     (badge-bloqueo-grilla/tarjeta-bloqueo-grilla) — mismo criterio que usa el motor
+     internamente (pseudoTurnosBloqueoEnFecha), acá llevado a lo visual.
+   - Todos los sillones (franja o día completo): banda de fondo a todo el ancho de la
+     columna, detrás de las tarjetas de turnos reales (banda-bloqueo-grilla). */
+.tarjeta-bloqueo-grilla {
+  position: absolute;
+  overflow: hidden;
+  background-image: repeating-linear-gradient(135deg, var(--color-bg) 0, var(--color-bg) 5px, #e2e0da 5px, #e2e0da 10px);
+  border: 1px dashed #9a978b;
+  border-radius: 6px;
+  padding: 2px 5px;
+  font-size: 11px;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #6b6a63;
+  cursor: pointer;
+}
+
+.badge-bloqueo-grilla {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  background: #6b6a63;
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.motivo-bloqueo-grilla {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.banda-bloqueo-grilla {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background-image: repeating-linear-gradient(135deg, rgba(91, 100, 112, 0.05) 0, rgba(91, 100, 112, 0.05) 6px, rgba(91, 100, 112, 0.12) 6px, rgba(91, 100, 112, 0.12) 12px);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.etiqueta-banda-bloqueo-grilla {
+  position: sticky;
+  top: 4px;
+  margin: 4px 6px;
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
