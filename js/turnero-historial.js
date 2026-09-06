@@ -38,19 +38,22 @@
 //
 // Campos de fecha usados (dos, con propósitos distintos — no confundirlos):
 // - "creadoEn": cuándo se cargó ESTE documento (alta original o el turno de reemplazo
-//   de una reasignación/modificación). Lo tiene el 100% de los turnos, a diferencia de
-//   "anuladoEn" (que un turno "activo" nunca tocado no tiene). Es el campo de orden por
-//   defecto en Recientes/Por tipo/Por médico/Por paciente, y el que se muestra en la
-//   columna "Cuándo" — salvo que el turno YA fue anulado, en cuyo caso se muestra
-//   "anuladoEn" (cuándo pasó el cambio que describe esa fila), más informativo para esa
-//   fila puntual. El campo de orden real para paginar sigue siendo "creadoEn" siempre,
+//   de una reasignación/modificación). Lo tiene el 100% de los turnos. Es el campo de
+//   orden por defecto en Recientes/Por tipo/Por médico/Por paciente/Por sede, y el que
+//   se muestra en la columna "Cuándo" — pero SOLO para un turno "activo" (otorgado,
+//   nunca tocado). El campo de orden real para paginar sigue siendo "creadoEn" siempre,
 //   así la paginación no se rompe por documentos sin "anuladoEn".
 // - "fecha": la fecha PARA LA QUE está programado el turno (la que ve el paciente).
 //   Confirmado con Elías: el filtro "por rango de fechas" usa este campo, no "creadoEn"
 //   ni "anuladoEn" — responde "qué turnos hay/hubo en tal semana", mezclando los cuatro
 //   estados. Al filtrar por "fecha" hace falta ordenar también por "fecha" (Firestore
 //   exige que el primer orderBy coincida con el campo del filtro por rango) — es el
-//   único modo que no ordena por "creadoEn".
+//   único modo que no ordena por "creadoEn". Ajuste post-entrega de la Etapa T8: para un
+//   turno reasignado/modificado/cancelado, la columna "Cuándo" también pasó a mostrar
+//   este campo (en vez de "anuladoEn") — mostrar la fecha/hora exacta del cambio al lado
+//   de la fecha del turno, con formatos y valores distintos, resultaba confuso. Esa
+//   fecha/hora del cambio sigue disponible en "Ver cadena completa" y, para
+//   administrador/enfermería, en el propio comprobante reimpreso.
 
 const TAMANO_PAGINA_HISTORIAL_TURNOS = 25;
 
@@ -574,11 +577,18 @@ function badgeTipoAccionHistorialTurnos(estado) {
 function filaHistorialTurnos(id, d) {
   const tr = document.createElement("tr");
   const paciente = d.paciente || {};
-  // Un turno "activo" (otorgado, nunca tocado) no tiene "anuladoEn" — mostrar "cuándo se
-  // cargó" (creadoEn) en su lugar. Uno ya anulado muestra cuándo pasó ESE cambio
-  // (anuladoEn), más útil para esa fila puntual que su fecha de alta original.
-  const cuando = d.anuladoEn ? d.anuladoEn : d.creadoEn;
   const esActivo = d.estado === "activo";
+  // Ajuste post-entrega, a pedido de Elías: un turno "activo" (otorgado, nunca tocado)
+  // sigue mostrando cuándo se CARGÓ (creadoEn, con hora). Uno ya anulado/reasignado/
+  // modificado/cancelado, en cambio, muestra la fecha DEL TURNO — la misma que ya
+  // aparece en la columna "Turno" — en vez de la fecha/hora exacta en que se hizo el
+  // cambio (que quedaba confusa al lado de la fecha del turno, con formatos y valores
+  // distintos). Esa fecha/hora del cambio sigue disponible igual: aparece en "Ver
+  // cadena completa" y, para administrador/enfermería, en el propio comprobante
+  // reimpreso (aviso de reasignado/modificado/cancelado).
+  const cuandoTexto = esActivo
+    ? formatearFechaHoraHistorialTurnos(d.creadoEn)
+    : escaparHtml(d.fecha || "-");
 
   // Etapa T8: motivo y quién hizo el cambio solo se arman si el rol puede verlos —
   // médico/administrativo directamente no reciben esas dos celdas (los <th> ya quedaron
@@ -590,7 +600,7 @@ function filaHistorialTurnos(id, d) {
     : "";
 
   tr.innerHTML = `
-    <td>${formatearFechaHoraHistorialTurnos(cuando)}</td>
+    <td>${cuandoTexto}</td>
     <td>${badgeTipoAccionHistorialTurnos(d.estado)}</td>
     <td>${escaparHtml(d.fecha || "-")}<br><span style="color:var(--color-muted);font-size:12px;">${escaparHtml(d.horarioInicio || "-")}–${escaparHtml(d.horarioFin || "-")}</span></td>
     <td>${escaparHtml(paciente.apellido || "")}, ${escaparHtml(paciente.nombre || "")}</td>
@@ -607,6 +617,7 @@ function filaHistorialTurnos(id, d) {
   boton.textContent = "Ver cadena completa";
   boton.addEventListener("click", () => abrirCadenaHistorialTurnos(id));
   celdaAcciones.appendChild(boton);
+
 
   // Etapa T8: reimprime el comprobante de ESTE turno puntual (no necesariamente el
   // vigente de la cadena) — mismo criterio que "Reimprimir" en medicacion/historial.js,
@@ -795,9 +806,11 @@ async function exportarHistorialTurnosAExcel() {
       const d = doc.data();
       const paciente = d.paciente || {};
       const esActivo = d.estado === "activo";
-      const cuando = d.anuladoEn ? d.anuladoEn : d.creadoEn;
+      // Mismo criterio que en pantalla (ver filaHistorialTurnos): activo muestra cuándo
+      // se cargó, el resto muestra la fecha del turno en vez de la fecha/hora del cambio.
+      const cuandoTexto = esActivo ? formatearFechaHoraHistorialTurnos(d.creadoEn) : (d.fecha || "");
       const fila = {
-        "Cuándo": formatearFechaHoraHistorialTurnos(cuando),
+        "Cuándo": cuandoTexto,
         "Tipo de acción": ETIQUETAS_TIPO_ACCION_HISTORIAL_TURNOS[d.estado] || d.estado,
         "Fecha del turno": d.fecha || "",
         "Horario": `${d.horarioInicio || ""}–${d.horarioFin || ""}`,

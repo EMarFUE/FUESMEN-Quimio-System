@@ -245,6 +245,10 @@
         <div class="comp-dato-valor" id="comp-horario"></div>
       </div>
       <div class="comp-dato-grupo">
+        <div class="comp-dato-label">Tiempo estimado de tratamiento</div>
+        <div class="comp-dato-valor" id="comp-duracion"></div>
+      </div>
+      <div class="comp-dato-grupo">
         <div class="comp-dato-label">Sede</div>
         <div class="comp-dato-valor" id="comp-sede"></div>
       </div>
@@ -285,6 +289,19 @@
       });
     }
 
+    // Tiempo estimado de tratamiento: duracionTotalMinutos ya viene calculado desde la
+    // carga del turno (suma de protocolos + premedicación, turnero-carga.js), no hace
+    // falta recalcular nada acá — solo darle formato legible.
+    function formatearDuracionComprobanteTurno(minutos) {
+      const total = Number(minutos);
+      if (!total || total <= 0) return "-";
+      const horas = Math.floor(total / 60);
+      const mins = total % 60;
+      if (horas === 0) return `${mins} min`;
+      if (mins === 0) return `${horas} h`;
+      return `${horas} h ${mins} min`;
+    }
+
     // Todo el contenido de este comprobante se pinta con .textContent (nunca innerHTML),
     // así que no hace falta ninguna función de escape de HTML.
 
@@ -314,7 +331,9 @@
           (d.ciclo != null || d.sesion != null) ? `${d.ciclo ?? "-"} / ${d.sesion ?? "-"}` : "-";
         document.getElementById("comp-fecha-turno").textContent = d.fecha || "-";
         document.getElementById("comp-horario").textContent =
-          `${d.horarioInicio || "-"}${d.horarioFin ? " – " + d.horarioFin : ""}hs`;
+          d.horarioInicio ? `${d.horarioInicio}hs` : "-";
+        document.getElementById("comp-duracion").textContent =
+          formatearDuracionComprobanteTurno(d.duracionTotalMinutos);
         document.getElementById("comp-sede").textContent = d.sedeNombre || "-";
         document.getElementById("comp-direccion").textContent =
           DIRECCION_SEDE_COMPROBANTE_TURNO[d.sedeId] || "-";
@@ -371,6 +390,16 @@
       }
       const listo = await cargarComprobanteTurno(turnoId);
       if (listo) {
+        // Se cierra sola apenas el usuario termina con el cuadro de impresión del
+        // navegador (lo imprima o lo cancele) — mismo criterio de "no dejar cosas
+        // abiertas sin necesidad" que ya usa el modal de "+ nuevo turno" en la agenda.
+        // El cuadro de impresión en sí es del sistema operativo/navegador: nadie puede
+        // cerrarlo por script, solo lo cierra la persona al elegir imprimir o cancelar
+        // — lo que sí se puede controlar es esta ventana, una vez que ese cuadro ya se
+        // cerró (evento "afterprint"). Si la pestaña no fue abierta por script (por
+        // ejemplo, reimprimir desde el historial en algunos navegadores), window.close()
+        // puede no tener efecto — ahí queda el botón "Cerrar" como respaldo.
+        window.addEventListener("afterprint", () => window.close());
         setTimeout(() => window.print(), 300);
       }
     }, "../login.html");

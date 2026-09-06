@@ -1398,3 +1398,14 @@ h1 {
     align-items: flex-start;
   }
 }
+
+/* Historial de turnos (Etapa T8, ajuste post-entrega): con seis pestañas de filtro y
+   ocho columnas de tabla (más "Reimprimir" agregado a las acciones de cada fila), el
+   ".contenedor" de base (720px) quedaba muy angosto — las pestañas se partían en dos
+   filas asimétricas y la tabla se apretaba. No se tocó ".contenedor" (lo usan casi
+   todas las pantallas) ni ".contenedor-ancho" (pensado para la grilla semanal, con
+   padding mucho más chico) — esta clase solo suma un max-width intermedio, sin cambiar
+   el padding/margin ya heredado de ".contenedor" en turnero/historial-turnos.html. */
+.contenedor.contenedor-historial-turnos {
+  max-width: 1100px;
+}
