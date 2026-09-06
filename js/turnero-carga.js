@@ -9,6 +9,11 @@ const SEDE_CIVIT_ID = "emilio-civit";
 const SEDE_ENTRE_RIOS_ID = "entre-rios";
 const SEDE_CIVIT_NOMBRE = "Emilio Civit";
 const SEDE_ENTRE_RIOS_NOMBRE = "Entre Ríos";
+// Etapa T8: direcciones para el comprobante de turno. Hardcodeadas, mismo criterio que
+// el resto de las constantes de sede de acá arriba — el catálogo de sedes en Firestore
+// no tiene campo de dirección, y con solo dos sedes fijas no vale la pena agregarlo.
+const SEDE_CIVIT_DIRECCION = "Emilio Civit esq. Maza, San Rafael, Mza.";
+const SEDE_ENTRE_RIOS_DIRECCION = "Entre Ríos 345, San Rafael, Mza.";
 const MEDICO_OCCHIPINTI_ID = "occhipinti";
 const ROLES_MEDICO_OTRO = ["administrador", "enfermeria"];
 const PREMEDICACION_MINUTOS = 30;
@@ -230,6 +235,35 @@ function escaparHtml(texto) {
   const div = document.createElement("div");
   div.textContent = texto == null ? "" : String(texto);
   return div.innerHTML;
+}
+
+// --- Comprobante de turno (Etapa T8) ---
+// Mismo mecanismo de número correlativo que ya usa entregas.js para Medicación, pero en
+// un documento de contador propio ("contadores/comprobantesTurno") para no compartir la
+// serie con los comprobantes de medicación, y con un prefijo "T-" para que no se
+// confundan a simple vista al reimprimir. El número real se lee DESPUÉS del commit del
+// batch que incrementa el contador — FieldValue.increment() recién se resuelve del lado
+// del servidor, no se puede conocer el valor final antes de eso.
+function formatearNumeroComprobanteTurno(anio, numero) {
+  return `T-${anio}-${String(numero).padStart(4, "0")}`;
+}
+
+// Abre el comprobante en ventana nueva e imprime automáticamente (mismo patrón que
+// abrirComprobante() en entregas.js). La llaman tanto guardarTurnoConHueco() acá abajo
+// (alta nueva) como anularYCrearTurnoGrilla() en turnero-grilla.js (reasignar/modificar)
+// — turnero-carga.js se carga en agenda.html y en carga.html, así que queda disponible
+// en las dos páginas sin duplicarla.
+function abrirComprobanteTurno(turnoId) {
+  const base = window.location.href.replace(/\/[^/]*$/, "");
+  const url = `${base}/comprobante-turno.html?id=${turnoId}`;
+  const ventana = window.open(url, "_blank", "width=800,height=600");
+  if (!ventana) {
+    mostrarMensajeGeneral(
+      `Turno guardado. El navegador bloqueó la ventana del comprobante — ` +
+      `<a href="${url}" target="_blank">hacé clic acá para abrirlo</a>.`,
+      "exito"
+    );
+  }
 }
 
 function mostrarMensajeGeneral(texto, tipo) {
@@ -1332,10 +1366,25 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
       creadoEn: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    await db.collection("turnos").add(docTurno);
+    // Etapa T8: mismo mecanismo que guardarEntrega() en entregas.js — el turno y el
+    // incremento del contador van en el mismo batch; el número real recién se lee (y se
+    // escribe en el turno) después del commit.
+    const turnoRef = db.collection("turnos").doc();
+    const batch = db.batch();
+    const anio = new Date().getFullYear().toString();
+    const contadorRef = db.collection("contadores").doc("comprobantesTurno");
+    batch.set(turnoRef, docTurno);
+    batch.set(contadorRef, { [anio]: firebase.firestore.FieldValue.increment(1) }, { merge: true });
+    await batch.commit();
 
-    mostrarMensajeGeneral("Turno guardado correctamente.", "exito");
+    const contadorSnap = await contadorRef.get();
+    const numeroCorrelativo = contadorSnap.data()[anio];
+    const numeroComprobante = formatearNumeroComprobanteTurno(anio, numeroCorrelativo);
+    await turnoRef.update({ numeroComprobante });
+
+    mostrarMensajeGeneral("Turno guardado correctamente. Abriendo comprobante…", "exito");
     resetearFormularioCarga();
+    abrirComprobanteTurno(turnoRef.id);
     setTimeout(() => {
       document.getElementById("mensaje-general").style.display = "none";
     }, 4000);

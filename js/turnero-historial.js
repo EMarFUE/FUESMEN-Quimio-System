@@ -8,19 +8,29 @@
 // nombres contra ellos, pero se mantiene igual el sufijo "HistorialTurnos" en todo lo
 // propio de este archivo, por prolijidad).
 //
-// Restringida a administrador y enfermería (a diferencia de la agenda, de lectura
-// abierta a los cuatro roles): acá se expone motivo y usuario de cada cambio. La
-// restricción real está en firestore.rules (turnoAnulableT7 no cambia; se agregó una
-// condición nueva al "allow read" de /turnos — ver Handoff de esta fase). Esta pantalla
-// además nunca aparece en el menú para médico/administrativo (ver turnero/index.html).
+// Etapa T8: se abrió a los cuatro roles (antes, administrador y enfermería
+// únicamente). Motivo y usuario de cada cambio siguen expuestos solo para
+// administrador/enfermería — para médico y administrativo esas dos columnas (y el
+// badge de tipo de acción no se oculta, pero motivo/quién sí) quedan ocultas del lado
+// del cliente (ver mostrarMotivoUsuarioHistorialTurnos()/columnasVisiblesHistorialTurnos
+// más abajo). OJO: firestore.rules ahora permite leer cualquier turno a cualquier
+// autenticado — la restricción de motivo/usuario es solo de interfaz, no de datos; un
+// usuario con conocimientos técnicos podría leerlos igual consultando Firestore directo
+// (decisión tomada con Elías: el motivo de un cambio de turno no es un dato sensible al
+// nivel de justificar una restricción de servidor). Esta pantalla ahora sí aparece en el
+// menú para los cuatro roles (ver turnero/index.html). Además de las cuatro acciones de
+// siempre, cada fila tiene un enlace "Reimprimir" que abre comprobante-turno.html — ese
+// comprobante reemplaza la necesidad de un listado propio de comprobantes: este mismo
+// historial hace las veces de listado filtrable que pide el punto 14 del alcance.
 //
-// Diseño de los filtros: cinco modos MUTUAMENTE EXCLUYENTES (uno a la vez), mismo
-// criterio que ya usa medicacion/historial.js para entregas/egresos — evita depender de
-// índices compuestos innecesarios. "Recientes"/"Por médico"/"Por paciente" traen los
-// CUATRO estados (activo, reasignado, modificado, cancelado); "Por tipo de acción" los
-// separa uno por uno, incluido "Otorgado" (estado "activo", el turno tal como quedó,
-// sin ningún cambio posterior); "Por rango de fechas" filtra por la fecha del TURNO
-// (ver más abajo), no por estado.
+// Diseño de los filtros: SEIS modos MUTUAMENTE EXCLUYENTES (uno a la vez, agregado "por
+// sede" en la Etapa T8), mismo criterio que ya usa medicacion/historial.js para
+// entregas/egresos — evita depender de índices compuestos innecesarios.
+// "Recientes"/"Por médico"/"Por paciente"/"Por sede" traen los CUATRO estados (activo,
+// reasignado, modificado, cancelado); "Por tipo de acción" los separa uno por uno,
+// incluido "Otorgado" (estado "activo", el turno tal como quedó, sin ningún cambio
+// posterior); "Por rango de fechas" filtra por la fecha del TURNO (ver más abajo), no
+// por estado.
 //
 // Índices de Firestore que Firebase puede llegar a pedir la primera vez que se usa cada
 // filtro (mismo aviso que ya deja medicacion/historial.js): la consola del navegador
@@ -67,14 +77,28 @@ let datosUsuarioActualHistorialTurnos = null;
 let rolActualHistorialTurnos = null;
 
 let estadoFiltroHistorialTurnos = {
-  modo: "recientes", // recientes | tipo | medico | paciente | fecha
+  modo: "recientes", // recientes | tipo | medico | paciente | fecha | sede
   tipoAccion: null,
   medicoId: null,
   medicoEsOtro: false,
   pacienteId: null,
   fechaDesde: null,
-  fechaHasta: null
+  fechaHasta: null,
+  sedeId: null
 };
+
+// Etapa T8: qué tan restringida queda la vista según el rol. Administrador/enfermería
+// ven todo, igual que antes de esta etapa; médico/administrativo ven los mismos turnos
+// pero sin las columnas de motivo y quién hizo el cambio.
+let mostrarMotivoUsuarioHistorialTurnos = true;
+let columnasVisiblesHistorialTurnos = 8;
+
+// Etiquetas y direcciones de sede — duplicadas a propósito de turnero-carga.js (mismo
+// criterio de independencia por página que ya usa el resto del archivo).
+const SEDES_HISTORIAL_TURNOS = [
+  { id: "emilio-civit", nombre: "Emilio Civit" },
+  { id: "entre-rios", nombre: "Entre Ríos" }
+];
 
 let cursorHistorialTurnos = null;
 let hayMasHistorialTurnos = true;
@@ -157,6 +181,18 @@ function iniciarHistorialTurnos(user, datosUsuario) {
   datosUsuarioActualHistorialTurnos = datosUsuario;
   rolActualHistorialTurnos = datosUsuario.rol;
 
+  // Etapa T8: administrador/enfermería ven motivo y quién hizo el cambio, igual que
+  // antes; médico/administrativo ven el resto de la fila (incluido el badge de tipo de
+  // acción) pero sin esas dos columnas.
+  mostrarMotivoUsuarioHistorialTurnos = rolActualHistorialTurnos === "administrador" || rolActualHistorialTurnos === "enfermeria";
+  columnasVisiblesHistorialTurnos = mostrarMotivoUsuarioHistorialTurnos ? 8 : 6;
+  if (!mostrarMotivoUsuarioHistorialTurnos) {
+    const thMotivo = document.getElementById("th-motivo-historial-turnos");
+    const thQuien = document.getElementById("th-quien-historial-turnos");
+    if (thMotivo) thMotivo.style.display = "none";
+    if (thQuien) thQuien.style.display = "none";
+  }
+
   configurarTabsHistorialTurnos();
   configurarTabsTipoAccionHistorialTurnos();
   cargarMedicosParaFiltroHistorialTurnos();
@@ -198,6 +234,7 @@ function cambiarModoFiltroHistorialTurnos(modo) {
   document.getElementById("bloque-filtro-medico").style.display = modo === "medico" ? "block" : "none";
   document.getElementById("bloque-filtro-paciente").style.display = modo === "paciente" ? "block" : "none";
   document.getElementById("bloque-filtro-fecha").style.display = modo === "fecha" ? "block" : "none";
+  document.getElementById("bloque-filtro-sede").style.display = modo === "sede" ? "block" : "none";
 
   if (modo === "recientes") {
     cargarPaginaHistorialTurnos(true);
@@ -234,12 +271,20 @@ function cambiarModoFiltroHistorialTurnos(modo) {
     } else {
       mostrarPlaceholderHistorialTurnos("Completá el rango de fechas y presioná «Buscar».");
     }
+    return;
+  }
+  if (modo === "sede") {
+    if (estadoFiltroHistorialTurnos.sedeId) {
+      cargarPaginaHistorialTurnos(true);
+    } else {
+      mostrarPlaceholderHistorialTurnos("Elegí una sede.");
+    }
   }
 }
 
 function mostrarPlaceholderHistorialTurnos(texto) {
   document.getElementById("cuerpo-tabla-historial-turnos").innerHTML =
-    `<tr><td colspan="8" style="color:var(--color-muted);padding:16px 6px;">${texto}</td></tr>`;
+    `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);padding:16px 6px;">${texto}</td></tr>`;
   document.getElementById("zona-cargar-mas-historial-turnos").style.display = "none";
 }
 
@@ -291,6 +336,17 @@ function aplicarFiltroMedicoHistorialTurnos(valor) {
   } else {
     estadoFiltroHistorialTurnos.medicoId = valor;
     estadoFiltroHistorialTurnos.medicoEsOtro = false;
+  }
+  cargarPaginaHistorialTurnos(true);
+}
+
+// --- Filtro "por sede" (Etapa T8) ---
+
+function aplicarFiltroSedeHistorialTurnos(valor) {
+  estadoFiltroHistorialTurnos.sedeId = valor || null;
+  if (!valor) {
+    mostrarPlaceholderHistorialTurnos("Elegí una sede.");
+    return;
   }
   cargarPaginaHistorialTurnos(true);
 }
@@ -436,6 +492,8 @@ function construirConsultaHistorialTurnos(paraExportar) {
       .where("fecha", ">=", estadoFiltroHistorialTurnos.fechaDesde)
       .where("fecha", "<=", estadoFiltroHistorialTurnos.fechaHasta);
     ordenarPor = "fecha";
+  } else if (estadoFiltroHistorialTurnos.modo === "sede" && estadoFiltroHistorialTurnos.sedeId) {
+    consulta = consulta.where("sedeId", "==", estadoFiltroHistorialTurnos.sedeId);
   }
 
   consulta = consulta.orderBy(ordenarPor, "desc");
@@ -458,7 +516,7 @@ async function cargarPaginaHistorialTurnos(reset) {
   if (reset) {
     cursorHistorialTurnos = null;
     hayMasHistorialTurnos = true;
-    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);">Cargando...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);">Cargando...</td></tr>`;
   }
   botonMas.disabled = true;
   botonMas.textContent = "Cargando...";
@@ -469,7 +527,7 @@ async function cargarPaginaHistorialTurnos(reset) {
     if (reset) tbody.innerHTML = "";
 
     if (snapshot.empty && reset) {
-      tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-muted);padding:16px 6px;">No hay registros con ese filtro.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);padding:16px 6px;">No hay registros con ese filtro.</td></tr>`;
     } else {
       snapshot.docs.forEach((doc) => {
         tbody.appendChild(filaHistorialTurnos(doc.id, doc.data()));
@@ -482,7 +540,7 @@ async function cargarPaginaHistorialTurnos(reset) {
   } catch (error) {
     console.error("Error al cargar el historial de turnos:", error);
     if (reset) {
-      tbody.innerHTML = `<tr><td colspan="8" style="color:var(--color-danger);padding:16px 6px;">
+      tbody.innerHTML = `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-danger);padding:16px 6px;">
         No se pudo cargar el historial. Si es la primera vez que se usa este filtro, puede
         faltar crear un índice en Firestore — abrí la consola del navegador (F12): el error
         trae un enlace directo para crearlo con un clic.
@@ -522,24 +580,45 @@ function filaHistorialTurnos(id, d) {
   const cuando = d.anuladoEn ? d.anuladoEn : d.creadoEn;
   const esActivo = d.estado === "activo";
 
+  // Etapa T8: motivo y quién hizo el cambio solo se arman si el rol puede verlos —
+  // médico/administrativo directamente no reciben esas dos celdas (los <th> ya quedaron
+  // ocultos en iniciarHistorialTurnos()).
+  const celdasMotivoQuien = mostrarMotivoUsuarioHistorialTurnos
+    ? `
+    <td>${esActivo ? "—" : escaparHtml(d.motivoCambio || "-")}</td>
+    <td>${esActivo ? "—" : escaparHtml((d.anuladoPor && d.anuladoPor.nombre) || "-")}</td>`
+    : "";
+
   tr.innerHTML = `
     <td>${formatearFechaHoraHistorialTurnos(cuando)}</td>
     <td>${badgeTipoAccionHistorialTurnos(d.estado)}</td>
     <td>${escaparHtml(d.fecha || "-")}<br><span style="color:var(--color-muted);font-size:12px;">${escaparHtml(d.horarioInicio || "-")}–${escaparHtml(d.horarioFin || "-")}</span></td>
     <td>${escaparHtml(paciente.apellido || "")}, ${escaparHtml(paciente.nombre || "")}</td>
     <td>${escaparHtml(d.medicoNombre || "-")}</td>
-    <td>${esActivo ? "—" : escaparHtml(d.motivoCambio || "-")}</td>
-    <td>${esActivo ? "—" : escaparHtml((d.anuladoPor && d.anuladoPor.nombre) || "-")}</td>
+    ${celdasMotivoQuien}
     <td class="acciones-fila"></td>
   `;
 
   const celdaAcciones = tr.querySelector(".acciones-fila");
+
   const boton = document.createElement("button");
   boton.type = "button";
   boton.className = "enlace-accion";
   boton.textContent = "Ver cadena completa";
   boton.addEventListener("click", () => abrirCadenaHistorialTurnos(id));
   celdaAcciones.appendChild(boton);
+
+  // Etapa T8: reimprime el comprobante de ESTE turno puntual (no necesariamente el
+  // vigente de la cadena) — mismo criterio que "Reimprimir" en medicacion/historial.js,
+  // un enlace liso que abre comprobante-turno.html en pestaña nueva, con impresión
+  // automática ya resuelta ahí adentro.
+  const enlaceReimprimir = document.createElement("a");
+  enlaceReimprimir.className = "enlace-accion";
+  enlaceReimprimir.href = `comprobante-turno.html?id=${id}`;
+  enlaceReimprimir.target = "_blank";
+  enlaceReimprimir.textContent = "Reimprimir";
+  enlaceReimprimir.style.marginLeft = "10px";
+  celdaAcciones.appendChild(enlaceReimprimir);
 
   return tr;
 }
@@ -717,17 +796,22 @@ async function exportarHistorialTurnosAExcel() {
       const paciente = d.paciente || {};
       const esActivo = d.estado === "activo";
       const cuando = d.anuladoEn ? d.anuladoEn : d.creadoEn;
-      return {
+      const fila = {
         "Cuándo": formatearFechaHoraHistorialTurnos(cuando),
         "Tipo de acción": ETIQUETAS_TIPO_ACCION_HISTORIAL_TURNOS[d.estado] || d.estado,
         "Fecha del turno": d.fecha || "",
         "Horario": `${d.horarioInicio || ""}–${d.horarioFin || ""}`,
         "Paciente": `${paciente.apellido || ""}, ${paciente.nombre || ""}`,
         Documento: paciente.numeroDocumento || "",
-        Médico: d.medicoNombre || "",
-        Motivo: esActivo ? "" : (d.motivoCambio || ""),
-        "Realizado por": esActivo ? "" : ((d.anuladoPor && d.anuladoPor.nombre) || "")
+        Médico: d.medicoNombre || ""
       };
+      // Etapa T8: mismo criterio que las columnas de la tabla en pantalla — médico y
+      // administrativo no exportan motivo ni quién hizo el cambio.
+      if (mostrarMotivoUsuarioHistorialTurnos) {
+        fila.Motivo = esActivo ? "" : (d.motivoCambio || "");
+        fila["Realizado por"] = esActivo ? "" : ((d.anuladoPor && d.anuladoPor.nombre) || "");
+      }
+      return fila;
     });
 
     const hoja = XLSX.utils.json_to_sheet(filas);

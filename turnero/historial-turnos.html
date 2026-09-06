@@ -20,15 +20,15 @@
       </div>
     </div>
 
-    <!-- Mensaje de acceso denegado para médico/administrativo: mismo patrón que ya usa
-         medicacion/entregas.html para pantallas de dos roles (a diferencia de las
-         admin-only del Turnero, que reemplazan todo el <body>). -->
+    <!-- Etapa T8: ya no hay bloqueo por rol en esta pantalla (ver script al pie), pero se
+         deja el contenedor por si en el futuro hace falta mostrar algún aviso general. -->
     <div id="mensaje-general-historial-turnos" class="mensaje-info" style="display:none;"></div>
 
     <div id="contenido-historial-turnos" style="display:none;">
       <div style="font-size:13px;color:var(--color-muted);margin-bottom:14px;">
-        Todos los turnos — otorgados, reasignados, modificados y cancelados —, con motivo y
-        usuario responsable en los que tuvieron algún cambio. Restringido a administrador y enfermería.
+        Todos los turnos — otorgados, reasignados, modificados y cancelados. Administrador y
+        enfermería ven además el motivo y el usuario responsable de cada cambio. Desde cada
+        fila se puede reimprimir el comprobante del turno.
       </div>
 
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
@@ -40,6 +40,7 @@
         <button type="button" class="filtro-tab" data-modo="tipo">Por tipo de acción</button>
         <button type="button" class="filtro-tab" data-modo="medico">Por médico</button>
         <button type="button" class="filtro-tab" data-modo="paciente">Por paciente</button>
+        <button type="button" class="filtro-tab" data-modo="sede">Por sede</button>
         <button type="button" class="filtro-tab" data-modo="fecha">Por rango de fechas</button>
       </div>
 
@@ -82,6 +83,15 @@
         </div>
       </div>
 
+      <!-- Filtro por sede (Etapa T8) -->
+      <div id="bloque-filtro-sede" class="bloque-filtro" style="display:none;">
+        <select id="campo-filtro-sede" onchange="aplicarFiltroSedeHistorialTurnos(this.value)">
+          <option value="">Elegí una sede…</option>
+          <option value="emilio-civit">Emilio Civit</option>
+          <option value="entre-rios">Entre Ríos</option>
+        </select>
+      </div>
+
       <!-- Filtro por rango de fechas (sobre la fecha del CAMBIO, no la del turno) -->
       <div id="bloque-filtro-fecha" class="bloque-filtro" style="display:none;">
         <div class="fila-2">
@@ -107,8 +117,8 @@
               <th>Turno</th>
               <th>Paciente</th>
               <th>Médico</th>
-              <th>Motivo</th>
-              <th>Quién</th>
+              <th id="th-motivo-historial-turnos">Motivo</th>
+              <th id="th-quien-historial-turnos">Quién</th>
               <th></th>
             </tr>
           </thead>
@@ -137,20 +147,13 @@
   <script src="../js/auth.js"></script>
   <script src="../js/turnero-historial.js"></script>
   <script>
-    const ROLES_PERMITIDOS_HISTORIAL_TURNOS = ["administrador", "enfermeria"];
-
+    // Etapa T8: abierto a los cuatro roles (antes, exclusivo de administrador y
+    // enfermería). iniciarHistorialTurnos() se encarga de ocultar motivo/quién para
+    // médico/administrativo — ver turnero-historial.js.
     requireAuth((user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
       document.getElementById("datos-sesion").innerHTML =
         `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
-
-      if (!ROLES_PERMITIDOS_HISTORIAL_TURNOS.includes(datosUsuario.rol)) {
-        const mensaje = document.getElementById("mensaje-general-historial-turnos");
-        mensaje.className = "mensaje-info error";
-        mensaje.textContent = "Esta pantalla es exclusiva para administrador y enfermería.";
-        mensaje.style.display = "block";
-        return;
-      }
 
       document.getElementById("contenido-historial-turnos").style.display = "block";
       iniciarHistorialTurnos(user, datosUsuario);

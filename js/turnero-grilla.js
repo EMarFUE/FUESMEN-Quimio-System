@@ -838,7 +838,7 @@ async function confirmarMotivoArrastreGrilla() {
   botonConfirmar.disabled = true;
 
   try {
-    await anularYCrearTurnoGrilla(turno, camposNuevos, motivo, tipoAccion);
+    const nuevoTurnoId = await anularYCrearTurnoGrilla(turno, camposNuevos, motivo, tipoAccion);
 
     arrastrePendienteGrilla = null;
     document.getElementById("overlay-motivo-arrastre-grilla").style.display = "none";
@@ -850,10 +850,14 @@ async function confirmarMotivoArrastreGrilla() {
       document.getElementById("overlay-modificar-grilla").style.display = "none";
       turnoIdModificarActual = null;
     }
-    const mensajeExito = tipoAccion === "modificado" ? "Turno modificado correctamente."
+    const mensajeExito = tipoAccion === "modificado" ? "Turno modificado correctamente. Abriendo comprobante…"
       : tipoAccion === "cancelado" ? "Turno eliminado correctamente."
-      : "Turno reasignado correctamente.";
+      : "Turno reasignado correctamente. Abriendo comprobante…";
     mostrarMensajeAgenda(mensajeExito, "exito");
+    // Etapa T8: nuevoTurnoId es null en "cancelado" (no hay turno de reemplazo al que
+    // emitirle comprobante) — abrirComprobanteTurno() está definida en turnero-carga.js,
+    // que se carga antes que este archivo en agenda.html.
+    if (nuevoTurnoId) abrirComprobanteTurno(nuevoTurnoId);
     await cargarYRenderizarGrilla();
   } catch (error) {
     console.error("Error al guardar el cambio del turno:", error);
@@ -1427,19 +1431,24 @@ async function anularYCrearTurnoGrilla(turnoOriginal, camposNuevos, motivo, tipo
   };
 
   if (tipoAccion === "cancelado") {
-    // Eliminar (Fase 2): sin turno de reemplazo, una sola escritura alcanza.
+    // Eliminar (Fase 2): sin turno de reemplazo, una sola escritura alcanza. No genera
+    // comprobante nuevo (T8) — no hay turno nuevo al que emitírselo.
     await db.collection("turnos").doc(turnoOriginal.id).update(datosAnulacion);
-    return;
+    return null;
   }
 
   const nuevoRef = db.collection("turnos").doc();
 
-  // Campos exclusivos del turno viejo (rastro de anulación) o generados de nuevo para
-  // el turno que se crea — nunca se copian tal cual de un documento al otro.
+  // Campos exclusivos del turno viejo (rastro de anulación), generados de nuevo para el
+  // turno que se crea, o propios del comprobante (Etapa T8) — nunca se copian tal cual
+  // de un documento al otro. "numeroComprobante" del nuevo se genera recién después del
+  // commit (ver más abajo); "numeroComprobanteReemplazado" se arma acá mismo con el
+  // número del turno original, pero como campo nuevo, no copiado.
   const camposExcluidos = new Set([
     "id", "estado", "creadoPor", "creadoEn", "modificadoPor", "modificadoEn",
     "ultimaReasignacion", "anuladoPor", "anuladoEn", "motivoCambio", "turnoNuevoId",
-    "turnoOriginalId"
+    "turnoOriginalId", "numeroComprobante", "numeroComprobanteReemplazado",
+    "reemplazadoPorNumero", "reemplazadoPorId"
   ]);
   const docNuevo = {};
   for (const [clave, valor] of Object.entries(turnoOriginal)) {
@@ -1453,13 +1462,42 @@ async function anularYCrearTurnoGrilla(turnoOriginal, camposNuevos, motivo, tipo
   };
   docNuevo.creadoEn = firebase.firestore.FieldValue.serverTimestamp();
   docNuevo.turnoOriginalId = turnoOriginal.id;
+  // Etapa T8: si el turno original ya tenía comprobante (todo turno creado desde esta
+  // etapa lo tiene; uno cargado antes de T8 puede no tenerlo), el nuevo queda enlazado
+  // hacia atrás de una. La referencia hacia adelante (reemplazadoPorNumero, en el turno
+  // viejo) recién se puede escribir después del commit, cuando se conoce el número
+  // propio del turno nuevo — ver más abajo, mismo criterio que correcciones.js con los
+  // comprobantes de Medicación.
+  if (turnoOriginal.numeroComprobante) {
+    docNuevo.numeroComprobanteReemplazado = turnoOriginal.numeroComprobante;
+  }
 
   datosAnulacion.turnoNuevoId = nuevoRef.id;
 
   const batch = db.batch();
+  const anio = new Date().getFullYear().toString();
+  const contadorRef = db.collection("contadores").doc("comprobantesTurno");
   batch.set(nuevoRef, docNuevo);
   batch.update(db.collection("turnos").doc(turnoOriginal.id), datosAnulacion);
+  batch.set(contadorRef, { [anio]: firebase.firestore.FieldValue.increment(1) }, { merge: true });
   await batch.commit();
+
+  // Etapa T8: número de comprobante del turno nuevo, recién después del commit (mismo
+  // motivo que en guardarTurnoConHueco(), turnero-carga.js). Con eso ya se puede además
+  // avisar en el turno viejo con qué comprobante fue reemplazado — solo si el viejo
+  // tenía uno propio para reemplazar.
+  const contadorSnap = await contadorRef.get();
+  const numeroCorrelativo = contadorSnap.data()[anio];
+  const numeroComprobante = formatearNumeroComprobanteTurno(anio, numeroCorrelativo);
+  await nuevoRef.update({ numeroComprobante });
+  if (turnoOriginal.numeroComprobante) {
+    await db.collection("turnos").doc(turnoOriginal.id).update({
+      reemplazadoPorNumero: numeroComprobante,
+      reemplazadoPorId: nuevoRef.id
+    });
+  }
+
+  return nuevoRef.id;
 }
 
 // --- Detalle del turno (feedback tras Fase 3) ---
