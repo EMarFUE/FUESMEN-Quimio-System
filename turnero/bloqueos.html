@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bloqueos · Turnero</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Turnero</a> &gt; Bloqueos</div>
+        <h1 style="margin-bottom:0;">Bloqueos</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-bloqueos" class="mensaje-info" style="display:none;"></div>
+
+    <p style="color:var(--color-muted); font-size:13px; margin-bottom:16px;">
+      Un bloqueo impide que el motor ofrezca turnos en el sillón, franja horaria o día que
+      elijas, siempre con un motivo. Los cuatro roles ven el efecto de un bloqueo en la
+      agenda (el motor no ofrece esos espacios); esta pantalla de gestión es exclusiva de
+      administrador.
+    </p>
+
+    <div class="tarjeta-formulario">
+      <div class="titulo-bloque" style="margin-bottom:12px;">Crear bloqueo</div>
+      <form id="form-nuevo-bloqueo">
+        <div class="fila-2">
+          <div class="campo">
+            <label for="select-sede-bloqueo">Sede</label>
+            <select id="select-sede-bloqueo" required></select>
+          </div>
+          <div class="campo">
+            <label for="select-tipo-bloqueo">Tipo</label>
+            <select id="select-tipo-bloqueo" required>
+              <option value="puntual">Puntual (una fecha o un rango de fechas)</option>
+              <option value="recurrente">Recurrente (se repite cada semana en un día)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="bloque-puntual-bloqueo" class="fila-2">
+          <div class="campo">
+            <label for="campo-fecha-inicio-bloqueo">Desde</label>
+            <input type="date" id="campo-fecha-inicio-bloqueo" required />
+          </div>
+          <div class="campo">
+            <label for="campo-fecha-fin-bloqueo">Hasta</label>
+            <input type="date" id="campo-fecha-fin-bloqueo" required />
+            <span style="font-size:12px;color:var(--color-muted);">Para un solo día, dejala igual a "Desde".</span>
+          </div>
+        </div>
+
+        <div id="bloque-recurrente-bloqueo" class="fila-2" style="display:none;">
+          <div class="campo">
+            <label for="select-dia-bloqueo">Día de la semana</label>
+            <select id="select-dia-bloqueo">
+              <option value="lunes">Lunes</option>
+              <option value="martes">Martes</option>
+              <option value="miercoles">Miércoles</option>
+              <option value="jueves">Jueves</option>
+              <option value="viernes">Viernes</option>
+              <option value="sabado">Sábado</option>
+            </select>
+          </div>
+          <div class="campo">
+            <span style="font-size:12px;color:var(--color-muted);">
+              Se repite todas las semanas en ese día, sin fecha de fin. Una fecha puntual
+              dentro de ese patrón se puede levantar después desde el listado de abajo.
+            </span>
+          </div>
+        </div>
+
+        <div class="fila-2">
+          <div class="campo">
+            <label for="select-sillon-bloqueo">Sillón</label>
+            <select id="select-sillon-bloqueo">
+              <option value="">Todos los sillones de la sede</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="campo-motivo-bloqueo">Motivo</label>
+            <input type="text" id="campo-motivo-bloqueo" maxlength="200" required />
+          </div>
+        </div>
+
+        <label class="check-linea">
+          <input type="checkbox" id="check-franja-bloqueo" />
+          Bloquear solo una franja horaria (si no se tilda, se bloquea todo el horario de atención de ese día)
+        </label>
+
+        <div id="bloque-franja-bloqueo" class="fila-2" style="display:none;">
+          <div class="campo">
+            <label for="campo-hora-inicio-bloqueo">Desde</label>
+            <input type="time" id="campo-hora-inicio-bloqueo" />
+          </div>
+          <div class="campo">
+            <label for="campo-hora-fin-bloqueo">Hasta</label>
+            <input type="time" id="campo-hora-fin-bloqueo" />
+          </div>
+        </div>
+
+        <button type="submit" class="boton-principal" style="width:auto; padding:10px 22px; margin-top:4px;">Crear bloqueo</button>
+      </form>
+    </div>
+
+    <div class="titulo-bloque" style="margin-top:24px;">Bloqueos vigentes</div>
+    <p style="color:var(--color-muted); font-size:13px; margin-bottom:12px;">
+      Listado simple para confirmar lo cargado. Levantar, modificar o eliminar un bloqueo
+      llega en la próxima entrega de esta etapa.
+    </p>
+    <div id="contenedor-bloqueos"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/turnero-bloqueos.js"></script>
+  <script>
+    requireAuth((user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol !== "administrador") {
+        document.body.innerHTML = `<div class="pantalla-error"><p>Esta pantalla es exclusiva del administrador.</p><a href="index.html">Volver a Turnero</a></div>`;
+        return;
+      }
+
+      iniciarBloqueos(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>
