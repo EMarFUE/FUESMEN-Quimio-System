@@ -933,12 +933,28 @@ async function generarReporteCambiosHistorialTurnos() {
   }
 }
 
+// Etapa T12: crea un elemento con texto plano (nunca HTML interpretado), atributos y
+// clases opcionales. Reemplaza al patrón innerHTML+escaparHtml que usaba antes esta
+// función — CodeQL marcaba esa combinación como "DOM text reinterpreted as HTML" (alerta
+// #7) porque no reconoce escaparHtml() como una sanitización válida, aunque en la
+// práctica ya escapaba todo correctamente. Construir el DOM así resuelve la alerta de
+// raíz en vez de dejarla documentada como falso positivo.
+function crearElementoTexto(tag, texto, opciones) {
+  const el = document.createElement(tag);
+  if (texto != null) el.textContent = texto;
+  if (opciones && opciones.className) el.className = opciones.className;
+  if (opciones && opciones.style) el.style.cssText = opciones.style;
+  return el;
+}
+
 function renderizarReporteCambiosHistorialTurnos(docs, desdeInput, hastaInput) {
   const contenedor = document.getElementById("resultado-reporte-cambios-historial-turnos");
+  contenedor.innerHTML = "";
 
   if (docs.length === 0) {
-    contenedor.innerHTML =
-      "No hubo reasignaciones, modificaciones ni cancelaciones en ese rango.";
+    contenedor.appendChild(
+      crearElementoTexto("p", "No hubo reasignaciones, modificaciones ni cancelaciones en ese rango.")
+    );
     return;
   }
 
@@ -974,53 +990,87 @@ function renderizarReporteCambiosHistorialTurnos(docs, desdeInput, hastaInput) {
 
   const plural = (n, singular, pluralForm) => (n === 1 ? singular : pluralForm);
 
-  contenedor.innerHTML = `
-    <div style="font-size:13px;color:var(--color-muted);">
-      ${totalGeneral} ${plural(totalGeneral, "cambio", "cambios")} entre el
-      ${formatearFechaCortaReporteCambiosHistorialTurnos(desdeInput)} y el
-      ${formatearFechaCortaReporteCambiosHistorialTurnos(hastaInput)}:
-      ${totales.reasignado} ${plural(totales.reasignado, "reasignado", "reasignados")},
-      ${totales.modificado} ${plural(totales.modificado, "modificado", "modificados")},
-      ${totales.cancelado} ${plural(totales.cancelado, "cancelado", "cancelados")}.
-    </div>
+  // --- Resumen ---
+  const resumen = crearElementoTexto("div", null, { style: "font-size:13px;color:var(--color-muted);" });
+  resumen.textContent =
+    `${totalGeneral} ${plural(totalGeneral, "cambio", "cambios")} entre el ` +
+    `${formatearFechaCortaReporteCambiosHistorialTurnos(desdeInput)} y el ` +
+    `${formatearFechaCortaReporteCambiosHistorialTurnos(hastaInput)}: ` +
+    `${totales.reasignado} ${plural(totales.reasignado, "reasignado", "reasignados")}, ` +
+    `${totales.modificado} ${plural(totales.modificado, "modificado", "modificados")}, ` +
+    `${totales.cancelado} ${plural(totales.cancelado, "cancelado", "cancelados")}.`;
+  contenedor.appendChild(resumen);
 
-    <div class="titulo-bloque" style="margin-top:20px;">por quién hizo el cambio</div>
-    <div style="overflow-x:auto;">
-      <table class="tabla">
-        <thead>
-          <tr><th>Persona</th><th>Reasignado</th><th>Modificado</th><th>Cancelado</th><th>Total</th></tr>
-        </thead>
-        <tbody>
-          ${filasPersona.map((f) => `
-            <tr>
-              <td>${escaparHtml(f.nombre)}</td>
-              <td>${f.reasignado}</td>
-              <td>${f.modificado}</td>
-              <td>${f.cancelado}</td>
-              <td><strong>${f.total}</strong></td>
-            </tr>`).join("")}
-          <tr style="border-top:2px solid var(--color-border);">
-            <td><strong>Total</strong></td>
-            <td><strong>${totales.reasignado}</strong></td>
-            <td><strong>${totales.modificado}</strong></td>
-            <td><strong>${totales.cancelado}</strong></td>
-            <td><strong>${totalGeneral}</strong></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+  // --- Tabla "por quién hizo el cambio" ---
+  contenedor.appendChild(
+    crearElementoTexto("div", "por quién hizo el cambio", { className: "titulo-bloque", style: "margin-top:20px;" })
+  );
+  const wrapPersona = crearElementoTexto("div", null, { style: "overflow-x:auto;" });
+  const tablaPersona = document.createElement("table");
+  tablaPersona.className = "tabla";
 
-    <div class="titulo-bloque" style="margin-top:24px;">por motivo</div>
-    <div style="overflow-x:auto;">
-      <table class="tabla">
-        <thead><tr><th>Motivo</th><th>Cantidad</th></tr></thead>
-        <tbody>
-          ${filasMotivo.map(([motivo, cant]) => `
-            <tr><td>${escaparHtml(motivo)}</td><td>${cant}</td></tr>`).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
+  const theadPersona = document.createElement("thead");
+  const filaEncabezadoPersona = document.createElement("tr");
+  ["Persona", "Reasignado", "Modificado", "Cancelado", "Total"].forEach((titulo) => {
+    filaEncabezadoPersona.appendChild(crearElementoTexto("th", titulo));
+  });
+  theadPersona.appendChild(filaEncabezadoPersona);
+  tablaPersona.appendChild(theadPersona);
+
+  const tbodyPersona = document.createElement("tbody");
+  filasPersona.forEach((f) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(crearElementoTexto("td", f.nombre));
+    tr.appendChild(crearElementoTexto("td", String(f.reasignado)));
+    tr.appendChild(crearElementoTexto("td", String(f.modificado)));
+    tr.appendChild(crearElementoTexto("td", String(f.cancelado)));
+    const tdTotal = document.createElement("td");
+    tdTotal.appendChild(crearElementoTexto("strong", String(f.total)));
+    tr.appendChild(tdTotal);
+    tbodyPersona.appendChild(tr);
+  });
+
+  const trTotales = document.createElement("tr");
+  trTotales.style.cssText = "border-top:2px solid var(--color-border);";
+  const tdTituloTotal = document.createElement("td");
+  tdTituloTotal.appendChild(crearElementoTexto("strong", "Total"));
+  trTotales.appendChild(tdTituloTotal);
+  [totales.reasignado, totales.modificado, totales.cancelado, totalGeneral].forEach((valor) => {
+    const td = document.createElement("td");
+    td.appendChild(crearElementoTexto("strong", String(valor)));
+    trTotales.appendChild(td);
+  });
+  tbodyPersona.appendChild(trTotales);
+  tablaPersona.appendChild(tbodyPersona);
+  wrapPersona.appendChild(tablaPersona);
+  contenedor.appendChild(wrapPersona);
+
+  // --- Tabla "por motivo" ---
+  contenedor.appendChild(
+    crearElementoTexto("div", "por motivo", { className: "titulo-bloque", style: "margin-top:24px;" })
+  );
+  const wrapMotivo = crearElementoTexto("div", null, { style: "overflow-x:auto;" });
+  const tablaMotivo = document.createElement("table");
+  tablaMotivo.className = "tabla";
+
+  const theadMotivo = document.createElement("thead");
+  const filaEncabezadoMotivo = document.createElement("tr");
+  ["Motivo", "Cantidad"].forEach((titulo) => {
+    filaEncabezadoMotivo.appendChild(crearElementoTexto("th", titulo));
+  });
+  theadMotivo.appendChild(filaEncabezadoMotivo);
+  tablaMotivo.appendChild(theadMotivo);
+
+  const tbodyMotivo = document.createElement("tbody");
+  filasMotivo.forEach(([motivo, cant]) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(crearElementoTexto("td", motivo));
+    tr.appendChild(crearElementoTexto("td", String(cant)));
+    tbodyMotivo.appendChild(tr);
+  });
+  tablaMotivo.appendChild(tbodyMotivo);
+  wrapMotivo.appendChild(tablaMotivo);
+  contenedor.appendChild(wrapMotivo);
 }
 
 function exportarReporteCambiosHistorialTurnosAExcel() {

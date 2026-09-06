@@ -778,6 +778,116 @@ function actualizarBuscadorProtocolo(filaId, texto) {
     });
     resultados.appendChild(div);
   });
+
+  // Etapa T12: enfermería y administrador pueden dar de alta un protocolo nuevo al
+  // vuelo si no está en el catálogo — apartamiento del punto 16 del alcance (catálogos
+  // exclusivos de administrador) acordado explícitamente con Elías, mismo criterio que
+  // ya usa "Otro" médico derivante. Médico no ve esta opción acá, ni la tiene habilitada
+  // del lado del servidor (ver protocoloValido() en firestore.rules). Queda en el
+  // catálogo general (turneroProtocolos), disponible para cualquier turno futuro — no es
+  // algo puntual de este turno. No toca el buscador de protocolo de "Modificar turno" ni
+  // el de "Consulta de disponibilidad" en turnero-grilla.js, que quedan sin cambios.
+  if (rolActualCarga === "administrador" || rolActualCarga === "enfermeria") {
+    resultados.appendChild(construirBloqueAgregarProtocoloNuevo(filaId, texto.trim()));
+  }
+}
+
+function construirBloqueAgregarProtocoloNuevo(filaId, nombrePropuesto) {
+  const bloque = document.createElement("div");
+  bloque.className = "resultado-busqueda";
+  bloque.style.cssText = "flex-direction:column;align-items:stretch;gap:6px;";
+
+  const etiqueta = document.createElement("span");
+  etiqueta.style.cssText = "font-size:13px;color:var(--color-muted);";
+  etiqueta.textContent = `¿No está en la lista? Agregar "${nombrePropuesto}" como protocolo nuevo:`;
+  bloque.appendChild(etiqueta);
+
+  const filaControles = document.createElement("div");
+  filaControles.style.cssText = "display:flex;gap:8px;align-items:center;";
+
+  const inputDuracion = document.createElement("input");
+  inputDuracion.type = "number";
+  inputDuracion.min = "1";
+  inputDuracion.placeholder = "Duración (min)";
+  inputDuracion.style.cssText = "width:120px;";
+
+  const botonAgregar = document.createElement("button");
+  botonAgregar.type = "button";
+  botonAgregar.className = "enlace-accion";
+  botonAgregar.textContent = "Agregar protocolo nuevo";
+
+  const mensaje = document.createElement("span");
+  mensaje.style.cssText = "font-size:12px;";
+
+  botonAgregar.addEventListener("click", () =>
+    agregarProtocoloNuevoCarga(filaId, nombrePropuesto, inputDuracion, botonAgregar, mensaje)
+  );
+
+  filaControles.appendChild(inputDuracion);
+  filaControles.appendChild(botonAgregar);
+  bloque.appendChild(filaControles);
+  bloque.appendChild(mensaje);
+
+  return bloque;
+}
+
+async function agregarProtocoloNuevoCarga(filaId, nombre, inputDuracion, boton, mensaje) {
+  const duracionMinutos = parseInt(inputDuracion.value, 10);
+  mensaje.textContent = "";
+  mensaje.style.color = "";
+
+  if (!duracionMinutos || duracionMinutos <= 0) {
+    mensaje.textContent = "Ingresá una duración válida, mayor a cero.";
+    mensaje.style.color = "var(--color-danger)";
+    return;
+  }
+
+  const clave = normalizarTexto(nombre);
+  const yaExiste = protocolosCacheCarga.some(
+    (p) => p.activo !== false && normalizarTexto(p.nombre) === clave
+  );
+  if (yaExiste) {
+    mensaje.textContent = "Ese protocolo ya está en el catálogo — buscalo de nuevo, puede que aparezca con otra grafía.";
+    mensaje.style.color = "var(--color-danger)";
+    return;
+  }
+
+  boton.disabled = true;
+  try {
+    const nuevoDoc = {
+      nombre,
+      duracionMinutos,
+      activo: true,
+      claveNormalizada: clave,
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    const ref = await db.collection("turneroProtocolos").add(nuevoDoc);
+
+    // Se agrega a la caché local (con valores planos, sin el sentinel de
+    // serverTimestamp) para que quede disponible sin recargar la página.
+    protocolosCacheCarga.push({
+      id: ref.id,
+      nombre,
+      duracionMinutos,
+      activo: true,
+      claveNormalizada: clave
+    });
+
+    protocolosSeleccionados[filaId] = {
+      protocoloId: ref.id,
+      nombre,
+      duracionMinutos
+    };
+    const inputBusqueda = document.querySelector(`#${filaId} input.inp-buscar-protocolo`);
+    if (inputBusqueda) inputBusqueda.value = nombre;
+    document.querySelector(`#${filaId} .resultados-protocolo`).innerHTML = "";
+    actualizarResumenDuracion();
+  } catch (error) {
+    console.error("Error al crear protocolo nuevo:", error);
+    mensaje.textContent = "No se pudo guardar el protocolo. Reintentá en unos segundos.";
+    mensaje.style.color = "var(--color-danger)";
+    boton.disabled = false;
+  }
 }
 
 function quitarFilaProtocolo(filaId) {
