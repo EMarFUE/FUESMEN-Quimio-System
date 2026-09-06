@@ -54,6 +54,18 @@
 //   de la fecha del turno, con formatos y valores distintos, resultaba confuso. Esa
 //   fecha/hora del cambio sigue disponible en "Ver cadena completa" y, para
 //   administrador/enfermería, en el propio comprobante reimpreso.
+//
+// Etapa T11 — reporte de cambios (sección nueva al pie de esta misma pantalla, solo
+// administrador, punto 12 del alcance): a diferencia de TODO lo de arriba, esta consulta
+// sí usa "anuladoEn" con un filtro de rango, precisamente porque acá la pregunta es "qué
+// cambios ocurrieron esta semana", no "qué turnos había programados esta semana". El
+// campo "anuladoEn" solo existe en turnos reasignados/modificados/cancelados (nunca en
+// uno "activo" — ver anularYCrearTurnoGrilla() en turnero-grilla.js, que lo excluye
+// explícitamente de los campos copiados al turno nuevo), así que el filtro de rango solo
+// ya alcanza para traer exactamente esos tres tipos, sin necesitar además un "where"
+// sobre "estado". Al ser un filtro de rango sobre un único campo (no combinado con
+// igualdad/"in" sobre otro), no debería hacer falta crear un índice compuesto nuevo en
+// Firestore.
 
 const TAMANO_PAGINA_HISTORIAL_TURNOS = 25;
 
@@ -106,6 +118,11 @@ const SEDES_HISTORIAL_TURNOS = [
 let cursorHistorialTurnos = null;
 let hayMasHistorialTurnos = true;
 let cargandoHistorialTurnos = false;
+
+// Etapa T11 — reporte de cambios: guarda el último resultado traído de Firestore para que
+// "Exportar a Excel" no tenga que repetir la consulta (a diferencia del historial general,
+// acá no hay paginación — el rango de fechas ya acota el volumen).
+let ultimosDocsReporteCambiosHistorialTurnos = [];
 
 let medicosCacheHistorialTurnos = null; // catálogo de turneroMedicos, para el <select> del filtro
 let pacientesCacheHistorialTurnos = null; // null = todavía no se cargó
@@ -194,6 +211,12 @@ function iniciarHistorialTurnos(user, datosUsuario) {
     const thQuien = document.getElementById("th-quien-historial-turnos");
     if (thMotivo) thMotivo.style.display = "none";
     if (thQuien) thQuien.style.display = "none";
+  }
+
+  // Etapa T11: reporte de cambios, exclusivo de administrador (punto 12 del alcance) —
+  // ni enfermería, que sí ve motivo/quién en la tabla de arriba, ve esta sección.
+  if (rolActualHistorialTurnos === "administrador") {
+    document.getElementById("bloque-reporte-cambios-historial-turnos").style.display = "block";
   }
 
   configurarTabsHistorialTurnos();
@@ -840,6 +863,195 @@ async function exportarHistorialTurnosAExcel() {
     boton.disabled = false;
     boton.textContent = textoOriginal;
   }
+}
+
+// --- Etapa T11: reporte de cambios (solo administrador) ---
+
+// Arma un Date en horario local a partir de un input type="date" (string "YYYY-MM-DD"),
+// evitando el corrimiento de día que da parsear ese string directo con `new Date(iso)`
+// (lo interpreta en UTC) — mismo problema ya resuelto en turnero-motor.js/
+// turnero-bloqueos.js para este mismo formato.
+function fechaLocalDesdeInputReporteCambiosHistorialTurnos(valorInput, finDelDia) {
+  const [anio, mes, dia] = valorInput.split("-").map(Number);
+  return finDelDia
+    ? new Date(anio, mes - 1, dia, 23, 59, 59, 999)
+    : new Date(anio, mes - 1, dia, 0, 0, 0, 0);
+}
+
+function formatearFechaCortaReporteCambiosHistorialTurnos(valorInput) {
+  const [anio, mes, dia] = valorInput.split("-");
+  return `${dia}/${mes}/${anio}`;
+}
+
+async function generarReporteCambiosHistorialTurnos() {
+  const desdeInput = document.getElementById("campo-reporte-cambios-desde").value;
+  const hastaInput = document.getElementById("campo-reporte-cambios-hasta").value;
+  const contenedor = document.getElementById("resultado-reporte-cambios-historial-turnos");
+  const botonGenerar = document.getElementById("boton-generar-reporte-cambios");
+  const botonExportar = document.getElementById("boton-exportar-reporte-cambios");
+
+  if (!desdeInput || !hastaInput) {
+    alert("Completá las dos fechas.");
+    return;
+  }
+  if (desdeInput > hastaInput) {
+    alert('La fecha "desde" no puede ser posterior a la fecha "hasta".');
+    return;
+  }
+
+  botonGenerar.disabled = true;
+  botonExportar.disabled = true;
+  ultimosDocsReporteCambiosHistorialTurnos = [];
+  contenedor.innerHTML = "Buscando...";
+
+  const desdeTimestamp = firebase.firestore.Timestamp.fromDate(
+    fechaLocalDesdeInputReporteCambiosHistorialTurnos(desdeInput, false)
+  );
+  const hastaTimestamp = firebase.firestore.Timestamp.fromDate(
+    fechaLocalDesdeInputReporteCambiosHistorialTurnos(hastaInput, true)
+  );
+
+  try {
+    // Sin filtro de "estado": ver nota al comienzo del archivo — "anuladoEn" solo existe
+    // en turnos reasignados/modificados/cancelados, así que el rango ya trae exactamente
+    // esos tres tipos.
+    const snapshot = await db.collection("turnos")
+      .where("anuladoEn", ">=", desdeTimestamp)
+      .where("anuladoEn", "<=", hastaTimestamp)
+      .orderBy("anuladoEn", "desc")
+      .get();
+
+    ultimosDocsReporteCambiosHistorialTurnos = snapshot.docs.map((doc) => doc.data());
+    renderizarReporteCambiosHistorialTurnos(ultimosDocsReporteCambiosHistorialTurnos, desdeInput, hastaInput);
+    botonExportar.disabled = ultimosDocsReporteCambiosHistorialTurnos.length === 0;
+  } catch (error) {
+    console.error("Error al generar el reporte de cambios:", error);
+    contenedor.innerHTML =
+      '<div style="color:var(--color-danger);">No se pudo generar el reporte. Mirá la consola del navegador (F12) — puede faltar crear un índice en Firestore.</div>';
+  } finally {
+    botonGenerar.disabled = false;
+  }
+}
+
+function renderizarReporteCambiosHistorialTurnos(docs, desdeInput, hastaInput) {
+  const contenedor = document.getElementById("resultado-reporte-cambios-historial-turnos");
+
+  if (docs.length === 0) {
+    contenedor.innerHTML =
+      "No hubo reasignaciones, modificaciones ni cancelaciones en ese rango.";
+    return;
+  }
+
+  // Por persona (anuladoPor.nombre, tal cual quedó guardado — sin filtrar por rol actual,
+  // decisión explícita de Elías) × tipo de acción. Por motivo: texto exacto de
+  // "motivoCambio", sin normalizar (motivo libre, decisión explícita de Elías — agrupar
+  // por texto exacto puede no discriminar mucho hasta que haya datos reales de uso).
+  const porPersona = new Map();
+  const porMotivo = new Map();
+  const totales = { reasignado: 0, modificado: 0, cancelado: 0 };
+
+  docs.forEach((d) => {
+    const nombre = (d.anuladoPor && d.anuladoPor.nombre) || "Sin usuario registrado";
+    const tipo = d.estado;
+    if (!porPersona.has(nombre)) {
+      porPersona.set(nombre, { reasignado: 0, modificado: 0, cancelado: 0 });
+    }
+    const fila = porPersona.get(nombre);
+    if (fila[tipo] !== undefined) fila[tipo]++;
+    if (totales[tipo] !== undefined) totales[tipo]++;
+
+    const motivo = (d.motivoCambio || "").trim() || "(sin motivo)";
+    porMotivo.set(motivo, (porMotivo.get(motivo) || 0) + 1);
+  });
+
+  const totalGeneral = docs.length;
+
+  const filasPersona = [...porPersona.entries()]
+    .map(([nombre, c]) => ({ nombre, ...c, total: c.reasignado + c.modificado + c.cancelado }))
+    .sort((a, b) => b.total - a.total);
+
+  const filasMotivo = [...porMotivo.entries()].sort((a, b) => b[1] - a[1]);
+
+  const plural = (n, singular, pluralForm) => (n === 1 ? singular : pluralForm);
+
+  contenedor.innerHTML = `
+    <div style="font-size:13px;color:var(--color-muted);">
+      ${totalGeneral} ${plural(totalGeneral, "cambio", "cambios")} entre el
+      ${formatearFechaCortaReporteCambiosHistorialTurnos(desdeInput)} y el
+      ${formatearFechaCortaReporteCambiosHistorialTurnos(hastaInput)}:
+      ${totales.reasignado} ${plural(totales.reasignado, "reasignado", "reasignados")},
+      ${totales.modificado} ${plural(totales.modificado, "modificado", "modificados")},
+      ${totales.cancelado} ${plural(totales.cancelado, "cancelado", "cancelados")}.
+    </div>
+
+    <div class="titulo-bloque" style="margin-top:20px;">por quién hizo el cambio</div>
+    <div style="overflow-x:auto;">
+      <table class="tabla">
+        <thead>
+          <tr><th>Persona</th><th>Reasignado</th><th>Modificado</th><th>Cancelado</th><th>Total</th></tr>
+        </thead>
+        <tbody>
+          ${filasPersona.map((f) => `
+            <tr>
+              <td>${escaparHtml(f.nombre)}</td>
+              <td>${f.reasignado}</td>
+              <td>${f.modificado}</td>
+              <td>${f.cancelado}</td>
+              <td><strong>${f.total}</strong></td>
+            </tr>`).join("")}
+          <tr style="border-top:2px solid var(--color-border);">
+            <td><strong>Total</strong></td>
+            <td><strong>${totales.reasignado}</strong></td>
+            <td><strong>${totales.modificado}</strong></td>
+            <td><strong>${totales.cancelado}</strong></td>
+            <td><strong>${totalGeneral}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="titulo-bloque" style="margin-top:24px;">por motivo</div>
+    <div style="overflow-x:auto;">
+      <table class="tabla">
+        <thead><tr><th>Motivo</th><th>Cantidad</th></tr></thead>
+        <tbody>
+          ${filasMotivo.map(([motivo, cant]) => `
+            <tr><td>${escaparHtml(motivo)}</td><td>${cant}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function exportarReporteCambiosHistorialTurnosAExcel() {
+  if (ultimosDocsReporteCambiosHistorialTurnos.length === 0) {
+    alert("No hay datos para exportar. Generá el reporte primero.");
+    return;
+  }
+
+  // Listado crudo, un cambio por fila — mismo criterio que exportarHistorialTurnosAExcel()
+  // más abajo, pero con "Cuándo" mostrando siempre la fecha/hora del cambio (acá los tres
+  // tipos de fila SON cambios, a diferencia del historial general que también exporta
+  // turnos "activo").
+  const filas = ultimosDocsReporteCambiosHistorialTurnos.map((d) => {
+    const paciente = d.paciente || {};
+    return {
+      "Cuándo": formatearFechaHoraHistorialTurnos(d.anuladoEn),
+      "Tipo de acción": ETIQUETAS_TIPO_ACCION_HISTORIAL_TURNOS[d.estado] || d.estado,
+      Motivo: d.motivoCambio || "",
+      "Realizado por": (d.anuladoPor && d.anuladoPor.nombre) || "",
+      "Fecha del turno": d.fecha || "",
+      Paciente: `${paciente.apellido || ""}, ${paciente.nombre || ""}`,
+      Médico: d.medicoNombre || ""
+    };
+  });
+
+  const hoja = XLSX.utils.json_to_sheet(filas);
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, "Reporte de cambios");
+
+  const fecha = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(libro, `reporte_cambios_turnos_${fecha}.xlsx`);
 }
 
 // Exporta la función pura para poder probarla en Node (mismo criterio que ya usa

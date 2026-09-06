@@ -92,7 +92,10 @@
         </select>
       </div>
 
-      <!-- Filtro por rango de fechas (sobre la fecha del CAMBIO, no la del turno) -->
+      <!-- Filtro por rango de fechas (sobre la fecha del TURNO, no la del cambio — ver
+           comentario de turnero-historial.js). El comentario original de este bloque decía
+           lo contrario; corregido en la Etapa T11 al notar la inconsistencia con el texto
+           de abajo y con el código real de construirConsultaHistorialTurnos(). -->
       <div id="bloque-filtro-fecha" class="bloque-filtro" style="display:none;">
         <div class="fila-2">
           <div class="campo" style="margin-bottom:0;">
@@ -130,6 +133,43 @@
 
       <div id="zona-cargar-mas-historial-turnos" style="text-align:center;margin-top:8px;">
         <button type="button" class="boton-secundario" id="boton-cargar-mas-historial-turnos" onclick="cargarMasHistorialTurnos()">Cargar más</button>
+      </div>
+
+      <!-- Etapa T11: reporte de cambios, exclusivo de administrador (punto 12 del alcance).
+           Oculto por defecto; iniciarHistorialTurnos() lo muestra solo para ese rol — ver
+           turnero-historial.js. Consulta por "anuladoEn" (cuándo ocurrió el cambio), campo
+           distinto del que usa el filtro de arriba (que consulta por "fecha", la del
+           turno) — no comparten estado ni estilo de filtro a propósito, son preguntas
+           distintas. -->
+      <div id="bloque-reporte-cambios-historial-turnos" style="display:none;margin-top:36px;padding-top:24px;border-top:1px solid var(--color-border);">
+        <div class="titulo-bloque">reporte de cambios</div>
+        <div style="font-size:13px;color:var(--color-muted);margin-bottom:14px;">
+          Cantidad de reasignaciones, modificaciones y cancelaciones en un rango de fechas,
+          agrupadas por quién hizo el cambio y por motivo — para detectar patrones de uso.
+          El rango se aplica sobre la fecha en que ocurrió el cambio, no sobre la fecha del
+          turno.
+        </div>
+
+        <div class="bloque-filtro">
+          <div class="fila-2">
+            <div class="campo" style="margin-bottom:0;">
+              <label>Desde</label>
+              <input type="date" id="campo-reporte-cambios-desde" />
+            </div>
+            <div class="campo" style="margin-bottom:0;">
+              <label>Hasta</label>
+              <input type="date" id="campo-reporte-cambios-hasta" />
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px;">
+            <button type="button" class="boton-secundario" id="boton-generar-reporte-cambios" onclick="generarReporteCambiosHistorialTurnos()">Generar</button>
+            <button type="button" class="boton-secundario" id="boton-exportar-reporte-cambios" onclick="exportarReporteCambiosHistorialTurnosAExcel()" disabled>Exportar a Excel</button>
+          </div>
+        </div>
+
+        <div id="resultado-reporte-cambios-historial-turnos" style="color:var(--color-muted);font-size:13px;">
+          Elegí un rango de fechas y presioná «Generar».
+        </div>
       </div>
     </div>
 
