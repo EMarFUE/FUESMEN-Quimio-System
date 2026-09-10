@@ -144,6 +144,11 @@
             Premedicación / control de signos vitales (+30 min fijos)
           </label>
 
+          <label class="check-linea" id="bloque-sillon-backup" style="display:none;">
+            <input type="checkbox" id="campo-sillon-backup" />
+            Buscar únicamente en el sillón backup
+          </label>
+
           <div id="resumen-duracion" class="resumen-suma ok" style="margin:0 0 20px;"></div>
 
           <div class="titulo-bloque">Ciclo y sesión</div>
@@ -185,8 +190,18 @@
             </div>
           </div>
 
+          <div id="bloque-horario-manual" class="campo" style="display:none;margin-bottom:14px;">
+            <label>Horario manual (opcional, forzado)</label>
+            <input type="time" id="campo-horario-manual" style="max-width:150px;" />
+            <div style="font-size:12px;color:var(--color-muted);margin-top:4px;">
+              Si completás esta hora, el turno se fuerza a ese horario exacto, pasando por encima
+              de la atadura de día, el cupo por porcentaje y la franja horaria del médico. Siempre
+              respeta sillón físicamente libre, bloqueos vigentes y el horario de atención de la sede.
+            </div>
+          </div>
+
           <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:14px;padding:8px;background:#f9f9f9;border-radius:4px;">
-            ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada. Vos no lo elegís acá.
+            ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada, salvo que completes el horario manual de arriba (solo administrador).
           </div>
 
           <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Buscar disponibilidad y guardar turno</button>

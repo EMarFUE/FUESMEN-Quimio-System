@@ -75,6 +75,31 @@
         </thead>
         <tbody id="cuerpo-tabla-medicos-habilitado"></tbody>
       </table>
+
+      <div class="titulo-bloque" style="margin-top:24px;">Franja horaria propia</div>
+      <p style="color:var(--color-muted); font-size:13px; margin-bottom:12px;">
+        Restringe la búsqueda automática de turnos a este rango horario. Se guarda solo
+        cuando los dos campos están completos. Un médico sin franja cargada no tiene
+        ninguna restricción de horario.
+      </p>
+      <table class="tabla tabla-medicos" style="max-width:480px;">
+        <thead>
+          <tr><th>Médico</th><th>Desde</th><th>Hasta</th><th></th></tr>
+        </thead>
+        <tbody id="cuerpo-tabla-medicos-franja"></tbody>
+      </table>
+
+      <div class="titulo-bloque" style="margin-top:24px;">Permiso para usar el sillón backup</div>
+      <p style="color:var(--color-muted); font-size:13px; margin-bottom:12px;">
+        Enfermería y administrador siempre pueden usar el sillón backup al cargar un
+        turno. Un médico solo puede hacerlo con su propio usuario si está habilitado acá.
+      </p>
+      <table class="tabla tabla-medicos" style="max-width:360px;">
+        <thead>
+          <tr><th>Médico</th><th>Habilitado</th></tr>
+        </thead>
+        <tbody id="cuerpo-tabla-medicos-backup"></tbody>
+      </table>
     </div>
   </div>
 

@@ -140,6 +140,114 @@ function renderizarTablas() {
   renderizarTablaSede(SEDE_CIVIT, "cuerpo-tabla-medicos-civit");
   renderizarTablaSede(SEDE_ENTRE_RIOS, "cuerpo-tabla-medicos-entrerios");
   renderizarTablaHabilitados();
+  renderizarTablaFranjaHoraria();
+  renderizarTablaBackup();
+}
+
+// Ronda "mejoras motor" (post T12), Frente 1: franja horaria propia — restringe la
+// búsqueda automática a un rango horario del médico (Vega, Tortosa, Salomón, aunque no
+// es exclusivo de ellos). Ausente = sin restricción, no afecta a ningún médico existente.
+function renderizarTablaFranjaHoraria() {
+  const tbody = document.getElementById("cuerpo-tabla-medicos-franja");
+  if (!tbody) return;
+  tbody.innerHTML = medicosCache.map(medico => {
+    const franja = medico.franjaHoraria || {};
+    return `<tr>
+      <td>${escaparHtml(medico.nombre)}</td>
+      <td><input type="time" id="franja-inicio-${medico.id}" value="${franja.horaInicio || ""}"
+            onchange="onCambiarFranjaHoraria('${medico.id}')" /></td>
+      <td><input type="time" id="franja-fin-${medico.id}" value="${franja.horaFin || ""}"
+            onchange="onCambiarFranjaHoraria('${medico.id}')" /></td>
+      <td><button type="button" class="enlace-accion peligro" onclick="onQuitarFranjaHoraria('${medico.id}')">quitar</button></td>
+    </tr>`;
+  }).join("");
+}
+
+async function onCambiarFranjaHoraria(medicoId) {
+  const medico = medicosCache.find(m => m.id === medicoId);
+  if (!medico) return;
+
+  const inputInicio = document.getElementById(`franja-inicio-${medicoId}`);
+  const inputFin = document.getElementById(`franja-fin-${medicoId}`);
+  const horaInicio = inputInicio ? inputInicio.value : "";
+  const horaFin = inputFin ? inputFin.value : "";
+
+  // Se espera a que los dos campos estén completos antes de guardar nada — si se tocó
+  // solo uno, no hay franja válida todavía.
+  if (!horaInicio || !horaFin) return;
+
+  if (horaInicio >= horaFin) {
+    mostrarMensajeMedicos("La hora de inicio tiene que ser anterior a la de fin.", "error");
+    return;
+  }
+
+  try {
+    await db.collection("turneroMedicos").doc(medicoId).update({
+      franjaHoraria: { horaInicio, horaFin }
+    });
+    medico.franjaHoraria = { horaInicio, horaFin };
+    mostrarMensajeMedicos("Franja horaria actualizada.", "exito");
+  } catch (error) {
+    console.error("Error al actualizar la franja horaria:", error);
+    mostrarMensajeMedicos("No se pudo guardar el cambio.", "error");
+    renderizarTablaFranjaHoraria();
+  }
+}
+
+async function onQuitarFranjaHoraria(medicoId) {
+  const medico = medicosCache.find(m => m.id === medicoId);
+  if (!medico) return;
+
+  try {
+    await db.collection("turneroMedicos").doc(medicoId).update({
+      franjaHoraria: firebase.firestore.FieldValue.delete()
+    });
+    delete medico.franjaHoraria;
+    mostrarMensajeMedicos("Franja horaria quitada: el médico vuelve a no tener restricción de horario.", "exito");
+    renderizarTablaFranjaHoraria();
+  } catch (error) {
+    console.error("Error al quitar la franja horaria:", error);
+    mostrarMensajeMedicos("No se pudo guardar el cambio.", "error");
+  }
+}
+
+// Ronda "mejoras motor" (post T12), Frente 3: permiso para que ESE médico, con su
+// propio usuario, pueda usar el sillón backup (búsqueda restringida al backup, o
+// combinado con horario manual — ver turnero-carga.js). Enfermería y administrador
+// siempre pueden usarlo, sin depender de este campo. Polaridad invertida respecto de
+// habilitadoParaCargar a propósito: acá ausente = NO habilitado, porque es una
+// excepción que cada médico necesita de forma explícita, no un default abierto.
+function renderizarTablaBackup() {
+  const tbody = document.getElementById("cuerpo-tabla-medicos-backup");
+  if (!tbody) return;
+  tbody.innerHTML = medicosCache.map(medico => {
+    const habilitado = medico.habilitadoBackup === true;
+    return `<tr>
+      <td>${escaparHtml(medico.nombre)}</td>
+      <td>
+        <input type="checkbox" ${habilitado ? "checked" : ""}
+          onchange="onCambiarHabilitadoBackup('${medico.id}', this.checked)" />
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function onCambiarHabilitadoBackup(medicoId, habilitado) {
+  const medico = medicosCache.find(m => m.id === medicoId);
+  if (!medico) return;
+
+  try {
+    await db.collection("turneroMedicos").doc(medicoId).update({ habilitadoBackup: habilitado });
+    medico.habilitadoBackup = habilitado;
+    mostrarMensajeMedicos(
+      habilitado ? "Médico habilitado para usar el sillón backup." : "Médico deshabilitado para usar el sillón backup.",
+      "exito"
+    );
+  } catch (error) {
+    console.error("Error al actualizar el permiso de backup:", error);
+    mostrarMensajeMedicos("No se pudo guardar el cambio.", "error");
+    renderizarTablaBackup();
+  }
 }
 
 // Permiso nuevo (feedback post-Fase 3 del Turnero): habilita o deshabilita que ESE

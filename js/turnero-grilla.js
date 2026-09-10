@@ -788,8 +788,13 @@ async function armarArrastreGrilla(estado) {
   const turno = estado.turno;
   const sede = sedesCacheGrilla.find(s => s.id === sedeSeleccionadaGrilla);
   const medicoDoc = medicosCacheGrilla.find(m => m.id === turno.medicoId);
+  // Ronda "mejoras motor", Frente 3: el sillón backup ya no integra el pool automático
+  // (decisión de T0 revertida explícitamente) — el arrastre usa búsqueda automática
+  // (buscarHuecosSemanaEnSede), así que queda alineado con el mismo cambio ya aplicado
+  // en turnero-motor.js para la carga normal. El backup sigue eligible a mano desde
+  // "Modificar" (poblarSelectSillonModificar, más abajo), que no se tocó.
   const sillones = (sede.sillones || [])
-    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .filter(s => s.tipo === "regular")
     .map(s => s.numero);
   // Excluir el turno que se está moviendo del cálculo: si no, chocaría contra sí mismo
   // (conflicto de sillón falso) y su propio tiempo ya usado se contaría dos veces en
@@ -1440,6 +1445,11 @@ function mensajeValidacionModificarGrilla(validacion, medicoNombre) {
       const restantes = Math.max(0, Math.round(validacion.techoMinutos - validacion.minutosUsados));
       return `${medicoNombre} ya usó el tiempo que tiene asignado ese día en esta sede (le quedan ${restantes} minutos disponibles y este cambio necesita más).`;
     }
+    case "franja":
+      // Ronda "mejoras motor", Frente 1: Modificar no busca otro horario (para eso está
+      // Reasignar) — solo informa el rango permitido y corta ahí, mismo criterio que
+      // atadura/cupo en este mismo modal.
+      return `${medicoNombre} solo atiende de ${validacion.franjaHorario.horaInicio} a ${validacion.franjaHorario.horaFin}. Elegí un horario dentro de ese rango, o usá Reasignar para buscar otro día/hora.`;
     case "sedeNoEncontrada":
       return "No se encontró la sede de este turno en el catálogo. Refrescá la página e intentá de nuevo.";
     default:
@@ -1787,8 +1797,10 @@ async function buscarDisponibilidadGrilla() {
   const fechaElegida = document.getElementById("campo-fecha-consulta-grilla").value;
   const fechaInicioBusqueda = fechaElegida ? fechaDesdeISO(fechaElegida) : fechaDesdeISO(fechaLocalHoy());
 
+  // Ronda "mejoras motor", Frente 3: mismo criterio que la carga normal — el sillón
+  // backup ya no forma parte del pool automático, tampoco en el simulador de T10.
   const sillones = (sedeDoc.sillones || [])
-    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .filter(s => s.tipo === "regular")
     .map(s => s.numero);
   const turnosEnSede = turnosExistentes.filter(t => t.sedeId === sedeId);
 
