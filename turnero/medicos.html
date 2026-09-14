@@ -75,6 +75,20 @@
         </thead>
         <tbody id="cuerpo-tabla-medicos-habilitado"></tbody>
       </table>
+
+      <div class="titulo-bloque" style="margin-top:24px;">Franja horaria propia</div>
+      <p style="color:var(--color-muted); font-size:13px; margin-bottom:12px;">
+        Si se completa, la búsqueda automática de turnos solo va a ofrecer horarios que EMPIECEN
+        dentro de este rango — el tratamiento puede seguir después sin problema, no hace falta que
+        termine dentro de la franja. Se guarda automáticamente cuando los dos campos están completos.
+        Un médico sin franja cargada no tiene ninguna restricción de horario (comportamiento de siempre).
+      </p>
+      <table class="tabla tabla-medicos" style="max-width:420px;">
+        <thead>
+          <tr><th>Médico</th><th>Desde</th><th>Hasta</th><th></th></tr>
+        </thead>
+        <tbody id="cuerpo-tabla-medicos-franja"></tbody>
+      </table>
     </div>
   </div>
 

@@ -303,6 +303,7 @@ async function iniciarCargaTurno(user, datosUsuario) {
     e.target.value = soloDigitos(e.target.value).slice(0, 9);
   });
   document.getElementById("campo-medico").addEventListener("change", actualizarBloqueMedico);
+  document.getElementById("campo-medico").addEventListener("change", actualizarVisibilidadCamposEspeciales);
   document.getElementById("campo-ciclo").addEventListener("input", (e) => {
     e.target.value = soloDigitos(e.target.value);
   });
@@ -326,6 +327,7 @@ async function iniciarCargaTurno(user, datosUsuario) {
   poblarSelectMedico();
   poblarSelectSedeManual();
   agregarFilaProtocolo();
+  actualizarVisibilidadCamposEspeciales();
 }
 
 async function cargarPacientesCarga() {
@@ -944,6 +946,40 @@ function actualizarResumenDuracion() {
 
   document.getElementById("resumen-duracion").textContent =
     `Duración total estimada: ${total} min (${detalle}).`;
+
+  // Ronda "mejoras motor": el checkbox de backup depende también de si ya hay
+  // protocolo(s) elegido(s) — se recalcula cada vez que cambia la selección.
+  actualizarVisibilidadCamposEspeciales();
+}
+
+// --- Ronda "mejoras motor" (post T12): visibilidad de horario manual y sillón backup ---
+//
+// Frente 2 (horario manual, exclusivo administrador): no depende de médico ni
+// protocolos, solo del rol.
+// Frente 3 (sillón backup): visible recién después de elegir médico y protocolo(s), para
+// cualquier rol que pueda cargar turnos (administrador, enfermería o médico) — el sillón
+// backup está disponible para todos los médicos por igual, sin permiso individual.
+function actualizarVisibilidadCamposEspeciales() {
+  const bloqueHorarioManual = document.getElementById("bloque-horario-manual");
+  const bloqueBackup = document.getElementById("bloque-sillon-backup");
+  if (!bloqueHorarioManual || !bloqueBackup) return; // por si se llama antes de que el DOM esté armado
+
+  bloqueHorarioManual.style.display = rolActualCarga === "administrador" ? "block" : "none";
+  if (rolActualCarga !== "administrador") {
+    const campoHorarioManual = document.getElementById("campo-horario-manual");
+    if (campoHorarioManual) campoHorarioManual.value = "";
+  }
+
+  const medicoSelect = document.getElementById("campo-medico");
+  const medicoValor = medicoSelect ? medicoSelect.value : "";
+  const hayProtocolos = Object.values(protocolosSeleccionados).some(p => p !== null);
+  const puedeBackup = !!(medicoValor && hayProtocolos);
+
+  bloqueBackup.style.display = puedeBackup ? "block" : "none";
+  if (!puedeBackup) {
+    const campoBackup = document.getElementById("campo-sillon-backup");
+    if (campoBackup) campoBackup.checked = false;
+  }
 }
 
 // --- Guardado del turno (Etapa T3: motor de búsqueda de huecos) ---
@@ -1060,8 +1096,7 @@ async function intentarGuardarTurno() {
     protocolos.reduce((total, p) => total + (Number(p.duracionMinutos) || 0), 0) +
     (premedicacion ? PREMEDICACION_MINUTOS : 0);
 
-  // Etapa T3: disparar búsqueda de huecos en lugar de guardar directo
-  await buscarYMostrarHuecos({
+  const datosBasicos = {
     esMedicoOtro,
     medicoId,
     medicoNombre,
@@ -1077,7 +1112,33 @@ async function intentarGuardarTurno() {
     diasSolicitados,
     fechaCalculadaDesdeDias,
     pacienteObraSocial: pacienteSeleccionadoCarga.obraSocial || "" // T7: ver guardarComoSobreturnoFisico (caso Occhipinti)
-  });
+  };
+
+  // Ronda "mejoras motor": horario manual (Frente 2, exclusivo administrador) y checkbox
+  // de "solo sillón backup" (Frente 3) — ninguno de los dos aplica a "Reasignar" (que no
+  // pasa por acá, tiene su propio flujo en turnero-grilla.js).
+  const campoHorarioManual = document.getElementById("campo-horario-manual");
+  const horarioManual = (rolActualCarga === "administrador" && campoHorarioManual) ? campoHorarioManual.value : "";
+  const campoBackup = document.getElementById("campo-sillon-backup");
+  const bloqueBackup = document.getElementById("bloque-sillon-backup");
+  const soloBackup = !!(campoBackup && bloqueBackup && bloqueBackup.style.display !== "none" && campoBackup.checked);
+
+  if (horarioManual) {
+    // Frente 2: horario fijado a mano, pasa por encima de atadura/cupo/franja. Si
+    // además está tildado el checkbox de backup, restringe la búsqueda de sillón a ese
+    // único tipo a esa hora exacta (Frente 2 + 3 combinados).
+    await buscarYGuardarConHorarioManual(datosBasicos, horarioManual, soloBackup);
+    return;
+  }
+
+  if (soloBackup) {
+    // Frente 3 solo: búsqueda automática normal (hasta 10 días) pero restringida al
+    // sillón backup, ignorando atadura/cupo/franja.
+    datosBasicos.soloSillonTipo = "backup";
+  }
+
+  // Etapa T3: disparar búsqueda de huecos en lugar de guardar directo
+  await buscarYMostrarHuecos(datosBasicos);
 }
 
 // Etapa T3: buscar huecos y guardar automáticamente con el mejor
@@ -1110,7 +1171,8 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
       cuposCacheCarga, // Etapa T4
       paciente.id, // regla nueva: un turno por paciente por día (transversal a sedes)
       datosBasicos.turnoIdParaReasignar, // T7: excluye el propio turno del chequeo de "un turno por día" — undefined en un alta nueva, no afecta nada
-      bloqueosCacheCarga // Etapa T9
+      bloqueosCacheCarga, // Etapa T9
+      datosBasicos.soloSillonTipo || null // Ronda "mejoras motor", Frente 3: "backup" si se tildó el checkbox dedicado; null/undefined en cualquier otro caso (incluido "Reasignar", que no tiene este campo)
     );
 
     ultimaBusquedaHuecos = resultado;
@@ -1132,6 +1194,11 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
       // Etapa T4 (31/8): no es que no haya sillón físico — el médico no atiende ese día
       // en esa sede. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoAtadura).
       mostrarBloqueoAtadura(resultado, datosBasicos);
+    } else if (resultado.bloqueoFranja) {
+      // Ronda "mejoras motor", Frente 1: no es que no haya sillón físico — el turno no
+      // podía empezar dentro de la franja horaria propia del médico en ningún día de la
+      // ventana. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoFranja).
+      mostrarBloqueoFranja(resultado, datosBasicos);
     } else {
       mostrarSobreturnoFisico(resultado, datosBasicos);
     }
@@ -1180,6 +1247,20 @@ function mostrarSobreturnoFisico(resultadoBusqueda, datosBasicos) {
         Probá con otra fecha, o pedile a enfermería/administrador que lo cargue si hace falta una excepción.
       </p>
       <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Entendido</button>
+    `;
+  } else if (datosBasicos.soloSillonTipo === "backup") {
+    // Ronda "mejoras motor", Frente 3: la búsqueda se restringió al sillón backup — el
+    // mensaje y la acción son específicos de ese único sillón, no del resto de la sede.
+    cuerpoHTML = `
+      <p>No hay lugar en el sillón backup para este turno dentro de los próximos 10 días.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Se puede cargar igual, forzado a ese sillón.
+      </p>
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+        onclick="guardarComoSobreturnoSoloBackup(${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Cargar igual en el sillón backup
+      </button>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar (elegir otra fecha)</button>
     `;
   } else {
     cuerpoHTML = `
@@ -1425,6 +1506,94 @@ async function guardarConSobreturnoPorAtadura(huecoDisponible, datosBasicos) {
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_ATADURA);
 }
 
+// Ronda "mejoras motor", Frente 1: cartel de franja horaria excedida — distinto del
+// modal de sobreturno de siempre. No es que falte sillón físico: el turno no podía
+// EMPEZAR dentro del rango horario propio del médico en ningún día de la ventana.
+// Mismo patrón que mostrarBloqueoAtadura/mostrarBloqueoCupo.
+function mostrarBloqueoFranja(resultadoBusqueda, datosBasicos) {
+  const bloqueo = resultadoBusqueda.bloqueoFranja;
+
+  let modal = document.getElementById("modal-bloqueo-franja");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-bloqueo-franja";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  let cuerpoHTML;
+  if (bloqueo.tipo === "bloqueoTotal") {
+    // Rol médico: mensaje específico, le sirve saber su propio horario de atención para
+    // poder cargar el turno él mismo en otra fecha, mismo criterio que la atadura.
+    cuerpoHTML = `
+      <p>Su horario de atención es de ${bloqueo.franjaHorario.horaInicio} a ${bloqueo.franjaHorario.horaFin}, y no hay lugar para iniciar este turno dentro de ese rango en los próximos 10 días.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Probá con otra fecha, o pedile a enfermería/administrador que lo cargue si hace falta una excepción.
+      </p>
+      <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoFranja()">Entendido</button>
+    `;
+  } else {
+    cuerpoHTML = `
+      <p>${escaparHtml(datosBasicos.medicoNombre)} solo atiende de ${bloqueo.franjaHorario.horaInicio} a ${bloqueo.franjaHorario.horaFin}, y no hay ningún inicio posible dentro de ese horario el ${bloqueo.fechaLegible}.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Se puede cargar igual, como sobreturno de ese mismo día.
+      </p>
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+        onclick="guardarConSobreturnoPorFranja(${JSON.stringify(bloqueo.huecoDisponible).replace(/"/g, '&quot;')}, ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Cargar igual como sobreturno este día
+      </button>
+      <button type="button" class="boton-secundario" onclick="cerrarModalBloqueoFranja()">Cancelar (elegir otra fecha)</button>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0; color: #c0504d;">No se puede cargar este turno</h2>
+      ${cuerpoHTML}
+    </div>
+  `;
+
+  modal.style.display = "block";
+  mostrarMensajeGeneral("No se pudo cargar el turno como se pidió.", "error");
+}
+
+function cerrarModalBloqueoFranja() {
+  const modal = document.getElementById("modal-bloqueo-franja");
+  if (modal) modal.style.display = "none";
+  document.getElementById("boton-guardar-turno").disabled = false;
+}
+
+// Ronda "mejoras motor", Frente 1: enfermería/admin confirman cargar igual, fuera de la
+// franja horaria del médico. Se guarda como sobreturno (sillon: null) usando el hueco
+// físico real que ya había ese día (candidatoFranjaExcedida en el motor ya lo buscó
+// ignorando la franja, en el horario REAL de la sede) — no hace falta
+// calcularBloqueSobreturno acá porque ese hueco ya es un bloque físico completo.
+async function guardarConSobreturnoPorFranja(huecoDisponible, datosBasicos) {
+  cerrarModalBloqueoFranja();
+
+  const hueco = {
+    sedeId: huecoDisponible.sedeId,
+    sedeNombre: huecoDisponible.sedeNombre,
+    fecha: huecoDisponible.fecha,
+    fechaLegible: huecoDisponible.fechaLegible,
+    horaInicio: huecoDisponible.horaInicio,
+    horaFin: huecoDisponible.horaFin,
+    sillon: null // no ocupa un sillón real: es un sobreturno por franja, no disponibilidad física
+  };
+
+  await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_FRANJA);
+}
+
 // Enfermería/administrador confirman cargar igual, pese a que el motor agotó los 10 días
 // sin encontrar sillón físico. Única vía de sobreturno por esta causa — sin variantes.
 async function guardarComoSobreturnoFisico(datosBasicos) {
@@ -1492,6 +1661,204 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
     horaInicio: bloque.horaInicio,
     horaFin: bloque.horaFin,
     sillon: null // no hay sillón asignado real
+  };
+  await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
+}
+
+// Ronda "mejoras motor", Frente 3: variante de guardarComoSobreturnoFisico, pero
+// restringida al sillón backup — se usa cuando la búsqueda con soloSillonTipo="backup"
+// agotó los 10 días sin encontrar hueco en ESE único sillón. A diferencia del sobreturno
+// genérico (sillon: null, no reclama ningún recurso físico), acá el turno SÍ se fuerza al
+// número real del sillón backup — es la silla pensada justamente para absorber excedente,
+// así que ocuparla de más no rompe el reparto de sillones regulares del resto de médicos.
+async function guardarComoSobreturnoSoloBackup(datosBasicos) {
+  cerrarModalSobreturno();
+
+  let sedeIdSobreturno = datosBasicos.sedeId;
+  let sedeNombreSobreturno = datosBasicos.sedeNombre;
+
+  if (datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID) {
+    const sedesCandidatas = await determinarSedesABuscar(
+      MEDICO_OCCHIPINTI_ID,
+      datosBasicos.pacienteObraSocial || "",
+      medicosCacheCarga
+    );
+    sedeIdSobreturno = sedesCandidatas[0];
+    const sedeDoc = sedesCacheCarga.find((s) => s.id === sedeIdSobreturno);
+    sedeNombreSobreturno = sedeDoc ? sedeDoc.nombre : sedeIdSobreturno;
+  }
+
+  const sedeDocParaHorario = sedesCacheCarga.find((s) => s.id === sedeIdSobreturno);
+  const sillonBackup = sedeDocParaHorario
+    ? (sedeDocParaHorario.sillones || []).find((s) => s.tipo === "backup")
+    : null;
+
+  if (!sedeDocParaHorario || !sillonBackup) {
+    mostrarMensajeGeneral("Esta sede no tiene un sillón backup configurado.", "error");
+    document.getElementById("boton-guardar-turno").disabled = false;
+    return;
+  }
+
+  const turnosDelDiaEnSillonBackup = turnosExistentes.filter((t) =>
+    t.sedeId === sedeIdSobreturno && t.fecha === datosBasicos.fecha && t.sillon === sillonBackup.numero
+  );
+  const pseudoTurnosBloqueoBackup = pseudoTurnosBloqueoEnFecha(
+    bloqueosCacheCarga, sedeIdSobreturno, datosBasicos.fecha,
+    [sillonBackup.numero], sedeDocParaHorario.horaApertura, sedeDocParaHorario.horaCierre
+  );
+  const bloque = calcularBloqueSobreturno(
+    sedeDocParaHorario.horaApertura,
+    sedeDocParaHorario.horaCierre,
+    [...turnosDelDiaEnSillonBackup, ...pseudoTurnosBloqueoBackup],
+    datosBasicos.duracionTotalMinutos
+  );
+
+  const hueco = {
+    sedeId: sedeIdSobreturno,
+    sedeNombre: sedeNombreSobreturno,
+    fecha: datosBasicos.fecha,
+    fechaLegible: formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00")),
+    horaInicio: bloque.horaInicio,
+    horaFin: bloque.horaFin,
+    sillon: sillonBackup.numero // forzado a la silla backup, a diferencia del sobreturno genérico
+  };
+  await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
+}
+
+// --- Ronda "mejoras motor", Frente 2: horario manual (exclusivo administrador) ---
+//
+// A diferencia de buscarYMostrarHuecos (que recorre hasta 10 días con buscarHuecos()),
+// este camino valida UN horario puntual con buscarSillonHorarioFijo() — pasa por encima
+// de atadura, cupo y franja horaria a propósito, pero nunca de sillón físicamente libre,
+// bloqueos vigentes ni el horario de la sede. No se usa nunca desde "Reasignar" (el
+// arrastre de grilla queda sin cambios, ver Handoff_planificacion_mejoras_motor_turnero.md).
+async function buscarYGuardarConHorarioManual(datosBasicos, horarioManualString, soloBackup) {
+  buscandoHuecos = true;
+  document.getElementById("boton-guardar-turno").disabled = true;
+  mostrarMensajeGeneral("Verificando el horario indicado…", "info");
+
+  try {
+    const resultado = await buscarSillonHorarioFijo(
+      datosBasicos.medicoId || datosBasicos.medicoNombre,
+      pacienteSeleccionadoCarga.obraSocial || "",
+      datosBasicos.duracionTotalMinutos,
+      datosBasicos.fecha,
+      horarioManualString,
+      medicosCacheCarga,
+      sedesCacheCarga,
+      turnosExistentes,
+      datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId,
+      bloqueosCacheCarga,
+      soloBackup
+    );
+
+    if (resultado.exito) {
+      await guardarTurnoConHueco(datosBasicos, resultado.hueco, null);
+      return;
+    }
+
+    if (resultado.motivo === "horarioFueraDeSede" || resultado.motivo === "sinSede") {
+      mostrarMensajeGeneral(
+        "Ese horario queda fuera del horario de atención de la sede (o antes de que termine el turno). Elegí un horario dentro del horario de apertura y cierre.",
+        "error"
+      );
+      buscandoHuecos = false;
+      document.getElementById("boton-guardar-turno").disabled = false;
+      return;
+    }
+
+    // motivo === "sinSillon" (o "error"): a esa hora exacta no queda sillón libre — se
+    // ofrece el mismo modal de sobreturno de siempre, pero fijado a este horario puntual
+    // en vez de calcular el próximo espacio libre del día (decisión del handoff de
+    // planificación, Frente 2).
+    mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBackup);
+  } catch (error) {
+    console.error("Error al validar el horario manual:", error);
+    mostrarMensajeGeneral(`Error en la búsqueda: ${error.message}`, "error");
+  } finally {
+    buscandoHuecos = false;
+    document.getElementById("boton-guardar-turno").disabled = false;
+  }
+}
+
+function mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBackup) {
+  let modal = document.getElementById("modal-sobreturno");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-sobreturno";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  const datosConHorario = { ...datosBasicos, horarioManualString, soloBackup };
+  const textoSillon = soloBackup ? "en el sillón backup" : "";
+  const cuerpoHTML = `
+    <p>No hay sillón libre ${textoSillon} justo a las ${horarioManualString} para este turno.</p>
+    <p style="font-size: 14px; color: var(--color-muted);">
+      Se puede cargar igual, como sobreturno fijado a ese horario.
+    </p>
+    <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+      onclick="guardarComoSobreturnoHorarioFijo(${JSON.stringify(datosConHorario).replace(/"/g, '&quot;')})">
+      Cargar igual a las ${horarioManualString}
+    </button>
+    <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar</button>
+  `;
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0; color: #c0504d;">No se puede cargar este turno</h2>
+      ${cuerpoHTML}
+    </div>
+  `;
+
+  modal.style.display = "block";
+  mostrarMensajeGeneral("No se pudo cargar el turno como se pidió.", "error");
+}
+
+// A diferencia de guardarComoSobreturnoSoloBackup (que busca el próximo espacio libre
+// real en el sillón backup), acá el horario ya viene fijado a mano y ese instante puntual
+// ya se confirmó ocupado — forzar igual el número del sillón real duplicaría la ocupación
+// sobre el mismo recurso físico al mismo tiempo. Por eso, igual que el sobreturno fijo sin
+// backup, queda sillon: null (marca administrativa, no reclama ningún sillón físico).
+async function guardarComoSobreturnoHorarioFijo(datosBasicos) {
+  cerrarModalSobreturno();
+
+  const horarioManualString = datosBasicos.horarioManualString;
+  const duracion = datosBasicos.duracionTotalMinutos;
+  const horaFinString = stringDesdeMinuto(minutoDesdeString(horarioManualString) + duracion);
+
+  let sedeIdSobreturno = datosBasicos.sedeId;
+  let sedeNombreSobreturno = datosBasicos.sedeNombre;
+
+  if (datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID) {
+    const sedesCandidatas = await determinarSedesABuscar(
+      MEDICO_OCCHIPINTI_ID,
+      datosBasicos.pacienteObraSocial || "",
+      medicosCacheCarga
+    );
+    sedeIdSobreturno = sedesCandidatas[0];
+    const sedeDoc = sedesCacheCarga.find((s) => s.id === sedeIdSobreturno);
+    sedeNombreSobreturno = sedeDoc ? sedeDoc.nombre : sedeIdSobreturno;
+  }
+
+  const hueco = {
+    sedeId: sedeIdSobreturno,
+    sedeNombre: sedeNombreSobreturno,
+    fecha: datosBasicos.fecha,
+    fechaLegible: formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00")),
+    horaInicio: horarioManualString,
+    horaFin: horaFinString,
+    sillon: null // marca administrativa: el instante pedido ya estaba ocupado, no reclama sillón físico
   };
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
 }

@@ -788,8 +788,13 @@ async function armarArrastreGrilla(estado) {
   const turno = estado.turno;
   const sede = sedesCacheGrilla.find(s => s.id === sedeSeleccionadaGrilla);
   const medicoDoc = medicosCacheGrilla.find(m => m.id === turno.medicoId);
+  // Ronda "mejoras motor", Frente 3: el sillón backup ya no integra el pool automático
+  // (decisión de T0 revertida) — el arrastre solo debe ofrecer como hueco válido un
+  // sillón regular, mismo criterio que la búsqueda automática de turnero-carga.js. Esto
+  // NO afecta a "Modificar" (poblarSelectSillonModificar, más abajo), que a propósito
+  // sigue dejando elegir el backup a mano.
   const sillones = (sede.sillones || [])
-    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .filter(s => s.tipo === "regular")
     .map(s => s.numero);
   // Excluir el turno que se está moviendo del cálculo: si no, chocaría contra sí mismo
   // (conflicto de sillón falso) y su propio tiempo ya usado se contaría dos veces en
@@ -1787,8 +1792,11 @@ async function buscarDisponibilidadGrilla() {
   const fechaElegida = document.getElementById("campo-fecha-consulta-grilla").value;
   const fechaInicioBusqueda = fechaElegida ? fechaDesdeISO(fechaElegida) : fechaDesdeISO(fechaLocalHoy());
 
+  // Ronda "mejoras motor", Frente 3: mismo criterio que armarArrastreGrilla — el backup
+  // ya no integra el pool automático, así que este simulador de disponibilidad tampoco
+  // debe ofrecerlo como si fuera un hueco válido de búsqueda normal.
   const sillones = (sedeDoc.sillones || [])
-    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .filter(s => s.tipo === "regular")
     .map(s => s.numero);
   const turnosEnSede = turnosExistentes.filter(t => t.sedeId === sedeId);
 
