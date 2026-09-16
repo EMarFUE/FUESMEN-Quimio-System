@@ -27,6 +27,11 @@ const OBRA_SOCIAL_POP = "POP - ASOC. COOP HOSP CENTRAL PROG.ESPECIALES";
 const TIPO_SOBRETURNO_SIN_DISPONIBILIDAD = "sinDisponibilidadFisica"; // no había sillón en 10 días
 const TIPO_SOBRETURNO_CUPO = "cupoExcedido"; // había sillón, pero excedía el cupo del médico
 const TIPO_SOBRETURNO_ATADURA = "ataduraDia"; // había sillón, pero el médico no atiende ese día ahí
+// Ronda "mejoras motor" (post T12): franja horaria por médico — había sillón, pero el
+// turno no podía EMPEZAR dentro del rango horario configurado para ese médico (campo
+// franjaHoraria en turneroMedicos). La franja no exige que el turno TERMINE dentro de
+// ella — solo que el médico esté para el inicio; ver evaluarDiaEnSede().
+const TIPO_SOBRETURNO_FRANJA = "franjaHoraria";
 
 // --- Estructura de retorno del motor ---
 // {
@@ -62,6 +67,18 @@ const TIPO_SOBRETURNO_ATADURA = "ataduraDia"; // había sillón, pero el médico
 //     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin }
 //     // huecoDisponible solo si tipo === "confirmable", para cargarlo como sobreturno
 //     // (tipoSobreturno: "ataduraDia") si se confirma.
+//   },
+//   bloqueoFranja?: { // Ronda "mejoras motor": igual que bloqueoAtadura/bloqueoCupo, pero la
+//                     // causa es que el médico tiene franjaHoraria propia y el turno no podía
+//                     // empezar dentro de ella en ningún día de la ventana de 10. Igual que el
+//                     // cupo (no como la atadura): el motor SÍ sigue probando otros días antes
+//                     // de llegar acá.
+//     tipo: "bloqueoTotal" | "confirmable",
+//     medicoId, sedeNombre, fechaLegible,
+//     franjaHorario: { horaInicio, horaFin }, // la franja configurada del médico
+//     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin }
+//     // huecoDisponible solo si tipo === "confirmable", para cargarlo como sobreturno
+//     // (tipoSobreturno: "franjaHoraria") si se confirma.
 //   }
 // }
 
@@ -279,6 +296,7 @@ function evaluarDiaEnSede({
       bloqueadoPorPaciente: true,
       bloqueadoPorAtadura: false, candidatoAtadura: null,
       bloqueadoPorCupo: false, candidatoCupo: null,
+      bloqueadoPorFranja: false, candidatoFranja: null,
       huecos: []
     };
   }
@@ -310,6 +328,7 @@ function evaluarDiaEnSede({
         bloqueadoPorAtadura: true, candidatoAtadura,
         nombreDiaSolicitado: nombreDiaActual, diasAtencionMedico: diasDelMedicoEnSede,
         bloqueadoPorCupo: false, candidatoCupo: null,
+        bloqueadoPorFranja: false, candidatoFranja: null,
         huecos: []
       };
     }
@@ -352,6 +371,7 @@ function evaluarDiaEnSede({
           bloqueadoPorPaciente: false,
           bloqueadoPorAtadura: false, candidatoAtadura: null,
           bloqueadoPorCupo: true, candidatoCupo,
+          bloqueadoPorFranja: false, candidatoFranja: null,
           huecos: []
         };
       }
@@ -360,9 +380,42 @@ function evaluarDiaEnSede({
     }
   }
 
-  // --- Búsqueda continua: recorrer el horario en bloques de GRANO_MINUTOS ---
+  // --- Ronda "mejoras motor": franja horaria por médico. A diferencia de la atadura
+  // (corta la búsqueda entera de ese día) y siguiendo el mismo criterio que el cupo
+  // (nunca corta, solo acota), si el médico tiene un rango horario propio configurado
+  // (franjaHoraria en turneroMedicos), el turno de ESTE día solo puede EMPEZAR dentro
+  // de esa franja — no tiene que terminar dentro de ella. La franja acota dónde puede
+  // ARRANCAR la búsqueda, nunca dónde debe cerrar: el límite real para el final del
+  // turno sigue siendo horaCierreMinutos (el cierre real de la sede), sin intersecar
+  // con la franja. Si ningún inicio posible cae dentro de la franja ese día, el día se
+  // descarta (bloqueadoPorFranja) y quien llama sigue probando los próximos días — no
+  // aplica a "Otro" (sin medicoDoc).
+  let horaAperturaBusqueda = horaAperturaMinutos;
+  let limiteInicioFranja = null; // null = sin restricción de franja; si no, último minuto válido para EMPEZAR
+  let franjaRestringeEsteDia = false;
+  if (medicoDoc && medicoDoc.franjaHoraria &&
+      medicoDoc.franjaHoraria.horaInicio && medicoDoc.franjaHoraria.horaFin) {
+    const inicioFranjaMinutos = minutoDesdeString(medicoDoc.franjaHoraria.horaInicio);
+    const finFranjaMinutos = minutoDesdeString(medicoDoc.franjaHoraria.horaFin);
+    horaAperturaBusqueda = Math.max(horaAperturaMinutos, inicioFranjaMinutos);
+    limiteInicioFranja = finFranjaMinutos;
+    // Solo cuenta como restricción real si de hecho angosta algo: si la franja del
+    // médico ya contiene todo el horario de la sede, no hay nada que acotar y un día
+    // sin huecos es un día sin huecos común, no un caso de franja.
+    franjaRestringeEsteDia = horaAperturaBusqueda > horaAperturaMinutos || limiteInicioFranja < horaCierreMinutos;
+  }
+
+  // --- Búsqueda continua: recorrer el horario (el inicio, acotado por franja si
+  // aplica; el cierre para el CÁLCULO DE AJUSTE y el límite físico de dónde puede
+  // TERMINAR el turno siguen siendo siempre horaCierreMinutos, el cierre real de la
+  // sede, sin acotar por franja) en bloques de GRANO_MINUTOS ---
   const huecos = [];
-  for (let minutoActual = horaAperturaMinutos; minutoActual + duracionNormalizada <= horaCierreMinutos; minutoActual += GRANO_MINUTOS) {
+  for (
+    let minutoActual = horaAperturaBusqueda;
+    minutoActual + duracionNormalizada <= horaCierreMinutos &&
+      (limiteInicioFranja === null || minutoActual <= limiteInicioFranja);
+    minutoActual += GRANO_MINUTOS
+  ) {
     // Intentar colocar el bloque [minutoActual, minutoActual + duracionNormalizada)
     // en cada sillón disponible
     for (const sillon of sillonesDisponibles) {
@@ -408,10 +461,40 @@ function evaluarDiaEnSede({
     }
   }
 
+  // Si la franja restringió dónde podía empezar el turno ese día y no apareció ningún
+  // hueco dentro de ella, el día se descarta (mismo criterio que el cupo: quien llama
+  // sigue con el próximo día). El candidato de sobreturno, cuando corresponde
+  // capturarlo, se busca en el horario REAL de la sede (ignorando la franja a
+  // propósito — es lo que se ofrece como excepción deliberada).
+  if (franjaRestringeEsteDia && huecos.length === 0) {
+    let candidatoFranja = null;
+    if (capturarCandidato) {
+      const probeHueco = encontrarPrimerHuecoFisico(
+        horaAperturaMinutos, horaCierreMinutos, duracionNormalizada, sillonesDisponibles, turnosDelDia
+      );
+      if (probeHueco) {
+        candidatoFranja = {
+          sedeId, sedeNombre, fecha: fechaActualISO,
+          fechaLegible: formatearFechaLegibleMotor(fechaActual),
+          horaInicio: probeHueco.horaInicio, horaFin: probeHueco.horaFin, medicoId,
+          franjaHorario: { horaInicio: medicoDoc.franjaHoraria.horaInicio, horaFin: medicoDoc.franjaHoraria.horaFin }
+        };
+      }
+    }
+    return {
+      bloqueadoPorPaciente: false,
+      bloqueadoPorAtadura: false, candidatoAtadura: null,
+      bloqueadoPorCupo: false, candidatoCupo: null,
+      bloqueadoPorFranja: true, candidatoFranja,
+      huecos: []
+    };
+  }
+
   return {
     bloqueadoPorPaciente: false,
     bloqueadoPorAtadura: false, candidatoAtadura: null,
     bloqueadoPorCupo: false, candidatoCupo: null,
+    bloqueadoPorFranja: false, candidatoFranja: null,
     huecos
   };
 }
@@ -449,6 +532,7 @@ async function buscarHuecosEnSede(
   const huecos = [];
   let candidatoCupoExcedido = null;
   let candidatoAtaduraExcedida = null;
+  let candidatoFranjaExcedida = null;
   let bloqueadoPorPacienteMismoDia = false;
   const horaAperturaMinutos = minutoDesdeString(horaAperturaString);
   const horaCierreMinutos = minutoDesdeString(horaCierreString);
@@ -511,7 +595,7 @@ async function buscarHuecosEnSede(
     if (resultadoDia.bloqueadoPorPaciente) {
       if (diasDesde === 0) {
         bloqueadoPorPacienteMismoDia = true;
-        return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia };
+        return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, candidatoFranjaExcedida, bloqueadoPorPacienteMismoDia };
       }
       continue;
     }
@@ -523,7 +607,7 @@ async function buscarHuecosEnSede(
     if (resultadoDia.bloqueadoPorAtadura) {
       if (diasDesde === 0) {
         if (resultadoDia.candidatoAtadura) candidatoAtaduraExcedida = resultadoDia.candidatoAtadura;
-        return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia };
+        return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, candidatoFranjaExcedida, bloqueadoPorPacienteMismoDia };
       }
       continue;
     }
@@ -532,6 +616,13 @@ async function buscarHuecosEnSede(
     // probando los siguientes dentro de la ventana de TOPE_DIAS_BUSQUEDA.
     if (resultadoDia.bloqueadoPorCupo) {
       if (diasDesde === 0 && resultadoDia.candidatoCupo) candidatoCupoExcedido = resultadoDia.candidatoCupo;
+      continue;
+    }
+
+    // Franja horaria del médico (ronda "mejoras motor"): mismo criterio que el cupo,
+    // nunca corta la búsqueda entera, solo saltea este día puntual.
+    if (resultadoDia.bloqueadoPorFranja) {
+      if (diasDesde === 0 && resultadoDia.candidatoFranja) candidatoFranjaExcedida = resultadoDia.candidatoFranja;
       continue;
     }
 
@@ -549,7 +640,7 @@ async function buscarHuecosEnSede(
   // Ordenar por mejor ajuste (menos tiempo desperdiciado)
   huecos.sort((a, b) => a.tiempoDesaprovechadoMinutos - b.tiempoDesaprovechadoMinutos);
 
-  return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia };
+  return { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, candidatoFranjaExcedida, bloqueadoPorPacienteMismoDia };
 }
 
 // --- Búsqueda semanal de huecos por sede (T6 Fase 3: grilla con arrastre) ---
@@ -603,7 +694,8 @@ async function buscarHuecosSemanaEnSede(
 
     if (!diasAtencion.includes(nombreDiaActual)) {
       resultadoPorDia[fechaActualISO] = {
-        atiende: false, bloqueadoPorPaciente: false, bloqueadoPorAtadura: false, bloqueadoPorCupo: false, huecos: []
+        atiende: false, bloqueadoPorPaciente: false, bloqueadoPorAtadura: false, bloqueadoPorCupo: false,
+        bloqueadoPorFranja: false, huecos: []
       };
       continue;
     }
@@ -633,6 +725,7 @@ async function buscarHuecosSemanaEnSede(
       bloqueadoPorPaciente: resultadoDia.bloqueadoPorPaciente,
       bloqueadoPorAtadura: resultadoDia.bloqueadoPorAtadura,
       bloqueadoPorCupo: resultadoDia.bloqueadoPorCupo,
+      bloqueadoPorFranja: resultadoDia.bloqueadoPorFranja,
       huecos: resultadoDia.huecos
     };
   }
@@ -696,13 +789,23 @@ async function buscarHuecos(
   cuposCacheLectura, // T4: array de docs de turneroCupos (opcional; si no se pasa, sin cupo)
   pacienteId, // opcional: id del paciente, para la regla "un turno por día" (transversal a sedes)
   turnoIdExcluir, // opcional: id del propio turno a excluir del chequeo (uso: reasignación)
-  bloqueosCacheLectura // T9: array de docs de turneroBloqueos, activos, cualquier sede (opcional)
+  bloqueosCacheLectura, // T9: array de docs de turneroBloqueos, activos, cualquier sede (opcional)
+  soloSillonTipo // Ronda "mejoras motor", Frente 3: null/undefined (default, búsqueda normal,
+                 // solo sillones "regular" — el backup ya NO integra el pool automático) o
+                 // "backup" — restringe la búsqueda a ese único tipo de sillón e IGNORA
+                 // atadura/cupo/franja a propósito (se fuerza medicoDoc a null más abajo, que
+                 // es lo que ya hace que esas tres reglas nunca se evalúen — mismo mecanismo
+                 // que ya usa "Otro"). Se usa desde el checkbox dedicado de "sillón backup".
 ) {
   // Retorna la estructura de resultado del motor.
 
   try {
     // 0. T4: resolver el doc del médico (si existe una ficha propia — "Otro" no tiene).
-    const medicoDoc = (medicosCacheLectura || []).find(m => m.id === medicoId);
+    // Frente 3 (backup): se fuerza a null a propósito — atadura, cupo y franja horaria
+    // están todas gateadas en `medicoDoc` truthy dentro de evaluarDiaEnSede, así que
+    // esto alcanza para que ninguna de las tres se evalúe en este modo, sin duplicar
+    // esa lógica acá.
+    const medicoDoc = soloSillonTipo ? null : (medicosCacheLectura || []).find(m => m.id === medicoId);
 
     // 0.5: regla nueva — un mismo paciente no puede tener más de un turno activo el
     // mismo día, en ninguna sede. Se calcula una sola vez con TODOS los turnos
@@ -730,6 +833,7 @@ async function buscarHuecos(
     const todosLosHuecos = [];
     let candidatoCupoExcedidoGlobal = null;
     let candidatoAtaduraExcedidoGlobal = null;
+    let candidatoFranjaExcedidoGlobal = null;
     let bloqueadoPorPacienteGlobal = false;
 
     for (const sedeId of sedesABuscar) {
@@ -743,8 +847,13 @@ async function buscarHuecos(
       const horaApertura = sedeDoc.horaApertura;
       const horaCierre = sedeDoc.horaCierre;
       const diasAtencion = sedeDoc.diasAtencion || [];
+      // Ronda "mejoras motor", Frente 3: el sillón backup ya NO integra el pool
+      // automático por defecto (antes contaba igual que uno regular, decisión de T0
+      // revertida explícitamente por Elías). soloSillonTipo restringe a un único tipo
+      // puntual — hoy solo se usa con "backup" (checkbox dedicado), pero queda genérico
+      // por si hace falta algún otro tipo de sillón especial más adelante.
       const sillones = (sedeDoc.sillones || [])
-        .filter(s => s.tipo === "regular" || s.tipo === "backup")
+        .filter(s => soloSillonTipo ? s.tipo === soloSillonTipo : s.tipo === "regular")
         .map(s => s.numero);
       const usaAtaduraDia = sedeDoc.usaAtaduraDia === true;
       const usaCuposPorcentaje = sedeDoc.usaCuposPorcentaje === true;
@@ -780,6 +889,9 @@ async function buscarHuecos(
       }
       if (!candidatoAtaduraExcedidoGlobal && resultadoSede.candidatoAtaduraExcedida) {
         candidatoAtaduraExcedidoGlobal = resultadoSede.candidatoAtaduraExcedida;
+      }
+      if (!candidatoFranjaExcedidoGlobal && resultadoSede.candidatoFranjaExcedida) {
+        candidatoFranjaExcedidoGlobal = resultadoSede.candidatoFranjaExcedida;
       }
 
       todosLosHuecos.push(...huecos);
@@ -908,6 +1020,51 @@ async function buscarHuecos(
       };
     }
 
+    // Ronda "mejoras motor", Frente 1: franja horaria del médico — había sillón, pero
+    // el turno no podía empezar dentro del rango horario configurado para él en ningún
+    // día de la ventana de 10. Mismo patrón que cupo/atadura arriba: bloqueoTotal sin
+    // opción de forzar para el rol médico, confirmable con sobreturno para
+    // enfermería/administrador.
+    if (candidatoFranjaExcedidoGlobal) {
+      if (esRolMedico) {
+        return {
+          exito: false,
+          bloqueoFranja: {
+            tipo: "bloqueoTotal",
+            medicoId: candidatoFranjaExcedidoGlobal.medicoId,
+            sedeNombre: candidatoFranjaExcedidoGlobal.sedeNombre,
+            fechaLegible: candidatoFranjaExcedidoGlobal.fechaLegible,
+            franjaHorario: candidatoFranjaExcedidoGlobal.franjaHorario
+          },
+          sinHuecosMotivo: "Ha alcanzado el límite máximo de pacientes para este día.",
+          sedesIntentadas: sedesABuscar,
+          diasBuscados: TOPE_DIAS_BUSQUEDA
+        };
+      }
+
+      return {
+        exito: false,
+        bloqueoFranja: {
+          tipo: "confirmable",
+          medicoId: candidatoFranjaExcedidoGlobal.medicoId,
+          sedeNombre: candidatoFranjaExcedidoGlobal.sedeNombre,
+          fechaLegible: candidatoFranjaExcedidoGlobal.fechaLegible,
+          franjaHorario: candidatoFranjaExcedidoGlobal.franjaHorario,
+          huecoDisponible: {
+            sedeId: candidatoFranjaExcedidoGlobal.sedeId,
+            sedeNombre: candidatoFranjaExcedidoGlobal.sedeNombre,
+            fecha: candidatoFranjaExcedidoGlobal.fecha,
+            fechaLegible: candidatoFranjaExcedidoGlobal.fechaLegible,
+            horaInicio: candidatoFranjaExcedidoGlobal.horaInicio,
+            horaFin: candidatoFranjaExcedidoGlobal.horaFin
+          }
+        },
+        sinHuecosMotivo: `El médico solo atiende de ${candidatoFranjaExcedidoGlobal.franjaHorario.horaInicio} a ${candidatoFranjaExcedidoGlobal.franjaHorario.horaFin} y no hay ningún inicio posible dentro de ese horario el ${candidatoFranjaExcedidoGlobal.fechaLegible}.`,
+        sedesIntentadas: sedesABuscar,
+        diasBuscados: TOPE_DIAS_BUSQUEDA
+      };
+    }
+
     return {
       exito: false,
       sinHuecosMotivo: `No hay lugar disponible dentro de ${TOPE_DIAS_BUSQUEDA} días.`,
@@ -986,6 +1143,23 @@ function validarHuecoEspecificoEnSede({
     }
   }
 
+  // --- Ronda "mejoras motor", Frente 1: franja horaria del médico. Igual criterio que
+  // evaluarDiaEnSede: la franja solo exige que el turno EMPIECE dentro de ella — no que
+  // termine ahí. Acá el candidato ya es puntual (Modificar no busca, para eso está
+  // Reasignar), así que solo se valida horaInicioMinutos contra la franja; el límite
+  // para el final del turno ya quedó cubierto arriba por el chequeo general de horario
+  // de sede (horaFinMinutos > horaCierreMinutos), sin intersecar con la franja. ---
+  if (medicoDoc && medicoDoc.franjaHoraria && medicoDoc.franjaHoraria.horaInicio && medicoDoc.franjaHoraria.horaFin) {
+    const inicioFranjaMinutos = minutoDesdeString(medicoDoc.franjaHoraria.horaInicio);
+    const finFranjaMinutos = minutoDesdeString(medicoDoc.franjaHoraria.horaFin);
+    if (horaInicioMinutos < inicioFranjaMinutos || horaInicioMinutos > finFranjaMinutos) {
+      return {
+        valido: false, motivo: "franja",
+        franjaHorario: { horaInicio: medicoDoc.franjaHoraria.horaInicio, horaFin: medicoDoc.franjaHoraria.horaFin }
+      };
+    }
+  }
+
   // --- T9: bloqueo vigente sobre el sillón elegido. Solo aplica si se eligió un sillón
   // físico real (sillon != null) — "sin asignar (sobreturno)" no reclama ningún recurso
   // físico, así que no hay nada que un bloqueo pueda chocar acá. Se reutiliza el mismo
@@ -1042,8 +1216,14 @@ function validarModificacionTurno(
   const diasEnEspanol = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
   const nombreDiaActual = diasEnEspanol[dayIndex];
 
+  // Ronda "mejoras motor", Frente 3: sillonesDisponibles acá solo alimenta el cálculo
+  // del cupo por porcentaje (totalMinutosSede, dentro de validarHuecoEspecificoEnSede) —
+  // el sillón backup ya no cuenta ahí, mismo criterio que en buscarHuecos(). Esto NO
+  // decide qué sillón se puede elegir en "Modificar" (eso sigue siendo
+  // poblarSelectSillonModificar, en turnero-grilla.js, que a propósito sigue ofreciendo
+  // el backup como elección manual — precedente ya existente desde T7).
   const sillonesDisponibles = (sedeDoc.sillones || [])
-    .filter(s => s.tipo === "regular" || s.tipo === "backup")
+    .filter(s => s.tipo === "regular")
     .map(s => s.numero);
   const turnosExistentesEnSede = (turnosExistentes || []).filter(t => t.sedeId === sedeId);
 
@@ -1065,6 +1245,120 @@ function validarModificacionTurno(
   });
 }
 
+// --- Ronda "mejoras motor", Frente 2: horario manual (exclusivo administrador) ---
+//
+// A diferencia de buscarHuecos (que recorre hasta 10 días buscando el mejor ajuste),
+// esta función valida UN horario fijo, elegido a mano, y solo decide qué sillón
+// conviene usar a esa hora exacta (mismo criterio de "mejor ajuste" que la búsqueda
+// normal, pero acotado a un único instante en vez de barrer el día entero). Pasa por
+// encima de atadura, cupo y franja horaria a propósito — nunca pasa por encima de:
+// sillón físicamente libre a esa hora, bloqueos vigentes, ni el horario de
+// apertura/cierre de la sede (eso se valida ANTES de intentar nada, sede por sede).
+//
+// soloBackup (Frente 3 combinado con Frente 2): si viene en true, restringe la
+// búsqueda de sillón al tipo "backup" en vez del pool regular — mismo criterio que
+// soloSillonTipo en buscarHuecos().
+async function buscarSillonHorarioFijo(
+  medicoId, obraSocialPaciente, duracionMinutos, fechaISOFija, horaInicioString,
+  medicosCacheLectura, sedesCacheLectura, turnosExistentes, sedeIdManual,
+  bloqueosCacheLectura, soloBackup
+) {
+  try {
+    const sedesABuscar = sedeIdManual
+      ? [sedeIdManual]
+      : await determinarSedesABuscar(medicoId, obraSocialPaciente, medicosCacheLectura);
+
+    if (sedesABuscar.length === 0) {
+      return { exito: false, motivo: "sinSede" };
+    }
+
+    const horaInicioMinutos = minutoDesdeString(horaInicioString);
+    const horaFinMinutos = horaInicioMinutos + duracionMinutos;
+    let huboSedeConHorarioValido = false;
+    let primeraSedeConHorarioValido = null;
+
+    // Se prueban TODAS las sedes candidatas (no se corta en la primera): con horario
+    // manual, quien carga ya sabe qué sede quiere — esto solo importa para el caso
+    // Occhipinti/médicos con más de una sede posible.
+    for (const sedeId of sedesABuscar) {
+      const sedeDoc = sedesCacheLectura.find(s => s.id === sedeId);
+      if (!sedeDoc) continue;
+
+      const horaAperturaMinutos = minutoDesdeString(sedeDoc.horaApertura);
+      const horaCierreMinutos = minutoDesdeString(sedeDoc.horaCierre);
+
+      if (horaInicioMinutos < horaAperturaMinutos || horaFinMinutos > horaCierreMinutos) {
+        continue; // fuera del horario de esta sede — probar la siguiente candidata, si hay
+      }
+      huboSedeConHorarioValido = true;
+      if (!primeraSedeConHorarioValido) primeraSedeConHorarioValido = sedeId;
+
+      const sillones = (sedeDoc.sillones || [])
+        .filter(s => soloBackup ? s.tipo === "backup" : s.tipo === "regular")
+        .map(s => s.numero);
+
+      const turnosDelDiaReales = turnosExistentes.filter(t =>
+        t.sedeId === sedeId && t.fecha === fechaISOFija &&
+        typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
+      );
+      const turnosDelDia = bloqueosCacheLectura
+        ? [...turnosDelDiaReales, ...pseudoTurnosBloqueoEnFecha(
+            bloqueosCacheLectura, sedeId, fechaISOFija, sillones, sedeDoc.horaApertura, sedeDoc.horaCierre
+          )]
+        : turnosDelDiaReales;
+
+      // "Mejor ajuste" para un único instante: mismo criterio que la búsqueda continua
+      // de evaluarDiaEnSede, pero probando solo este minuto en cada sillón en vez de
+      // recorrer todo el día.
+      let mejorSillon = null;
+      let mejorTiempoDesaprovechado = Infinity;
+      for (const sillon of sillones) {
+        const tieneConflicto = turnosDelDia.some(t => {
+          if (t.sillon !== sillon) return false;
+          const inicio = minutoDesdeString(t.horarioInicio);
+          const fin = minutoDesdeString(t.horarioFin);
+          return horaInicioMinutos < fin && horaFinMinutos > inicio;
+        });
+        if (tieneConflicto) continue;
+
+        const proximosInicioEnEsteSillon = turnosDelDia
+          .filter(t => t.sillon === sillon)
+          .map(t => minutoDesdeString(t.horarioInicio))
+          .filter(inicio => inicio >= horaFinMinutos);
+        const proximoEvento = proximosInicioEnEsteSillon.length > 0
+          ? Math.min(...proximosInicioEnEsteSillon)
+          : horaCierreMinutos;
+        const tiempoDesaprovechado = proximoEvento - horaFinMinutos;
+
+        if (tiempoDesaprovechado < mejorTiempoDesaprovechado) {
+          mejorTiempoDesaprovechado = tiempoDesaprovechado;
+          mejorSillon = sillon;
+        }
+      }
+
+      if (mejorSillon != null) {
+        return {
+          exito: true,
+          hueco: {
+            sedeId, sedeNombre: sedeDoc.nombre, fecha: fechaISOFija,
+            fechaLegible: formatearFechaLegibleMotor(fechaDesdeISO(fechaISOFija)),
+            horaInicio: horaInicioString, horaFin: stringDesdeMinuto(horaFinMinutos),
+            sillon: mejorSillon
+          }
+        };
+      }
+    }
+
+    if (!huboSedeConHorarioValido) {
+      return { exito: false, motivo: "horarioFueraDeSede", sedeId: sedesABuscar[0] || null };
+    }
+    return { exito: false, motivo: "sinSillon", sedeId: primeraSedeConHorarioValido };
+  } catch (error) {
+    console.error("Error en buscarSillonHorarioFijo:", error);
+    return { exito: false, motivo: "error", error: error.message };
+  }
+}
+
 // --- Para testeo en consola ---
 // Exportar funciones si estamos en Node (para testing), pero evitar errores en navegador
 if (typeof module !== "undefined" && module.exports) {
@@ -1080,6 +1374,7 @@ if (typeof module !== "undefined" && module.exports) {
     pseudoTurnosBloqueoEnFecha,
     validarHuecoEspecificoEnSede,
     validarModificacionTurno,
+    buscarSillonHorarioFijo,
     minutoDesdeString,
     stringDesdeMinuto,
     fechaDesdeISO,
@@ -1090,6 +1385,7 @@ if (typeof module !== "undefined" && module.exports) {
     TOPE_DIAS_BUSQUEDA,
     TIPO_SOBRETURNO_CUPO,
     TIPO_SOBRETURNO_SIN_DISPONIBILIDAD,
-    TIPO_SOBRETURNO_ATADURA
+    TIPO_SOBRETURNO_ATADURA,
+    TIPO_SOBRETURNO_FRANJA
   };
 }
