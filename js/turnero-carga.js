@@ -1252,13 +1252,13 @@ function mostrarSobreturnoFisico(resultadoBusqueda, datosBasicos) {
     // Ronda "mejoras motor", Frente 3: la búsqueda se restringió al sillón backup — el
     // mensaje y la acción son específicos de ese único sillón, no del resto de la sede.
     cuerpoHTML = `
-      <p>No hay lugar en el sillón backup para este turno dentro de los próximos 10 días.</p>
+      <p>No hay lugar en el puesto para inyectables para este turno dentro de los próximos 10 días.</p>
       <p style="font-size: 14px; color: var(--color-muted);">
-        Se puede cargar igual, forzado a ese sillón.
+        Se puede cargar igual, forzado a ese puesto.
       </p>
       <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
         onclick="guardarComoSobreturnoSoloBackup(${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
-        Cargar igual en el sillón backup
+        Cargar igual en el puesto para inyectables
       </button>
       <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar (elegir otra fecha)</button>
     `;
@@ -1694,7 +1694,7 @@ async function guardarComoSobreturnoSoloBackup(datosBasicos) {
     : null;
 
   if (!sedeDocParaHorario || !sillonBackup) {
-    mostrarMensajeGeneral("Esta sede no tiene un sillón backup configurado.", "error");
+    mostrarMensajeGeneral("Esta sede no tiene un puesto para inyectables configurado.", "error");
     document.getElementById("boton-guardar-turno").disabled = false;
     return;
   }
@@ -1801,7 +1801,7 @@ function mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBac
   }
 
   const datosConHorario = { ...datosBasicos, horarioManualString, soloBackup };
-  const textoSillon = soloBackup ? "en el sillón backup" : "";
+  const textoSillon = soloBackup ? "en el puesto para inyectables" : "";
   const cuerpoHTML = `
     <p>No hay sillón libre ${textoSillon} justo a las ${horarioManualString} para este turno.</p>
     <p style="font-size: 14px; color: var(--color-muted);">
