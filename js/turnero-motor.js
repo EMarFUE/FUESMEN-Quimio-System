@@ -1501,20 +1501,34 @@ function calcularReacomodoSillones(horaInicioCandidato, horaFinCandidato, turnos
 // Envoltorio de alto nivel: intenta primero buscarHuecos() tal cual (sin tocar nada), y
 // solo si falla por falta de disponibilidad FÍSICA (nunca si la causa es atadura, cupo,
 // franja o el bloqueo por paciente — el reacomodo de sillones no puede arreglar ninguna
-// de esas reglas), prueba si reacomodando sillones de turnos de la fecha originalmente
-// pedida entraría. Deliberadamente NO reintenta en los otros días de la ventana de 10:
-// el reacomodo es una respuesta puntual a "hoy no entra pero podría entrar", no una
-// segunda búsqueda de varios días.
+// de esas reglas), prueba si reacomodando sillones de turnos entraría.
+//
+// Por defecto (probarDiasPosteriores falsy) solo prueba la fecha originalmente pedida —
+// respuesta puntual a "hoy no entra pero podría entrar", pensada para dispararse sola
+// dentro de la búsqueda automática y ofrecerse en un cartel de confirmación (nunca se
+// aplica sin que la persona lo confirme a mano: el reacomodo mueve turnos de OTROS
+// pacientes, aunque solo de sillón, nunca de horario).
+//
+// probarDiasPosteriores=true: en vez de la fecha pedida, recorre los días 1 a
+// TOPE_DIAS_BUSQUEDA (nunca repite el día 0 — si se llega a pasar este flag en true es
+// porque el día 0 ya se probó aparte y no alcanzó) con el mismo criterio de reacomodo,
+// uno por uno, devolviendo el primer día donde encuentre solución. Pensada para cuando
+// ni siquiera reacomodando sillones entra en la fecha pedida (ahí sí haría falta mover
+// el HORARIO de otro turno para que entre, algo que este mecanismo nunca hace) — la
+// persona puede entonces pedir "dar el turno en una fecha posterior", que es este modo.
 //
 // turnosNoReacomodablesIds: ids de turnosExistentes que el llamador decide que NO se
-// pueden recolorear (por ejemplo, turnos ya atendidos) — todo lo demás de esa sede/fecha
-// se considera reacomodable. Si no se pasa, se asume que no hay ninguno protegido más
-// allá de lo que ya es fijo por naturaleza (bloqueos administrativos, siempre fijos).
+// pueden recolorear (por ejemplo, turnos cuyo horarioFin ya pasó respecto de la hora
+// actual) — todo lo demás de esa sede/fecha se considera reacomodable. Si no se pasa, se
+// asume que no hay ninguno protegido más allá de lo que ya es fijo por naturaleza
+// (bloqueos administrativos, siempre fijos). Se aplica igual en cualquiera de los dos
+// modos — en la práctica solo protege algo cuando la fecha evaluada es HOY, ya que un
+// turno en una fecha futura nunca puede tener el horarioFin ya pasado.
 async function buscarHuecosConReacomodo(
   medicoId, obraSocialPaciente, duracionMinutos, fechaSolicitadaISO,
   medicosCacheLectura, sedesCacheLectura, turnosExistentes, esRolMedico,
   sedeIdManual, cuposCacheLectura, pacienteId, turnoIdExcluir,
-  bloqueosCacheLectura, soloSillonTipo, turnosNoReacomodablesIds
+  bloqueosCacheLectura, soloSillonTipo, turnosNoReacomodablesIds, probarDiasPosteriores
 ) {
   const resultadoNormal = await buscarHuecos(
     medicoId, obraSocialPaciente, duracionMinutos, fechaSolicitadaISO,
@@ -1540,91 +1554,103 @@ async function buscarHuecosConReacomodo(
       : await determinarSedesABuscar(medicoId, obraSocialPaciente, medicosCacheLectura);
     const diasBloqueadosPaciente = diasBloqueadosPorPaciente(pacienteId, turnosExistentes, turnoIdExcluir);
     const idsNoReacomodables = new Set(turnosNoReacomodablesIds || []);
-    const fechaActual = fechaDesdeISO(fechaSolicitadaISO);
-    const dayIndex = fechaActual.getDay();
     const diasEnEspanol = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-    const nombreDiaActual = diasEnEspanol[dayIndex];
 
-    for (const sedeId of sedesABuscar) {
-      const sedeDoc = (sedesCacheLectura || []).find(s => s.id === sedeId);
-      if (!sedeDoc) continue;
-      if (!(sedeDoc.diasAtencion || []).includes(nombreDiaActual)) continue;
+    const diasDesdeARecorrer = probarDiasPosteriores
+      ? Array.from({ length: TOPE_DIAS_BUSQUEDA }, (_, i) => i + 1) // 1..TOPE_DIAS_BUSQUEDA
+      : [0];
 
-      const horaAperturaMinutos = minutoDesdeString(sedeDoc.horaApertura);
-      const horaCierreMinutos = minutoDesdeString(sedeDoc.horaCierre);
-      const duracionNormalizada = Math.ceil(duracionMinutos / GRANO_MINUTOS) * GRANO_MINUTOS;
-      const sillones = (sedeDoc.sillones || [])
-        .filter(s => soloSillonTipo ? s.tipo === soloSillonTipo : s.tipo === "regular")
-        .map(s => s.numero);
+    for (const diasDesde of diasDesdeARecorrer) {
+      const fechaActual = fechaDesdeISO(fechaSolicitadaISO);
+      fechaActual.setDate(fechaActual.getDate() + diasDesde);
+      const fechaActualISO = fechaISO(fechaActual);
+      const dayIndex = fechaActual.getDay();
+      const nombreDiaActual = diasEnEspanol[dayIndex];
 
-      const turnosEnSede = (turnosExistentes || []).filter(t => t.sedeId === sedeId);
-      const turnosDelDiaReales = turnosEnSede.filter(t =>
-        t.fecha === fechaSolicitadaISO &&
-        typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
-      );
-      const turnosDelDia = bloqueosCacheLectura
-        ? [...turnosDelDiaReales, ...pseudoTurnosBloqueoEnFecha(
-            bloqueosCacheLectura, sedeId, fechaSolicitadaISO, sillones, sedeDoc.horaApertura, sedeDoc.horaCierre
-          )]
-        : turnosDelDiaReales;
+      for (const sedeId of sedesABuscar) {
+        const sedeDoc = (sedesCacheLectura || []).find(s => s.id === sedeId);
+        if (!sedeDoc) continue;
+        if (!(sedeDoc.diasAtencion || []).includes(nombreDiaActual)) continue;
 
-      // Gating de paciente/atadura/cupo para este día puntual: se reutiliza
-      // evaluarDiaEnSede tal cual, sin tocarla ni duplicar su lógica — si alguna de
-      // esas reglas bloquea el día, el reacomodo de sillones no tiene nada que hacer acá.
-      const gating = evaluarDiaEnSede({
-        sedeId, sedeNombre: sedeDoc.nombre, fechaActual, fechaActualISO: fechaSolicitadaISO, nombreDiaActual,
-        horaAperturaMinutos, horaCierreMinutos, duracionMinutos, duracionNormalizada,
-        turnosDelDia, turnosExistentesEnSede: turnosEnSede, sillonesDisponibles: sillones,
-        medicoId, medicoDoc,
-        usaAtaduraDia: sedeDoc.usaAtaduraDia === true, usaCuposPorcentaje: sedeDoc.usaCuposPorcentaje === true,
-        cuposCacheLectura, diasBloqueadosPaciente, capturarCandidato: false
-      });
-      if (gating.bloqueadoPorPaciente || gating.bloqueadoPorAtadura || gating.bloqueadoPorCupo) continue;
+        const horaAperturaMinutos = minutoDesdeString(sedeDoc.horaApertura);
+        const horaCierreMinutos = minutoDesdeString(sedeDoc.horaCierre);
+        const duracionNormalizada = Math.ceil(duracionMinutos / GRANO_MINUTOS) * GRANO_MINUTOS;
+        const sillones = (sedeDoc.sillones || [])
+          .filter(s => soloSillonTipo ? s.tipo === soloSillonTipo : s.tipo === "regular")
+          .map(s => s.numero);
 
-      let horaAperturaBusqueda = horaAperturaMinutos;
-      let limiteInicioFranja = null;
-      if (medicoDoc && medicoDoc.franjaHoraria && medicoDoc.franjaHoraria.horaInicio && medicoDoc.franjaHoraria.horaFin) {
-        horaAperturaBusqueda = Math.max(horaAperturaMinutos, minutoDesdeString(medicoDoc.franjaHoraria.horaInicio));
-        limiteInicioFranja = minutoDesdeString(medicoDoc.franjaHoraria.horaFin);
-      }
-
-      const turnosRealesFijos = turnosDelDiaReales.filter(t => idsNoReacomodables.has(t.id));
-      const turnosRealesReacomodables = turnosDelDiaReales.filter(t => !idsNoReacomodables.has(t.id));
-      const pseudoTurnosBloqueo = turnosDelDia.filter(t => t.esBloqueo);
-      const todosLosFijos = [...turnosRealesFijos, ...pseudoTurnosBloqueo];
-
-      for (
-        let minutoActual = horaAperturaBusqueda;
-        minutoActual + duracionNormalizada <= horaCierreMinutos &&
-          (limiteInicioFranja === null || minutoActual <= limiteInicioFranja);
-        minutoActual += GRANO_MINUTOS
-      ) {
-        const reacomodo = calcularReacomodoSillones(
-          minutoActual, minutoActual + duracionNormalizada, todosLosFijos, turnosRealesReacomodables, sillones
+        const turnosEnSede = (turnosExistentes || []).filter(t => t.sedeId === sedeId);
+        const turnosDelDiaReales = turnosEnSede.filter(t =>
+          t.fecha === fechaActualISO &&
+          typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
         );
-        if (reacomodo) {
-          return {
-            exito: true,
-            huecosEncontrados: [{
-              sedeId, sedeNombre: sedeDoc.nombre, fecha: fechaSolicitadaISO,
-              fechaLegible: formatearFechaLegibleMotor(fechaActual),
-              horaInicio: stringDesdeMinuto(minutoActual),
-              horaFin: stringDesdeMinuto(minutoActual + duracionNormalizada),
-              duracionMinutos: duracionNormalizada,
-              sillon: reacomodo.sillonCandidato
-            }],
-            sedesIntentadas: [sedeId],
-            diasBuscados: 0,
-            reacomodo: {
-              cambios: reacomodo.cambios // [{ turnoId, sillonAnterior, sillonNuevo }] — solo sillón, nunca horario/fecha
-            }
-          };
+        const turnosDelDia = bloqueosCacheLectura
+          ? [...turnosDelDiaReales, ...pseudoTurnosBloqueoEnFecha(
+              bloqueosCacheLectura, sedeId, fechaActualISO, sillones, sedeDoc.horaApertura, sedeDoc.horaCierre
+            )]
+          : turnosDelDiaReales;
+
+        // Gating de paciente/atadura/cupo para este día puntual: se reutiliza
+        // evaluarDiaEnSede tal cual, sin tocarla ni duplicar su lógica — si alguna de
+        // esas reglas bloquea el día, el reacomodo de sillones no tiene nada que hacer
+        // acá, sea el día pedido o uno posterior.
+        const gating = evaluarDiaEnSede({
+          sedeId, sedeNombre: sedeDoc.nombre, fechaActual, fechaActualISO, nombreDiaActual,
+          horaAperturaMinutos, horaCierreMinutos, duracionMinutos, duracionNormalizada,
+          turnosDelDia, turnosExistentesEnSede: turnosEnSede, sillonesDisponibles: sillones,
+          medicoId, medicoDoc,
+          usaAtaduraDia: sedeDoc.usaAtaduraDia === true, usaCuposPorcentaje: sedeDoc.usaCuposPorcentaje === true,
+          cuposCacheLectura, diasBloqueadosPaciente, capturarCandidato: false
+        });
+        if (gating.bloqueadoPorPaciente || gating.bloqueadoPorAtadura || gating.bloqueadoPorCupo) continue;
+
+        let horaAperturaBusqueda = horaAperturaMinutos;
+        let limiteInicioFranja = null;
+        if (medicoDoc && medicoDoc.franjaHoraria && medicoDoc.franjaHoraria.horaInicio && medicoDoc.franjaHoraria.horaFin) {
+          horaAperturaBusqueda = Math.max(horaAperturaMinutos, minutoDesdeString(medicoDoc.franjaHoraria.horaInicio));
+          limiteInicioFranja = minutoDesdeString(medicoDoc.franjaHoraria.horaFin);
+        }
+
+        const turnosRealesFijos = turnosDelDiaReales.filter(t => idsNoReacomodables.has(t.id));
+        const turnosRealesReacomodables = turnosDelDiaReales.filter(t => !idsNoReacomodables.has(t.id));
+        const pseudoTurnosBloqueo = turnosDelDia.filter(t => t.esBloqueo);
+        const todosLosFijos = [...turnosRealesFijos, ...pseudoTurnosBloqueo];
+
+        for (
+          let minutoActual = horaAperturaBusqueda;
+          minutoActual + duracionNormalizada <= horaCierreMinutos &&
+            (limiteInicioFranja === null || minutoActual <= limiteInicioFranja);
+          minutoActual += GRANO_MINUTOS
+        ) {
+          const reacomodo = calcularReacomodoSillones(
+            minutoActual, minutoActual + duracionNormalizada, todosLosFijos, turnosRealesReacomodables, sillones
+          );
+          if (reacomodo) {
+            return {
+              exito: true,
+              huecosEncontrados: [{
+                sedeId, sedeNombre: sedeDoc.nombre, fecha: fechaActualISO,
+                fechaLegible: formatearFechaLegibleMotor(fechaActual),
+                horaInicio: stringDesdeMinuto(minutoActual),
+                horaFin: stringDesdeMinuto(minutoActual + duracionNormalizada),
+                duracionMinutos: duracionNormalizada,
+                sillon: reacomodo.sillonCandidato
+              }],
+              sedesIntentadas: [sedeId],
+              diasBuscados: diasDesde,
+              reacomodo: {
+                cambios: reacomodo.cambios // [{ turnoId, sillonAnterior, sillonNuevo }] — solo sillón, nunca horario/fecha
+              }
+            };
+          }
         }
       }
     }
 
-    // Ni reacomodando entra: se informa la falta de lugar tal como la calculó
-    // buscarHuecos(), sin proponer ningún cambio.
+    // Ni reacomodando entra (ni ese día, ni — si se pidió — en los días posteriores): se
+    // informa la falta de lugar tal como la calculó buscarHuecos(), sin proponer ningún
+    // cambio. A partir de acá, si hace falta lugar, la única vía es mover HORARIOS de
+    // otros turnos a mano — este mecanismo nunca lo hace.
     return { ...resultadoNormal, reacomodo: null };
   } catch (error) {
     console.error("Error en buscarHuecosConReacomodo:", error);

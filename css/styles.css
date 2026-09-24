@@ -1330,6 +1330,18 @@ h1 {
   color: #274a08;
 }
 
+/* Ronda "reacomodo automático de sillones": indicador discreto de que este turno cambió
+   de sillón solo, sin que nadie lo haya tocado a mano — mismo criterio de tamaño/forma
+   que .badge-sillon-grilla, para no competir visualmente con él. */
+.badge-reacomodo-grilla {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--color-muted);
+  cursor: help;
+}
+
 .apellido-turno-grilla {
   white-space: nowrap;
   overflow: hidden;

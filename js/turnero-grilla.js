@@ -575,13 +575,21 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
   const esBackup = infoSillon && infoSillon.tipo === "backup";
   const textoSillon = turno.sillon != null ? `S${turno.sillon}` : "S?";
 
+  // Ronda "reacomodo automático de sillones": este turno cambió de sillón sin que nadie
+  // lo haya tocado a mano (turno.reacomodo, embebido — ver guardarTurnoConHueco en
+  // turnero-carga.js). El sillón es invisible para el paciente, pero enfermería sí tiene
+  // que poder notarlo acá — badge discreto en la tarjeta, más el detalle completo en el
+  // modal (abrirDetalleTurnoGrilla) y en "Ver cadena completa" del historial.
+  const fueReacomodado = !!turno.reacomodo;
+
   const tituloPartes = [
     pacienteCompleto,
     turno.medicoNombre || "",
     `${turno.horarioInicio}–${turno.horarioFin}`,
     (turno.ciclo != null || turno.sesion != null) ? `Ciclo ${turno.ciclo ?? "-"} · Sesión ${turno.sesion ?? "-"}` : null,
     turno.paciente && turno.paciente.numeroDocumento ? `DNI ${turno.paciente.numeroDocumento}` : null,
-    turno.paciente && turno.paciente.obraSocial ? turno.paciente.obraSocial : null
+    turno.paciente && turno.paciente.obraSocial ? turno.paciente.obraSocial : null,
+    fueReacomodado ? `Sillón reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})` : null
   ].filter(Boolean);
   const tituloCompleto = escaparHtmlGrilla(tituloPartes.join(" · "));
 
@@ -602,6 +610,7 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
       style="top:${top}px;height:${alto}px;${posicionHtml}" title="${tituloCompleto}"
       data-turno-id="${turno.id}" ${accionClic}>
       <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
+      ${fueReacomodado ? `<span class="badge-reacomodo-grilla" title="Sillón reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})">↻</span>` : ""}
       <span class="apellido-turno-grilla">${escaparHtmlGrilla(nombreMostrado)}</span>
     </div>
   `;
@@ -2135,6 +2144,11 @@ function abrirDetalleTurnoGrilla(turnoId) {
   }
   if (turno.tipoSobreturno) {
     filas.push(["Sobreturno", turno.tipoSobreturno]);
+  }
+  if (turno.reacomodo) {
+    // Ronda "reacomodo automático de sillones": mismo dato que ya muestra el badge "↻"
+    // de la tarjeta, con más detalle acá — nunca cambió horario ni fecha, solo sillón.
+    filas.push(["Sillón reasignado", `Automático (antes: sillón ${turno.reacomodo.sillonAnterior})`]);
   }
 
   const filasHtml = filas.map(([etiqueta, valor]) => `

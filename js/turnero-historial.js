@@ -771,7 +771,8 @@ function renderizarCadenaHistorialTurnos(cadena) {
         <div style="font-size:13px;line-height:1.7;">
           <strong>Fecha / horario:</strong> ${escaparHtml(turno.fecha || "-")} · ${escaparHtml(turno.horarioInicio || "-")}–${escaparHtml(turno.horarioFin || "-")}<br>
           <strong>Médico:</strong> ${escaparHtml(turno.medicoNombre || "-")}<br>
-          <strong>Sillón:</strong> ${turno.sillon != null ? turno.sillon : "sin asignar (sobreturno)"}<br>
+          <strong>Sillón:</strong> ${turno.sillon != null ? turno.sillon : "sin asignar (sobreturno)"}
+          ${turno.reacomodo ? `<span style="color:var(--color-muted);">— reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})</span>` : ""}<br>
           <span style="color:var(--color-muted);font-size:12px;">Creado por ${escaparHtml((turno.creadoPor && turno.creadoPor.nombre) || "-")} · ${formatearFechaHoraHistorialTurnos(turno.creadoEn)}</span>
         </div>
         ${bloqueTransicion}

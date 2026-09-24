@@ -121,6 +121,22 @@ function fechaLocalHoy() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Ronda "reacomodo automático de sillones": criterio temporal para turnosNoReacomodablesIds
+// (confirmado con Elías, b.3) — protege los turnos de HOY cuyo horarioFin ya pasó respecto
+// de la hora actual. No hace falta ningún campo nuevo (hoy el sistema no tiene noción de
+// "atendido"): un turno en una fecha futura nunca puede tener el horarioFin ya pasado, así
+// que este cálculo solo protege algo cuando la fecha evaluada por el motor es HOY — se
+// puede pasar igual en cualquier búsqueda (con o sin reacomodo multi-día) sin necesidad de
+// recalcularlo por día.
+function calcularTurnosNoReacomodablesIds() {
+  const hoyISO = fechaLocalHoy();
+  const ahora = new Date();
+  const horaActualString = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
+  return turnosExistentes
+    .filter((t) => t.fecha === hoyISO && typeof t.horarioFin === "string" && t.horarioFin < horaActualString)
+    .map((t) => t.id);
+}
+
 // --- Cálculo de fecha a partir de "en cuántos días" (Etapa T2) ---
 
 function fechaObjetoDesdeDiasHoy(dias) {
@@ -1158,7 +1174,20 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
   if (datosBasicos.modoReasignar) mostrarMensajeReasignarGrilla("Buscando disponibilidad…", "info");
 
   try {
-    const resultado = await buscarHuecos(
+    // Ronda "reacomodo automático de sillones": la búsqueda automática (nunca horario
+    // manual, nunca "Modificar" — ninguno de los dos pasa por acá) usa
+    // buscarHuecosConReacomodo en vez de buscarHuecos. "Reasignar" (modoReasignar) queda
+    // afuera por ahora a propósito, no estaba pedido explícitamente y su UI (mensaje
+    // inline en la grilla, no el modal de sobreturno) no tiene todavía el cartel de
+    // confirmación — sigue con buscarHuecos tal cual. Cuando soloSillonTipo === "backup"
+    // el reacomodo nunca puede ayudar de verdad (un solo sillón de ese tipo por sede, no
+    // hay con qué reacomodar), así que llamarla es inocuo pero el resultado nunca trae
+    // reacomodo.
+    const usaReacomodo = !datosBasicos.modoReasignar;
+    const buscarFn = usaReacomodo ? buscarHuecosConReacomodo : buscarHuecos;
+    const idsNoReacomodables = usaReacomodo ? calcularTurnosNoReacomodablesIds() : undefined;
+
+    const resultado = await buscarFn(
       datosBasicos.medicoId || datosBasicos.medicoNombre, // Para "Otro", pasamos nombre; el motor lo maneja
       paciente.obraSocial || "",
       datosBasicos.duracionTotalMinutos,
@@ -1172,15 +1201,23 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
       paciente.id, // regla nueva: un turno por paciente por día (transversal a sedes)
       datosBasicos.turnoIdParaReasignar, // T7: excluye el propio turno del chequeo de "un turno por día" — undefined en un alta nueva, no afecta nada
       bloqueosCacheCarga, // Etapa T9
-      datosBasicos.soloSillonTipo || null // Ronda "mejoras motor", Frente 3: "backup" si se tildó el checkbox dedicado; null/undefined en cualquier otro caso (incluido "Reasignar", que no tiene este campo)
+      datosBasicos.soloSillonTipo || null, // Ronda "mejoras motor", Frente 3: "backup" si se tildó el checkbox dedicado; null/undefined en cualquier otro caso (incluido "Reasignar", que no tiene este campo)
+      idsNoReacomodables, // buscarHuecos ignora este parámetro de más — inocuo cuando usaReacomodo es false
+      false // probarDiasPosteriores: intento inicial, siempre acotado a la fecha pedida
     );
 
     ultimaBusquedaHuecos = resultado;
 
     if (resultado.exito && resultado.huecosEncontrados && resultado.huecosEncontrados.length > 0) {
-      // El sistema elige automáticamente el mejor hueco (el primero de la lista, que está ordenado por mejor ajuste)
       const mejorHueco = resultado.huecosEncontrados[0];
-      await guardarTurnoConHueco(datosBasicos, mejorHueco, null);
+      if (resultado.reacomodo) {
+        // El hueco encontrado exige mover de sillón a otro(s) turno(s) ya cargados (nunca
+        // su horario ni fecha) — acción deliberada, nunca se aplica sin confirmar (a.2).
+        mostrarConfirmarReacomodo(resultado, datosBasicos);
+      } else {
+        // El sistema elige automáticamente el mejor hueco (el primero de la lista, que está ordenado por mejor ajuste)
+        await guardarTurnoConHueco(datosBasicos, mejorHueco, null);
+      }
     } else if (resultado.bloqueoPaciente) {
       // Regla nueva: bloqueo total sin excepción de rol, nunca ofrece sobreturno (a
       // diferencia de cupo/atadura, que sí lo hacen) — se corta acá con un mensaje simple.
@@ -1199,6 +1236,13 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
       // podía empezar dentro de la franja horaria propia del médico en ningún día de la
       // ventana. Distinto del modal de sobreturno de siempre (ver mostrarBloqueoFranja).
       mostrarBloqueoFranja(resultado, datosBasicos);
+    } else if (usaReacomodo && !datosBasicos.soloSillonTipo) {
+      // Ronda "reacomodo automático de sillones": llegamos acá con causaEsFisica true Y
+      // el reacomodo YA se intentó en la fecha pedida (buscarHuecosConReacomodo) y
+      // también falló — para que entrara haría falta mover el HORARIO de otro turno, algo
+      // que el reacomodo nunca hace. Cartel distinto del sobreturno de siempre: ver
+      // mostrarReacomodoAgotado.
+      mostrarReacomodoAgotado(resultado, datosBasicos);
     } else {
       mostrarSobreturnoFisico(resultado, datosBasicos);
     }
@@ -1291,6 +1335,210 @@ function cerrarModalSobreturno() {
   const modal = document.getElementById("modal-sobreturno");
   if (modal) modal.style.display = "none";
   document.getElementById("boton-guardar-turno").disabled = false;
+}
+
+// --- Ronda "reacomodo automático de sillones" ---
+//
+// Reutiliza el mismo div "modal-sobreturno" que el resto de estos carteles (mismo
+// criterio que ya usa mostrarSobreturnoFisico/mostrarBloqueoCupo/etc.: un único overlay,
+// contenido distinto según el caso) — cerrarModalSobreturno() sigue sirviendo para
+// cerrar cualquiera de los tres estados nuevos de abajo.
+
+// Confirmación deliberada (a.2): el hueco encontrado (ese día o uno posterior, según
+// venga resultadoBusqueda.huecosEncontrados[0].fecha) exige mover de sillón a otro(s)
+// turno(s) ya cargados — nunca su horario ni su fecha. Nunca se aplica sin este paso:
+// el reacomodo mueve turnos de OTROS pacientes, aunque sea solo de sillón. Mismo gate de
+// rol que mostrarSobreturnoFisico: médico no puede forzar nada, solo se entera.
+function mostrarConfirmarReacomodo(resultadoBusqueda, datosBasicos) {
+  let modal = document.getElementById("modal-sobreturno");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-sobreturno";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  const hueco = resultadoBusqueda.huecosEncontrados[0];
+  const cambios = resultadoBusqueda.reacomodo.cambios;
+  const cantidadTexto = cambios.length === 1 ? "1 turno" : `${cambios.length} turnos`;
+
+  let cuerpoHTML;
+  if (rolActualCarga === "medico") {
+    // Mismo criterio que mostrarSobreturnoFisico: un médico no puede autorizar mover
+    // turnos de otros pacientes por su cuenta, ni aunque sea solo de sillón.
+    cuerpoHTML = `
+      <p>No hay sillón libre para este turno tal como está pedido.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Pedile a enfermería/administrador que lo cargue si hace falta una excepción.
+      </p>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Entendido</button>
+    `;
+  } else {
+    const datosConReacomodo = { ...datosBasicos, hueco, cambiosReacomodo: cambios };
+    cuerpoHTML = `
+      <p>Hay lugar el ${escaparHtml(hueco.fechaLegible)} de ${escaparHtml(hueco.horaInicio)} a ${escaparHtml(hueco.horaFin)},
+        moviendo ${cantidadTexto} de sillón para hacer lugar.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Nunca se toca el horario ni la fecha de esos turnos — solo cambian de sillón dentro de la misma sede.
+      </p>
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+        onclick="confirmarYGuardarConReacomodo(${JSON.stringify(datosConReacomodo).replace(/"/g, '&quot;')})">
+        Confirmar y cargar
+      </button>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar (elegir otra fecha)</button>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0;">Hace falta reacomodar sillones</h2>
+      ${cuerpoHTML}
+    </div>
+  `;
+  modal.style.display = "block";
+}
+
+async function confirmarYGuardarConReacomodo(datosConReacomodo) {
+  cerrarModalSobreturno();
+  await guardarTurnoConHueco(datosConReacomodo, datosConReacomodo.hueco, null, datosConReacomodo.cambiosReacomodo);
+}
+
+// Ni siquiera reacomodando sillones entra en la fecha pedida (causaEsFisica true, y
+// buscarHuecosConReacomodo ya lo intentó ahí y también falló) — para esa fecha puntual
+// haría falta mover el HORARIO de otro turno, algo que el reacomodo nunca hace. Dos
+// caminos (confirmado con Elías): dar el turno en una fecha posterior (repite la misma
+// búsqueda con reacomodo, pero recorriendo los días siguientes) o cancelar. Mismo gate de
+// rol que mostrarSobreturnoFisico.
+function mostrarReacomodoAgotado(resultadoBusqueda, datosBasicos) {
+  let modal = document.getElementById("modal-sobreturno");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-sobreturno";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  let cuerpoHTML;
+  if (rolActualCarga === "medico") {
+    cuerpoHTML = `
+      <p>No hay sillón libre para este turno tal como está pedido.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Pedile a enfermería/administrador que lo cargue si hace falta una excepción.
+      </p>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Entendido</button>
+    `;
+  } else {
+    cuerpoHTML = `
+      <p>No hay lugar para este turno en la fecha pedida dentro de los próximos 10 días —
+        ni siquiera reacomodando sillones de otros turnos.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        Para cargarlo justo en esa fecha hace falta mover turnos de lugar a mano desde la grilla.
+        También se puede buscar en una fecha posterior, con el mismo criterio de reacomodo.
+      </p>
+      <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
+        onclick="buscarFechaPosteriorConReacomodo(${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
+        Dar el turno en fecha posterior
+      </button>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar</button>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0; color: #c0504d;">No se puede cargar este turno en esa fecha</h2>
+      ${cuerpoHTML}
+    </div>
+  `;
+  modal.style.display = "block";
+  mostrarMensajeGeneral("No se pudo cargar el turno como se pidió.", "error");
+}
+
+async function buscarFechaPosteriorConReacomodo(datosBasicos) {
+  cerrarModalSobreturno();
+  mostrarMensajeGeneral("Buscando en fechas posteriores…", "info");
+
+  try {
+    const idsNoReacomodables = calcularTurnosNoReacomodablesIds();
+    const resultado = await buscarHuecosConReacomodo(
+      datosBasicos.medicoId || datosBasicos.medicoNombre,
+      (pacienteSeleccionadoCarga && pacienteSeleccionadoCarga.obraSocial) || "",
+      datosBasicos.duracionTotalMinutos,
+      datosBasicos.fecha,
+      medicosCacheCarga,
+      sedesCacheCarga,
+      turnosExistentes,
+      rolActualCarga === "medico",
+      datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId,
+      cuposCacheCarga,
+      pacienteSeleccionadoCarga && pacienteSeleccionadoCarga.id,
+      datosBasicos.turnoIdParaReasignar,
+      bloqueosCacheCarga,
+      datosBasicos.soloSillonTipo || null,
+      idsNoReacomodables,
+      true // probarDiasPosteriores
+    );
+
+    if (resultado.exito && resultado.reacomodo) {
+      mostrarConfirmarReacomodo(resultado, datosBasicos);
+    } else {
+      mostrarReacomodoSinSolucion();
+    }
+  } catch (error) {
+    console.error("Error al buscar fecha posterior con reacomodo:", error);
+    mostrarMensajeGeneral(`Error en la búsqueda: ${error.message}`, "error");
+  }
+}
+
+function mostrarReacomodoSinSolucion() {
+  let modal = document.getElementById("modal-sobreturno");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-sobreturno";
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1000;
+      overflow-y: auto;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
+      <h2 style="margin-top: 0; color: #c0504d;">No se puede cargar este turno</h2>
+      <p>Tampoco hay lugar en los próximos 10 días reacomodando sillones.</p>
+      <p style="font-size: 14px; color: var(--color-muted);">
+        La única vía que queda es mover turnos de lugar a mano desde la grilla.
+      </p>
+      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Entendido</button>
+    </div>
+  `;
+  modal.style.display = "block";
 }
 
 // Etapa T4: cartel de cupo excedido — distinto del modal de sobreturno de siempre.
@@ -1863,7 +2111,15 @@ async function guardarComoSobreturnoHorarioFijo(datosBasicos) {
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
 }
 
-async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
+// cambiosReacomodo (opcional): [{turnoId, sillonAnterior, sillonNuevo}] devuelto por
+// buscarHuecosConReacomodo cuando el hueco elegido exigió mover de sillón a otros turnos
+// ya cargados. Se aplica en el MISMO batch que crea el turno nuevo (atómico: o se cargan
+// los dos, o ninguno) — nunca toca horario ni fecha de esos turnos, solo `sillon`, más un
+// campo `reacomodo` embebido a modo de auditoría liviana (sin colección aparte — ver
+// turnero-historial.js, que ya lo muestra en "Ver cadena completa"). Si ese turno ya
+// tenía un reacomodo previo, este lo reemplaza (se audita el último movimiento, no el
+// historial completo de todos).
+async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno, cambiosReacomodo) {
   // Etapa T7: en modo reasignar no se guarda directo — hace falta motivo obligatorio
   // primero (mismo modal que ya usa el arrastre). abrirMotivoReasignarGrilla
   // (turnero-grilla.js) retoma el guardado real (anular el turno viejo + crear el nuevo
@@ -1921,6 +2177,23 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno) {
     const contadorRef = db.collection("contadores").doc("comprobantesTurno");
     batch.set(turnoRef, docTurno);
     batch.set(contadorRef, { [anio]: firebase.firestore.FieldValue.increment(1) }, { merge: true });
+
+    if (cambiosReacomodo && cambiosReacomodo.length > 0) {
+      const quienDisparo = { uid: usuarioActualCarga.uid, nombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email };
+      for (const cambio of cambiosReacomodo) {
+        batch.update(db.collection("turnos").doc(cambio.turnoId), {
+          sillon: cambio.sillonNuevo,
+          reacomodo: {
+            sillonAnterior: cambio.sillonAnterior,
+            sillonNuevo: cambio.sillonNuevo,
+            turnoQueLoMotivo: turnoRef.id,
+            en: firebase.firestore.FieldValue.serverTimestamp(),
+            por: quienDisparo
+          }
+        });
+      }
+    }
+
     await batch.commit();
 
     const contadorSnap = await contadorRef.get();
