@@ -228,7 +228,12 @@ function cambiarFiltroMedicoGrilla(valor) {
 // listeners duplicados o duplicar filas de protocolo.
 
 async function abrirModalNuevoTurnoGrilla() {
-  document.getElementById("overlay-nuevo-turno-grilla").style.display = "flex";
+  const overlay = document.getElementById("overlay-nuevo-turno-grilla");
+  overlay.style.display = "flex";
+  // Bug reportado por Elías: al reabrir para cargar el turno siguiente, el modal
+  // quedaba con el scroll donde lo había dejado el turno anterior en vez de arrancar
+  // arriba — el propio overlay es el que scrollea (overflow-y:auto en .overlay-modal).
+  overlay.scrollTop = 0;
 
   if (!modalNuevoTurnoInicializadoGrilla) {
     modalNuevoTurnoInicializadoGrilla = true;

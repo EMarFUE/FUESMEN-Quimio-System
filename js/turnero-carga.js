@@ -2234,6 +2234,14 @@ function resetearFormularioCarga() {
   document.getElementById("campo-ciclo").value = "";
   document.getElementById("campo-sesion").value = "";
 
+  // Bug reportado por Elías en el retesteo de esta ronda: quedaban pisados entre un
+  // turno y el siguiente sin reabrir la página — el horario manual (Frente 2) y el
+  // checkbox de puesto para inyectables (Frente 3) no se tocaban acá.
+  const campoHorarioManual = document.getElementById("campo-horario-manual");
+  if (campoHorarioManual) campoHorarioManual.value = "";
+  const campoBackup = document.getElementById("campo-sillon-backup");
+  if (campoBackup) campoBackup.checked = false;
+
   modoFechaTurno = "dias";
   document.getElementById("campo-dias-turno").value = "";
   document.getElementById("campo-fecha").value = "";
