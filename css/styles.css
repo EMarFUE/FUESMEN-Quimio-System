@@ -559,6 +559,41 @@ h1 {
   font-size: 13.5px;
 }
 
+/* Etapa 1 del plan post-integración: el listado de coincidencias de protocolo ahora
+   muestra TODAS las coincidencias dentro de un alto fijo de ~5 filas, con scroll real.
+   Es un contenedor interno de .resultados-protocolo, para que el bloque de "agregar
+   protocolo nuevo" quede fuera del scroll, siempre visible al pie. */
+.lista-resultados-protocolo {
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sin-resultados-protocolo {
+  font-size: 13px;
+  color: var(--color-muted);
+  padding: 8px 2px;
+}
+
+.bloque-protocolo-nuevo {
+  margin-top: 2px;
+}
+
+.boton-agregar-protocolo-nuevo {
+  width: auto;
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-accent);
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.boton-agregar-protocolo-nuevo:hover {
+  border-style: solid;
+}
+
 .paciente-seleccionado {
   border: 1px solid var(--color-accent);
   background: var(--color-accent-soft);

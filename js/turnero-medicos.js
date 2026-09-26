@@ -9,6 +9,9 @@
 const DIAS_SEMANA_MEDICOS = ["lunes", "martes", "miercoles", "jueves", "viernes"];
 const SEDE_CIVIT = "Emilio Civit";
 const SEDE_ENTRE_RIOS = "Entre Ríos";
+// Etapa 1 del plan post-integración: único médico cuyo orden de sedes lo decide el
+// sistema, y por lo tanto el único que tiene excepción temporal de sede.
+const MEDICO_EXCEPCION_SEDE_ID = "occhipinti";
 
 // Días de referencia según el ejemplo del punto 9 del alcance (Emilio Civit) y la
 // mención de que Albornoz y Occhipinti atienden Entre Ríos los cinco días.
@@ -141,6 +144,62 @@ function renderizarTablas() {
   renderizarTablaSede(SEDE_ENTRE_RIOS, "cuerpo-tabla-medicos-entrerios");
   renderizarTablaHabilitados();
   renderizarTablaFranjaHoraria();
+  renderizarBloqueExcepcionSede();
+}
+
+// Etapa 1 del plan post-integración: excepción temporal de sede para Occhipinti. Es el
+// único médico con orden de sedes calculado por el sistema (Entre Ríos primero, Emilio
+// Civit como segunda opción — ver determinarSedesABuscar() en turnero-motor.js), así que
+// el bloque se muestra solo para él y no como columna de la tabla general.
+// Prendida: la búsqueda automática va directo a Emilio Civit y Entre Ríos queda afuera
+// por completo. Los pacientes con obra social POP no se ven afectados (ya iban siempre a
+// Emilio Civit). Ausente en el documento = apagada.
+function renderizarBloqueExcepcionSede() {
+  const contenedor = document.getElementById("bloque-excepcion-sede-occhipinti");
+  if (!contenedor) return;
+
+  const occhipinti = medicosCache.find(m => m.id === MEDICO_EXCEPCION_SEDE_ID);
+  if (!occhipinti) {
+    contenedor.innerHTML = `<p style="color:var(--color-muted);font-size:13px;">
+      El médico Occhipinti no está cargado en el catálogo.</p>`;
+    return;
+  }
+
+  const activa = occhipinti.excepcionSedeDirectaCivit === true;
+  contenedor.innerHTML = `
+    <label class="check-linea">
+      <input type="checkbox" ${activa ? "checked" : ""}
+        onchange="onCambiarExcepcionSede(this.checked)" />
+      <span>Buscar directo en Emilio Civit (saltear Entre Ríos)</span>
+    </label>
+    <p style="color:var(--color-muted); font-size:13px; margin:6px 0 0;">
+      ${activa
+        ? "Excepción ACTIVA. Acordate de apagarla cuando deje de hacer falta."
+        : "Excepción apagada: se usa el orden de siempre (Entre Ríos y, si no hay lugar, Emilio Civit)."}
+    </p>`;
+}
+
+async function onCambiarExcepcionSede(activa) {
+  const occhipinti = medicosCache.find(m => m.id === MEDICO_EXCEPCION_SEDE_ID);
+  if (!occhipinti) return;
+
+  try {
+    await db.collection("turneroMedicos").doc(MEDICO_EXCEPCION_SEDE_ID)
+      .update({ excepcionSedeDirectaCivit: activa });
+    occhipinti.excepcionSedeDirectaCivit = activa;
+    mostrarMensajeMedicos(
+      activa
+        ? "Excepción activada: los turnos de Occhipinti se buscan directo en Emilio Civit."
+        : "Excepción desactivada: vuelve el orden de siempre (Entre Ríos primero).",
+      "exito"
+    );
+  } catch (error) {
+    console.error("Error al actualizar la excepción de sede:", error);
+    mostrarMensajeMedicos("No se pudo guardar el cambio.", "error");
+  }
+  // Se re-renderiza siempre: si falló, revierte el checkbox visualmente; si salió bien,
+  // actualiza la leyenda de abajo.
+  renderizarBloqueExcepcionSede();
 }
 
 // Permiso nuevo (feedback post-Fase 3 del Turnero): habilita o deshabilita que ESE

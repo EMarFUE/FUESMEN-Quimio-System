@@ -140,6 +140,24 @@ async function determinarSedesABuscar(medicoId, obraSocial, medicosCacheLectura)
     if (obraSocial === OBRA_SOCIAL_POP) {
       return ["emilio-civit"];
     }
+    // Etapa 1 del plan post-integración: excepción temporal y togglable. Cuando el
+    // administrador tilda "Buscar directo en Emilio Civit" en la pantalla Médicos, el
+    // flag queda guardado en el propio doc de Occhipinti (turneroMedicos/occhipinti,
+    // campo excepcionSedeDirectaCivit) y se lee de ESTE MISMO caché que la función ya
+    // recibía — no agrega ninguna consulta a Firestore.
+    //
+    // Semántica confirmada con Elías: cuando está prendida, Entre Ríos queda AFUERA por
+    // completo, no se invierte el orden. Si no hay lugar en Emilio Civit, el flujo
+    // termina como "sin disponibilidad" (con su oferta de sobreturno) en vez de caer
+    // calladamente en Entre Ríos, que es justo lo que la excepción quiere evitar.
+    //
+    // No aplica a POP (ya resuelto arriba: POP siempre fue solo Emilio Civit) ni a
+    // ningún otro médico — el flag se ignora fuera de esta rama.
+    // Ausente en el documento = excepción apagada (no hace falta migrar nada).
+    const docOcchipinti = (medicosCacheLectura || []).find(m => m.id === SEDE_OCCHIPINTI);
+    if (docOcchipinti && docOcchipinti.excepcionSedeDirectaCivit === true) {
+      return ["emilio-civit"];
+    }
     return ["entre-rios", "emilio-civit"];
   }
 

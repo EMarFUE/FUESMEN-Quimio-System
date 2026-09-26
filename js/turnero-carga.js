@@ -17,20 +17,37 @@ const SEDE_ENTRE_RIOS_DIRECCION = "Entre Ríos 345, San Rafael, Mza.";
 const MEDICO_OCCHIPINTI_ID = "occhipinti";
 const ROLES_MEDICO_OTRO = ["administrador", "enfermeria"];
 const PREMEDICACION_MINUTOS = 30;
-const TOPE_DIAS_TURNO = 60;
+// Etapa 1 del plan post-integración: 60 → 190. Hay tratamientos que se agendan a seis
+// meses; el tope viejo obligaba a usar el modo "calendario" para cualquier cosa más allá
+// de dos meses. Va alineado con TOPE_DIAS_ANTICIPACION para que los dos modos de elegir
+// la fecha (número de días / calendario) lleguen exactamente igual de lejos.
+const TOPE_DIAS_TURNO = 190;
 // Etapa T12: tope de anticipación máxima para agendar un turno, acordado con Elías —
 // aplica tanto al modo "calendario" (que hasta ahora no tenía ningún tope) como a los
 // selectores de fecha de referencia de "Reasignar" y "Consulta de disponibilidad" en
-// turnero-grilla.js. El modo "días" ya queda cubierto de por sí (TOPE_DIAS_TURNO=60 +
-// hasta 10 días de margen de búsqueda del motor = 70 días como máximo, siempre por
-// debajo de este tope). Solo del lado del cliente — ver nota en cargarTurnosExistentes()
+// turnero-grilla.js. Solo del lado del cliente — ver nota en cargarTurnosExistentes()
 // sobre por qué no se replica esto en firestore.rules.
-const TOPE_DIAS_ANTICIPACION = 90;
-// Margen de la consulta de turnos existentes que usa el motor: un poco más amplio que
-// TOPE_DIAS_ANTICIPACION (que es el máximo que puede pedir un usuario) para no cortar
-// justo en el límite si el margen de búsqueda del motor (10 días) empuja la fecha
-// encontrada un poco más allá del máximo solicitado.
-const MARGEN_LECTURA_TURNOS_DIAS = 100;
+//
+// Etapa 1 del plan post-integración: 90 → 190, junto con TOPE_DIAS_TURNO (que pasó de 60
+// a 190). Los dos modos de elegir fecha llegan ahora al mismo punto, y "Reasignar" y
+// "Consulta de disponibilidad" de la grilla lo heredan vía fechaMaximaAnticipacionISO().
+const TOPE_DIAS_ANTICIPACION = 190;
+// Margen de la consulta de turnos existentes que usa el motor: TOPE_DIAS_ANTICIPACION
+// (el máximo que puede pedir un usuario) MÁS el margen de búsqueda del motor
+// (TOPE_DIAS_BUSQUEDA = 10 días), para no cortar justo en el límite si el motor empuja
+// la fecha encontrada un poco más allá del máximo solicitado.
+//
+// Etapa 1 del plan post-integración: 100 → 200, forzado por el cambio de tope de arriba.
+// NO es cosmético: todo lo que quede fuera de esta ventana el motor NO lo ve, y un
+// sillón con un turno ya cargado que no se leyó se evalúa como libre. Con el tope en 190
+// y la lectura en 100, los turnos entre el día 100 y el 200 se habrían pisado sin aviso.
+// ATENCIÓN ETAPA 6 (revisión integral de consultas a Firestore): esto duplica la
+// cantidad de documentos que lee cada apertura de "+ nuevo turno", "Reasignar" y
+// "Consulta de disponibilidad". Es correcto pero caro, y es exactamente el tipo de
+// consulta que hay que revisar en esa etapa — la salida razonable ahí es acotar la
+// lectura a la ventana que el motor va a recorrer de verdad (fecha pedida ± unos pocos
+// días) en vez de traer el rango completo desde hoy, que es lo que se hace hoy.
+const MARGEN_LECTURA_TURNOS_DIAS = TOPE_DIAS_ANTICIPACION + 10;
 
 function fechaMaximaAnticipacionISO() {
   return fechaISODesdeObjeto(fechaObjetoDesdeDiasHoy(TOPE_DIAS_ANTICIPACION));
@@ -700,6 +717,19 @@ function poblarSelectSedeManual() {
   });
 }
 
+// Etapa 1 del plan post-integración. Lee el flag de excepción temporal del propio doc de
+// Occhipinti, del caché de médicos que ya se carga para el motor — sin consulta extra.
+// El motor decide por su cuenta con el mismo campo (determinarSedesABuscar); esto es
+// solo para el cartel informativo de la pantalla de carga, no duplica la decisión.
+// OJO: el caché se llena al abrir la pantalla. Si el administrador prende o apaga la
+// excepción mientras alguien tiene la agenda abierta, esa pantalla sigue con el valor
+// viejo hasta recargar — mismo comportamiento que el caché de bloqueos (punto 5 de la
+// Etapa 2 del plan), aceptado explícitamente para esta etapa.
+function occhipintiConExcepcionDirectaCivit() {
+  const doc = medicosCacheCarga.find((m) => m.id === MEDICO_OCCHIPINTI_ID);
+  return !!(doc && doc.excepcionSedeDirectaCivit === true);
+}
+
 function resolverSedesPosiblesMedico(medicoDoc) {
   if (!medicoDoc) return [];
   return sedesCacheCarga.filter((sede) => {
@@ -740,10 +770,18 @@ function actualizarBloqueMedico() {
     // Occhipinti: la sede la determina el sistema según la obra social del paciente
     // (Handoff_etapa_T0.md, decisión 4). Nunca se elige a mano.
     sedeAutomaticaInfo.style.display = "block";
+    const excepcionDirectaCivit = occhipintiConExcepcionDirectaCivit();
     if (!pacienteSeleccionadoCarga) {
-      badgeSedeAutomatica.textContent = "Se determina según la obra social del paciente";
+      badgeSedeAutomatica.textContent = excepcionDirectaCivit
+        ? "Emilio Civit (excepción temporal activa)"
+        : "Se determina según la obra social del paciente";
     } else if (pacienteSeleccionadoCarga.obraSocial === OBRA_SOCIAL_POP) {
       badgeSedeAutomatica.textContent = "Emilio Civit (por obra social POP)";
+    } else if (excepcionDirectaCivit) {
+      // La excepción la prende y apaga el administrador desde la pantalla Médicos. Se
+      // avisa acá para que quien carga vea que está operando con ella puesta y no quede
+      // prendida por olvido — ver determinarSedesABuscar() en turnero-motor.js.
+      badgeSedeAutomatica.textContent = "Emilio Civit (excepción temporal activa)";
     } else {
       badgeSedeAutomatica.textContent = "Entre Ríos (o Emilio Civit si no hay lugar)";
     }
@@ -808,7 +846,16 @@ function actualizarBuscadorProtocolo(filaId, texto) {
     normalizarTexto(p.nombre).includes(norm)
   );
 
-  encontrados.slice(0, 5).forEach((p) => {
+  // Etapa 1 del plan post-integración: antes se cortaba en los primeros 5 resultados y
+  // el resto era directamente inalcanzable (protocolos con más de 10 variantes con el
+  // mismo nombre base no se podían elegir desde acá). Ahora se pintan TODAS las
+  // coincidencias dentro de un contenedor con alto máximo de ~5 filas y scroll real.
+  // El contenedor scrolleable es interno a propósito: el bloque de "agregar protocolo
+  // nuevo" de abajo queda como hermano, fuera del scroll, siempre visible al pie.
+  const listaScroll = document.createElement("div");
+  listaScroll.className = "lista-resultados-protocolo";
+
+  encontrados.forEach((p) => {
     const div = document.createElement("div");
     div.className = "resultado-busqueda";
     div.innerHTML = `<span>${escaparHtml(p.nombre)} (${p.duracionMinutos} min)</span>
@@ -824,8 +871,17 @@ function actualizarBuscadorProtocolo(filaId, texto) {
       resultados.innerHTML = "";
       actualizarResumenDuracion();
     });
-    resultados.appendChild(div);
+    listaScroll.appendChild(div);
   });
+
+  if (encontrados.length > 0) {
+    resultados.appendChild(listaScroll);
+  } else {
+    const vacio = document.createElement("div");
+    vacio.className = "sin-resultados-protocolo";
+    vacio.textContent = "No hay ningún protocolo cargado con ese nombre.";
+    resultados.appendChild(vacio);
+  }
 
   // Etapa T12: enfermería y administrador pueden dar de alta un protocolo nuevo al
   // vuelo si no está en el catálogo — apartamiento del punto 16 del alcance (catálogos
@@ -840,14 +896,44 @@ function actualizarBuscadorProtocolo(filaId, texto) {
   }
 }
 
+// Etapa 1 del plan post-integración: este bloque antes venía siempre desplegado (con su
+// campo de duración a la vista) y quedaba pegado abajo de los resultados. Ahora arranca
+// colapsado como un botón y se despliega recién al tocarlo — cuando la búsqueda no
+// encuentra nada es lo único que queda en pantalla, así que se lee naturalmente como
+// "no está: agregalo". Sigue disponible también cuando SÍ hay coincidencias (hace falta:
+// podés tener diez variantes de un protocolo y que ninguna sea la que buscás).
 function construirBloqueAgregarProtocoloNuevo(filaId, nombrePropuesto) {
+  const contenedor = document.createElement("div");
+  contenedor.className = "bloque-protocolo-nuevo";
+
+  const botonDesplegar = document.createElement("button");
+  botonDesplegar.type = "button";
+  botonDesplegar.className = "boton-agregar-protocolo-nuevo";
+  botonDesplegar.textContent = `+ Agregar "${nombrePropuesto}" como protocolo nuevo`;
+
+  const bloque = construirFormularioProtocoloNuevo(filaId, nombrePropuesto);
+  bloque.style.display = "none";
+
+  botonDesplegar.addEventListener("click", () => {
+    botonDesplegar.style.display = "none";
+    bloque.style.display = "flex";
+    const inputDuracion = bloque.querySelector("input");
+    if (inputDuracion) inputDuracion.focus();
+  });
+
+  contenedor.appendChild(botonDesplegar);
+  contenedor.appendChild(bloque);
+  return contenedor;
+}
+
+function construirFormularioProtocoloNuevo(filaId, nombrePropuesto) {
   const bloque = document.createElement("div");
   bloque.className = "resultado-busqueda";
   bloque.style.cssText = "flex-direction:column;align-items:stretch;gap:6px;";
 
   const etiqueta = document.createElement("span");
   etiqueta.style.cssText = "font-size:13px;color:var(--color-muted);";
-  etiqueta.textContent = `¿No está en la lista? Agregar "${nombrePropuesto}" como protocolo nuevo:`;
+  etiqueta.textContent = `Agregar "${nombrePropuesto}" al catálogo de protocolos:`;
   bloque.appendChild(etiqueta);
 
   const filaControles = document.createElement("div");

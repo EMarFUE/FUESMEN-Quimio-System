@@ -1399,7 +1399,14 @@ function actualizarBuscadorProtocoloModificar(filaId, texto) {
   const norm = normalizarTexto(texto);
   const encontrados = protocolosCacheCarga.filter(p => normalizarTexto(p.nombre).includes(norm));
 
-  encontrados.slice(0, 5).forEach(p => {
+  // Etapa 1 del plan post-integración: misma corrección que en actualizarBuscadorProtocolo()
+  // de turnero-carga.js — antes se cortaba en 5 resultados sin scroll y el resto quedaba
+  // inalcanzable. Acá no hay alta rápida de protocolo nuevo (a diferencia de "+ nuevo
+  // turno"), así que el contenedor scrolleable no necesita nada debajo.
+  const listaScroll = document.createElement("div");
+  listaScroll.className = "lista-resultados-protocolo";
+
+  encontrados.forEach(p => {
     const div = document.createElement("div");
     div.className = "resultado-busqueda";
     div.innerHTML = `<span>${escaparHtmlGrilla(p.nombre)} (${p.duracionMinutos} min)</span>
@@ -1410,8 +1417,17 @@ function actualizarBuscadorProtocoloModificar(filaId, texto) {
       resultados.innerHTML = "";
       actualizarResumenDuracionModificar();
     });
-    resultados.appendChild(div);
+    listaScroll.appendChild(div);
   });
+
+  if (encontrados.length > 0) {
+    resultados.appendChild(listaScroll);
+  } else {
+    const vacio = document.createElement("div");
+    vacio.className = "sin-resultados-protocolo";
+    vacio.textContent = "No hay ningún protocolo cargado con ese nombre.";
+    resultados.appendChild(vacio);
+  }
 }
 
 function quitarFilaProtocoloModificar(filaId) {
@@ -1735,7 +1751,14 @@ function actualizarBuscadorProtocoloConsultaGrilla(filaId, texto) {
   const norm = normalizarTexto(texto);
   const encontrados = protocolosCacheCarga.filter(p => normalizarTexto(p.nombre).includes(norm));
 
-  encontrados.slice(0, 5).forEach(p => {
+  // Etapa 1 del plan post-integración: misma corrección que en actualizarBuscadorProtocolo()
+  // de turnero-carga.js — antes se cortaba en 5 resultados sin scroll y el resto quedaba
+  // inalcanzable. Acá no hay alta rápida de protocolo nuevo (a diferencia de "+ nuevo
+  // turno"), así que el contenedor scrolleable no necesita nada debajo.
+  const listaScroll = document.createElement("div");
+  listaScroll.className = "lista-resultados-protocolo";
+
+  encontrados.forEach(p => {
     const div = document.createElement("div");
     div.className = "resultado-busqueda";
     div.innerHTML = `<span>${escaparHtmlGrilla(p.nombre)} (${p.duracionMinutos} min)</span>
@@ -1746,8 +1769,17 @@ function actualizarBuscadorProtocoloConsultaGrilla(filaId, texto) {
       resultados.innerHTML = "";
       actualizarResumenDuracionConsultaGrilla();
     });
-    resultados.appendChild(div);
+    listaScroll.appendChild(div);
   });
+
+  if (encontrados.length > 0) {
+    resultados.appendChild(listaScroll);
+  } else {
+    const vacio = document.createElement("div");
+    vacio.className = "sin-resultados-protocolo";
+    vacio.textContent = "No hay ningún protocolo cargado con ese nombre.";
+    resultados.appendChild(vacio);
+  }
 }
 
 function quitarFilaProtocoloConsultaGrilla(filaId) {
