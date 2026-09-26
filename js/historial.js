@@ -1122,6 +1122,8 @@ function renderFormularioCorreccionEntrega(datos) {
         <option value="FUESMEN" ${datos.deposito === "FUESMEN" ? "selected" : ""}>FUESMEN</option>
         <option value="Programa Oncológico" ${datos.deposito === "Programa Oncológico" ? "selected" : ""}>Programa Oncológico</option>
         <option value="Donaciones" ${datos.deposito === "Donaciones" ? "selected" : ""}>Donaciones</option>
+        <option value="POP (viejo)" ${datos.deposito === "POP (viejo)" ? "selected" : ""}>POP (viejo)</option>
+        <option value="FUESMEN (viejo)" ${datos.deposito === "FUESMEN (viejo)" ? "selected" : ""}>FUESMEN (viejo)</option>
       </select>
     </div>
 
@@ -1317,6 +1319,8 @@ async function renderFormularioCorreccionEgreso(datos) {
           <option value="FUESMEN" ${datos.deposito === "FUESMEN" ? "selected" : ""}>FUESMEN</option>
           <option value="Programa Oncológico" ${datos.deposito === "Programa Oncológico" ? "selected" : ""}>Programa Oncológico</option>
           <option value="Donaciones" ${datos.deposito === "Donaciones" ? "selected" : ""}>Donaciones</option>
+          <option value="POP (viejo)" ${datos.deposito === "POP (viejo)" ? "selected" : ""}>POP (viejo)</option>
+          <option value="FUESMEN (viejo)" ${datos.deposito === "FUESMEN (viejo)" ? "selected" : ""}>FUESMEN (viejo)</option>
         </select>
       </div>
       <div class="campo" style="margin-bottom:0;">

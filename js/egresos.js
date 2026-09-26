@@ -165,11 +165,12 @@ async function cargarMedicamentosEgresos() {
 }
 
 async function cargarStockEgresos() {
-  // Médico y administrativo solo pueden leer Programa Oncológico y Donaciones
-  // (misma restricción que en stock.js, exigida por la regla de Firestore).
+  // Médico y administrativo solo pueden leer Programa Oncológico, Donaciones y
+  // POP (viejo) (mismo criterio que en stock.js, exigido por la regla de Firestore;
+  // POP (viejo) agregado junto con FUESMEN (viejo) a pedido de Elías).
   const ROLES_RESTRINGIDOS = ["medico", "administrativo"];
   const consulta = ROLES_RESTRINGIDOS.includes(rolActualEgresos)
-    ? db.collection("stock").where("deposito", "in", ["Programa Oncológico", "Donaciones"])
+    ? db.collection("stock").where("deposito", "in", ["Programa Oncológico", "Donaciones", "POP (viejo)"])
     : db.collection("stock");
   const snapshot = await consulta.get();
   stockCacheEgresos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));

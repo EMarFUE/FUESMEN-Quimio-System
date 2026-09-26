@@ -146,6 +146,47 @@
 
     .comp-dato-grupo-ancho { grid-column: 1 / -1; }
 
+    /* ─── Etapa 2 (feedback post-testeo): bloque destacado de día/fecha/horario ─── */
+    /* Elías pidió darle mayor presencia al día y a la hora, en primer lugar y con
+       fuente más grande — se separa del grid uniforme de datos (que usa un solo tamaño
+       para todo) en una franja propia, apenas debajo del encabezado. */
+    .comp-destacado {
+      display: flex;
+      gap: 20px;
+      background: #f5f7fa;
+      border: 1px solid var(--color-borde);
+      border-left: 4px solid var(--color-primario);
+      border-radius: 4px;
+      padding: 10px 16px;
+      margin-bottom: 14px;
+    }
+    .comp-destacado-item { flex: 1; }
+    .comp-destacado-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-muted);
+      margin-bottom: 2px;
+    }
+    .comp-destacado-valor {
+      font-size: 21px;
+      font-weight: 700;
+      color: var(--color-texto);
+      text-transform: capitalize;
+    }
+
+    /* ─── Leyenda de cierre: recordatorio de pasar por administración ─── */
+    .comp-leyenda-administracion {
+      margin-top: 16px;
+      background: #fff8e6;
+      border-left: 3px solid #c99a2e;
+      color: #6b4f0f;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
     /* ─── Botones pantalla ─── */
     .comp-acciones {
       max-width: 720px;
@@ -214,6 +255,19 @@
       </div>
     </div>
 
+    <!-- Etapa 2 (feedback post-testeo): día/fecha y horario, destacados y en primer
+         lugar, antes del resto de los datos del turno. -->
+    <div class="comp-destacado">
+      <div class="comp-destacado-item">
+        <div class="comp-destacado-label">Día y fecha</div>
+        <div class="comp-destacado-valor" id="comp-fecha-turno"></div>
+      </div>
+      <div class="comp-destacado-item">
+        <div class="comp-destacado-label">Horario</div>
+        <div class="comp-destacado-valor" id="comp-horario"></div>
+      </div>
+    </div>
+
     <div class="bloque-titulo">Datos del turno</div>
     <div class="comp-datos-grid">
       <div class="comp-dato-grupo">
@@ -237,14 +291,6 @@
         <div class="comp-dato-valor" id="comp-ciclo-sesion"></div>
       </div>
       <div class="comp-dato-grupo">
-        <div class="comp-dato-label">Fecha</div>
-        <div class="comp-dato-valor" id="comp-fecha-turno"></div>
-      </div>
-      <div class="comp-dato-grupo">
-        <div class="comp-dato-label">Horario</div>
-        <div class="comp-dato-valor" id="comp-horario"></div>
-      </div>
-      <div class="comp-dato-grupo">
         <div class="comp-dato-label">Tiempo estimado de tratamiento</div>
         <div class="comp-dato-valor" id="comp-duracion"></div>
       </div>
@@ -256,6 +302,13 @@
         <div class="comp-dato-label">Dirección</div>
         <div class="comp-dato-valor" id="comp-direccion"></div>
       </div>
+    </div>
+
+    <div class="comp-leyenda-administracion">
+      Recuerde: al finalizar su atención en enfermería y en el sector de hospital de
+      día, debe pasar por el sector de <strong>Administración</strong> con este
+      comprobante para confirmar el turno. Un turno no confirmado se considera como no
+      dado, por lo que no se reserva el lugar para la próxima sesión.
     </div>
 
   </div><!-- /comprobante -->
@@ -305,6 +358,23 @@
       return `${dia}/${mes}/${anio}`;
     }
 
+    // Etapa 2 (feedback post-testeo): día de la semana al lado de la fecha en números.
+    // new Date(anio, mes-1, dia) es el constructor "local" (no pasa por UTC) — mismo
+    // criterio que fechaDesdeISO() en turnero-motor.js, evita el mismo corrimiento de
+    // día por huso horario que ya se cuidó al formatear la fecha en sí.
+    const DIAS_SEMANA_COMPROBANTE_TURNO = [
+      "domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"
+    ];
+    function formatearFechaConDiaComprobanteTurno(fechaISOString) {
+      const fechaFormateada = formatearFechaISOComprobanteTurno(fechaISOString);
+      const coincidencia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fechaISOString || "");
+      if (!coincidencia) return fechaFormateada;
+      const [, anio, mes, dia] = coincidencia;
+      const fechaObjeto = new Date(Number(anio), Number(mes) - 1, Number(dia));
+      const nombreDia = DIAS_SEMANA_COMPROBANTE_TURNO[fechaObjeto.getDay()];
+      return `${nombreDia} ${fechaFormateada}`;
+    }
+
     // Tiempo estimado de tratamiento: duracionTotalMinutos ya viene calculado desde la
     // carga del turno (suma de protocolos + premedicación, turnero-carga.js), no hace
     // falta recalcular nada acá — solo darle formato legible.
@@ -345,7 +415,7 @@
           (d.protocolos || []).map((p) => (p && p.nombre) || p).join(", ") || "-";
         document.getElementById("comp-ciclo-sesion").textContent =
           (d.ciclo != null || d.sesion != null) ? `${d.ciclo ?? "-"} / ${d.sesion ?? "-"}` : "-";
-        document.getElementById("comp-fecha-turno").textContent = formatearFechaISOComprobanteTurno(d.fecha);
+        document.getElementById("comp-fecha-turno").textContent = formatearFechaConDiaComprobanteTurno(d.fecha);
         document.getElementById("comp-horario").textContent =
           d.horarioInicio ? `${d.horarioInicio}hs` : "-";
         document.getElementById("comp-duracion").textContent =

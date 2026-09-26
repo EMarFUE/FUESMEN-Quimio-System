@@ -7,9 +7,13 @@ let stockCache = [];
 let rolActualStock = null;
 
 // Médico y administrativo solo necesitan ver si hay stock disponible para prestar
-// (Programa Oncológico y Donaciones); el depósito de FUESMEN queda fuera de su vista,
-// tanto en el filtro como en los datos que se cargan (ver conversación de la etapa 6).
+// (Programa Oncológico, Donaciones y POP (viejo) — este último agregado junto con
+// FUESMEN (viejo), a pedido de Elías, mismo criterio de visibilidad que sus
+// contrapartes vigentes); el depósito de FUESMEN y su histórico FUESMEN (viejo)
+// quedan fuera de su vista, tanto en el filtro como en los datos que se cargan (ver
+// conversación de la etapa 6).
 const DEPOSITOS_RESTRINGIDOS = ["medico", "administrativo"];
+const DEPOSITOS_VISIBLES_RESTRINGIDOS = ["Programa Oncológico", "Donaciones", "POP (viejo)"];
 const ROLES_AUDITORIA_STOCK = ["administrador", "enfermeria"];
 
 function normalizarTextoStock(texto) {
@@ -30,6 +34,8 @@ async function iniciarStock(rol) {
   if (DEPOSITOS_RESTRINGIDOS.includes(rolActualStock)) {
     const opcionFuesmen = document.querySelector('#filtro-deposito option[value="FUESMEN"]');
     if (opcionFuesmen) opcionFuesmen.remove();
+    const opcionFuesmenViejo = document.querySelector('#filtro-deposito option[value="FUESMEN (viejo)"]');
+    if (opcionFuesmenViejo) opcionFuesmenViejo.remove();
   }
   document.getElementById("filtro-deposito").addEventListener("change", renderizarTablaStock);
   document.getElementById("filtro-droga").addEventListener("input", renderizarTablaStock);
@@ -54,7 +60,7 @@ async function cargarStock() {
     // permitidos: la regla de Firestore ahora exige que la consulta esté acotada de
     // antemano, no alcanza con filtrar acá después de traer todo (ver Handoff_etapa_6.md).
     const consulta = DEPOSITOS_RESTRINGIDOS.includes(rolActualStock)
-      ? db.collection("stock").where("deposito", "in", ["Programa Oncológico", "Donaciones"])
+      ? db.collection("stock").where("deposito", "in", DEPOSITOS_VISIBLES_RESTRINGIDOS)
       : db.collection("stock");
 
     const snapshot = await consulta.get();

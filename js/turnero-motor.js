@@ -1347,6 +1347,12 @@ async function buscarSillonHorarioFijo(
     const horaFinMinutos = horaInicioMinutos + duracionMinutos;
     let huboSedeConHorarioValido = false;
     let primeraSedeConHorarioValido = null;
+    // Feedback post-testeo (Etapa 2): antes, si el horario manual caía sobre un bloqueo
+    // administrativo y no quedaba ningún sillón libre, se ofrecía igual "cargar como
+    // sobreturno" — el bloqueo pasaba desapercibido. Se guarda acá el primer bloqueo
+    // real que choque con el horario pedido, en cualquiera de las sedes probadas, para
+    // decidir al final si corresponde bloquear en vez de ofrecer sobreturno.
+    let motivoBloqueoDetectado = null;
 
     // Se prueban TODAS las sedes candidatas (no se corta en la primera): con horario
     // manual, quien carga ya sabe qué sede quiere — esto solo importa para el caso
@@ -1372,11 +1378,12 @@ async function buscarSillonHorarioFijo(
         t.sedeId === sedeId && t.fecha === fechaISOFija &&
         typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
       );
-      const turnosDelDia = bloqueosCacheLectura
-        ? [...turnosDelDiaReales, ...pseudoTurnosBloqueoEnFecha(
+      const pseudoTurnosBloqueo = bloqueosCacheLectura
+        ? pseudoTurnosBloqueoEnFecha(
             bloqueosCacheLectura, sedeId, fechaISOFija, sillones, sedeDoc.horaApertura, sedeDoc.horaCierre
-          )]
-        : turnosDelDiaReales;
+          )
+        : [];
+      const turnosDelDia = [...turnosDelDiaReales, ...pseudoTurnosBloqueo];
 
       // "Mejor ajuste" para un único instante: mismo criterio que la búsqueda continua
       // de evaluarDiaEnSede, pero probando solo este minuto en cada sillón en vez de
@@ -1418,10 +1425,28 @@ async function buscarSillonHorarioFijo(
           }
         };
       }
+
+      // No hubo sillón libre en esta sede: si al menos uno de los sillones candidatos
+      // estaba ocupado (también) por un bloqueo vigente en este horario exacto, se
+      // guarda el motivo — sigue probando las demás sedes candidatas antes de decidir.
+      if (!motivoBloqueoDetectado) {
+        const bloqueoQueChoca = pseudoTurnosBloqueo.find(pt =>
+          horaInicioMinutos < minutoDesdeString(pt.horarioFin) &&
+          horaFinMinutos > minutoDesdeString(pt.horarioInicio)
+        );
+        if (bloqueoQueChoca) motivoBloqueoDetectado = bloqueoQueChoca.motivoBloqueo;
+      }
     }
 
     if (!huboSedeConHorarioValido) {
       return { exito: false, motivo: "horarioFueraDeSede", sedeId: sedesABuscar[0] || null };
+    }
+    // Etapa 2 (feedback post-testeo): un bloqueo administrativo es un corte total, igual
+    // que bloqueoPaciente en buscarHuecos() — nunca se ofrece "cargar igual" para
+    // ningún rol, a diferencia de "sinSillon" (falta de lugar por turnos reales), que sí
+    // ofrece sobreturno.
+    if (motivoBloqueoDetectado) {
+      return { exito: false, motivo: "bloqueado", motivoBloqueo: motivoBloqueoDetectado, sedeId: primeraSedeConHorarioValido };
     }
     return { exito: false, motivo: "sinSillon", sedeId: primeraSedeConHorarioValido };
   } catch (error) {

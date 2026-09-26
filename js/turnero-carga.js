@@ -1986,6 +1986,21 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
       )
     : { horaInicio: "09:00", horaFin: "10:00" }; // resguardo si la sede no está en caché
 
+  // Etapa 2 (feedback post-testeo, ronda 2): si lo que dejó sin espacio real fue (al
+  // menos en parte) un bloqueo, corte total — nunca se crea el sobreturno simbólico de
+  // 1 minuto en un día bloqueado, para ningún rol.
+  const motivoBloqueoResponsable = sedeDocParaHorario
+    ? bloqueoResponsableDeSobreturnoAgotado(pseudoTurnosBloqueoSobreturno, bloque)
+    : null;
+  if (motivoBloqueoResponsable) {
+    mostrarMensajeGeneral(
+      `Ese día está bloqueado (${motivoBloqueoResponsable}). No se puede cargar un turno — elegí otra fecha.`,
+      "error"
+    );
+    document.getElementById("boton-guardar-turno").disabled = false;
+    return;
+  }
+
   // Para sobreturno: crear un "hueco" con los datos originales del formulario
   const hueco = {
     sedeId: sedeIdSobreturno,
@@ -1999,7 +2014,26 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
 }
 
-// Ronda "mejoras motor", Frente 3: variante de guardarComoSobreturnoFisico, pero
+// Etapa 2 (feedback post-testeo, ronda 2): "si un día está bloqueado, ese día no se
+// carga turno, no importa la situación" — calcularBloqueSobreturno() (turnero-motor.js)
+// ya corre el sobreturno para después de cualquier bloqueo vigente ese día, pero si el
+// bloqueo (solo o combinado con turnos reales) deja CERO espacio real, igual terminaba
+// creando un sobreturno simbólico de 1 minuto justo al cierre — un turno "fantasma" en
+// un día bloqueado. Esta función decide si ese resultado degenerado (duracionAsignada
+// === 1) es por culpa de un bloqueo (bloquea del todo, sin sobreturno) o solo por
+// turnos reales acumulados (sigue permitido, es el comportamiento de siempre). Un
+// bloqueo es "responsable" si su horarioFin llega hasta donde quedó forzado el inicio
+// del sobreturno — es decir, si fue uno de los que empujó ultimoFin hasta el tope.
+function bloqueoResponsableDeSobreturnoAgotado(pseudoTurnosBloqueo, bloque) {
+  if (bloque.duracionAsignada !== 1) return null; // hubo espacio real: no es este caso
+  const inicioSobreturnoMinutos = minutoDesdeString(bloque.horaInicio);
+  const bloqueoResponsable = (pseudoTurnosBloqueo || []).find(pt =>
+    minutoDesdeString(pt.horarioFin) >= inicioSobreturnoMinutos
+  );
+  return bloqueoResponsable ? bloqueoResponsable.motivoBloqueo : null;
+}
+
+
 // restringida al sillón backup — se usa cuando la búsqueda con soloSillonTipo="backup"
 // agotó los 10 días sin encontrar hueco en ESE único sillón. A diferencia del sobreturno
 // genérico (sillon: null, no reclama ningún recurso físico), acá el turno SÍ se fuerza al
@@ -2046,6 +2080,19 @@ async function guardarComoSobreturnoSoloBackup(datosBasicos) {
     [...turnosDelDiaEnSillonBackup, ...pseudoTurnosBloqueoBackup],
     datosBasicos.duracionTotalMinutos
   );
+
+  // Etapa 2 (feedback post-testeo, ronda 2): mismo criterio que
+  // guardarComoSobreturnoFisico — si un bloqueo es responsable de que no quede nada de
+  // espacio real en el puesto para inyectables, corte total, sin sobreturno simbólico.
+  const motivoBloqueoResponsable = bloqueoResponsableDeSobreturnoAgotado(pseudoTurnosBloqueoBackup, bloque);
+  if (motivoBloqueoResponsable) {
+    mostrarMensajeGeneral(
+      `Ese día está bloqueado (${motivoBloqueoResponsable}). No se puede cargar un turno — elegí otra fecha.`,
+      "error"
+    );
+    document.getElementById("boton-guardar-turno").disabled = false;
+    return;
+  }
 
   const hueco = {
     sedeId: sedeIdSobreturno,
@@ -2094,6 +2141,21 @@ async function buscarYGuardarConHorarioManual(datosBasicos, horarioManualString,
     if (resultado.motivo === "horarioFueraDeSede" || resultado.motivo === "sinSede") {
       mostrarMensajeGeneral(
         "Ese horario queda fuera del horario de atención de la sede (o antes de que termine el turno). Elegí un horario dentro del horario de apertura y cierre.",
+        "error"
+      );
+      buscandoHuecos = false;
+      document.getElementById("boton-guardar-turno").disabled = false;
+      return;
+    }
+
+    // Feedback post-testeo (Etapa 2): ese horario cae sobre un bloqueo administrativo
+    // vigente — corte total, mismo criterio que bloqueoPaciente en la búsqueda
+    // automática: nunca se ofrece "cargar igual", para ningún rol (acá "horario manual"
+    // ya es exclusivo de administrador, así que no hay una versión más restringida que
+    // mostrarle a otro rol).
+    if (resultado.motivo === "bloqueado") {
+      mostrarMensajeGeneral(
+        `Ese horario está bloqueado${resultado.motivoBloqueo ? ` (${resultado.motivoBloqueo})` : ""}. No se puede cargar un turno ahí — elegí otro horario.`,
         "error"
       );
       buscandoHuecos = false;
