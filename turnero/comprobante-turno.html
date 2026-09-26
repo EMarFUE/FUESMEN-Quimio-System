@@ -289,6 +289,22 @@
       });
     }
 
+    // Etapa 2, punto 6: d.fecha es un string ISO plano ("aaaa-mm-dd"), no un Timestamp de
+    // Firestore — no se puede reutilizar formatearFechaHoraComprobanteTurno() de arriba
+    // tal cual: pasar "2026-09-08" por "new Date(...)" lo interpreta como medianoche UTC,
+    // y toLocaleString en huso de Argentina (UTC-3) puede mostrar el día anterior. Se
+    // parsea a mano, mismo criterio que fechaDesdeISO() en turnero-motor.js (evita pasar
+    // por UTC). Esta pantalla es deliberadamente independiente de los otros archivos del
+    // proyecto (ver DIRECCION_SEDE_COMPROBANTE_TURNO más abajo), así que la función queda
+    // acá, no importada.
+    function formatearFechaISOComprobanteTurno(fechaISOString) {
+      if (!fechaISOString) return "-";
+      const coincidencia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fechaISOString);
+      if (!coincidencia) return fechaISOString; // formato inesperado: se muestra tal cual, sin romper
+      const [, anio, mes, dia] = coincidencia;
+      return `${dia}/${mes}/${anio}`;
+    }
+
     // Tiempo estimado de tratamiento: duracionTotalMinutos ya viene calculado desde la
     // carga del turno (suma de protocolos + premedicación, turnero-carga.js), no hace
     // falta recalcular nada acá — solo darle formato legible.
@@ -329,7 +345,7 @@
           (d.protocolos || []).map((p) => (p && p.nombre) || p).join(", ") || "-";
         document.getElementById("comp-ciclo-sesion").textContent =
           (d.ciclo != null || d.sesion != null) ? `${d.ciclo ?? "-"} / ${d.sesion ?? "-"}` : "-";
-        document.getElementById("comp-fecha-turno").textContent = d.fecha || "-";
+        document.getElementById("comp-fecha-turno").textContent = formatearFechaISOComprobanteTurno(d.fecha);
         document.getElementById("comp-horario").textContent =
           d.horarioInicio ? `${d.horarioInicio}hs` : "-";
         document.getElementById("comp-duracion").textContent =

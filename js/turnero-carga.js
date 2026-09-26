@@ -1287,7 +1287,7 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
       paciente.id, // regla nueva: un turno por paciente por día (transversal a sedes)
       datosBasicos.turnoIdParaReasignar, // T7: excluye el propio turno del chequeo de "un turno por día" — undefined en un alta nueva, no afecta nada
       bloqueosCacheCarga, // Etapa T9
-      datosBasicos.soloSillonTipo || null, // Ronda "mejoras motor", Frente 3: "backup" si se tildó el checkbox dedicado; null/undefined en cualquier otro caso (incluido "Reasignar", que no tiene este campo)
+      datosBasicos.soloSillonTipo || null, // Ronda "mejoras motor", Frente 3: "backup" si se tildó el checkbox dedicado de "+ nuevo turno"; también "backup" desde "Reasignar" (Etapa 2, punto 4) cuando el turno que se reasigna ya estaba en ese tipo de sillón (ver buscarReasignarGrilla en turnero-grilla.js); null/undefined en cualquier otro caso
       idsNoReacomodables, // buscarHuecos ignora este parámetro de más — inocuo cuando usaReacomodo es false
       false // probarDiasPosteriores: intento inicial, siempre acotado a la fecha pedida
     );

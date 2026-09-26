@@ -378,7 +378,16 @@ async function cargarYRenderizarGrilla() {
   contenedor.innerHTML = `<p style="color:var(--color-muted);padding:20px;">Cargando...</p>`;
 
   try {
-    await cargarTurnosGrilla();
+    // Etapa 2, punto 5: bloqueosCacheGrilla y medicosCacheGrilla (este último trae
+    // también el flag de excepción de sede de Occhipinti) antes solo se cargaban una
+    // vez, en iniciarAgenda() — quedaban desactualizados hasta recargar la página si se
+    // los modificaba desde otra pantalla mientras la agenda seguía abierta. Se refrescan
+    // acá, en la misma cadencia que ya tiene la lectura de turnos (cambio de semana,
+    // cambio de sede, "Hoy", reapertura tras cerrar un modal): una lectura más, chica,
+    // en un momento que ya hace una consulta a la base — no agrega frecuencia nueva.
+    // A propósito NO se atan a renderizarGrilla() solo (el filtro por médico la llama
+    // sin pasar por acá): ese camino sigue sin tocar Firestore, como hasta ahora.
+    await Promise.all([cargarTurnosGrilla(), cargarBloqueosGrilla(), cargarMedicosGrilla()]);
     poblarFiltroMedicoGrilla();
     renderizarGrilla();
   } catch (error) {
@@ -801,14 +810,28 @@ async function moverArrastreGrilla(evento) {
 async function armarArrastreGrilla(estado) {
   const turno = estado.turno;
   const sede = sedesCacheGrilla.find(s => s.id === sedeSeleccionadaGrilla);
-  const medicoDoc = medicosCacheGrilla.find(m => m.id === turno.medicoId);
-  // Ronda "mejoras motor", Frente 3: el sillón backup ya no integra el pool automático
-  // (decisión de T0 revertida) — el arrastre solo debe ofrecer como hueco válido un
-  // sillón regular, mismo criterio que la búsqueda automática de turnero-carga.js. Esto
-  // NO afecta a "Modificar" (poblarSelectSillonModificar, más abajo), que a propósito
-  // sigue dejando elegir el backup a mano.
+  // Etapa 2, punto 4: antes se filtraba siempre a "regular", sin mirar de qué tipo era
+  // el sillón del turno que se está arrastrando — un turno cargado en el puesto para
+  // inyectables (backup) terminaba compitiendo por sillones regulares. Ahora el pool de
+  // destino se arma según el tipo de sillón donde YA está el turno: "regular" se queda
+  // en regular (mismo criterio que antes, y que "Consulta de disponibilidad" — el
+  // backup no integra el pool automático de una carga nueva), "backup" se queda en
+  // backup. Un sobreturno sin sillón físico (turno.sillon null, "S?") no tiene tipo:
+  // sigue ofreciendo el pool regular, sin cambios respecto de antes.
+  const sillonActual = (sede.sillones || []).find(s => s.numero === turno.sillon);
+  const tipoSillonArrastrado = sillonActual ? sillonActual.tipo : "regular";
+  // Mismo mecanismo que ya usa buscarHuecos()/buscarHuecosConReacomodo() con
+  // soloSillonTipo="backup": al restringir al sillón backup se ignoran a propósito
+  // atadura/cupo/franja (forzando medicoDoc a null, que es lo que gatea esas tres
+  // reglas en evaluarDiaEnSede) — coherente con que el turno ya se cargó bajo esa
+  // misma excepción. Confirmado con Elías.
+  const medicoDoc = tipoSillonArrastrado === "backup"
+    ? null
+    : medicosCacheGrilla.find(m => m.id === turno.medicoId);
+  // Esto NO afecta a "Modificar" (poblarSelectSillonModificar, más abajo), que a
+  // propósito sigue dejando elegir cualquiera de los dos tipos a mano.
   const sillones = (sede.sillones || [])
-    .filter(s => s.tipo === "regular")
+    .filter(s => s.tipo === tipoSillonArrastrado)
     .map(s => s.numero);
   // Excluir el turno que se está moviendo del cálculo: si no, chocaría contra sí mismo
   // (conflicto de sillón falso) y su propio tiempo ya usado se contaría dos veces en
@@ -1166,6 +1189,21 @@ async function buscarReasignarGrilla() {
     modoReasignar: true,
     turnoIdParaReasignar: turno.id
   };
+
+  // Etapa 2, punto 4: mismo bug que el arrastre, acá con el formulario de "Reasignar" —
+  // antes este flujo no tenía forma de restringirse al sillón backup (comentario viejo
+  // en buscarYMostrarHuecos: "incluido Reasignar, que no tiene este campo"), así que un
+  // turno cargado en el puesto para inyectables terminaba buscando entre los sillones
+  // regulares al reasignarlo por acá. Se resuelve con el mismo mecanismo que ya usa el
+  // checkbox dedicado de "+ nuevo turno": soloSillonTipo="backup" (que además ignora
+  // atadura/cupo/franja a propósito, mismo criterio confirmado para el arrastre).
+  const sedeDelTurno = sedesCacheCarga.find(s => s.id === turno.sedeId);
+  const sillonActualReasignar = sedeDelTurno
+    ? (sedeDelTurno.sillones || []).find(s => s.numero === turno.sillon)
+    : null;
+  if (sillonActualReasignar && sillonActualReasignar.tipo === "backup") {
+    datosBasicos.soloSillonTipo = "backup";
+  }
 
   const boton = document.getElementById("boton-buscar-reasignar-grilla");
   boton.disabled = true;
