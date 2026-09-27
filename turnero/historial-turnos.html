@@ -42,6 +42,7 @@
         <button type="button" class="filtro-tab" data-modo="paciente">Por paciente</button>
         <button type="button" class="filtro-tab" data-modo="sede">Por sede</button>
         <button type="button" class="filtro-tab" data-modo="fecha">Por rango de fechas</button>
+        <button type="button" class="filtro-tab" data-modo="asistencia">Presente / ausente</button>
       </div>
 
       <!-- Filtro por tipo de acción -->
@@ -51,6 +52,15 @@
           <button type="button" class="filtro-tab" data-tipo="reasignado">Reasignados</button>
           <button type="button" class="filtro-tab" data-tipo="modificado">Modificados</button>
           <button type="button" class="filtro-tab" data-tipo="cancelado">Cancelados</button>
+        </div>
+      </div>
+
+      <!-- Filtro presente / ausente (Etapa 4, punto 10). Turnos con fecha 26/09/2026 o
+           anterior nunca aparecen acá (sin dato: el campo no existía todavía). -->
+      <div id="bloque-filtro-asistencia" class="bloque-filtro" style="display:none;">
+        <div class="filtro-tabs" id="selector-asistencia-historial-turnos">
+          <button type="button" class="filtro-tab" data-asistencia="presente">Presente</button>
+          <button type="button" class="filtro-tab" data-asistencia="ausente">Ausente</button>
         </div>
       </div>
 

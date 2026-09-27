@@ -1396,6 +1396,32 @@ h1 {
   gap: 3px;
 }
 
+/* Etapa 4, punto 10 — "paciente presente": la tarjeta cambia de color al tildarse
+   (visible para cualquier rol), mismo par de colores que ya usa .valido-grilla para
+   "esto está bien". El checkbox en sí es chico y queda fijo en la esquina para no
+   interferir con el layout flex existente (apellido con ellipsis, badges, etc.) ni con
+   el modo vertical de 3+ turnos superpuestos. */
+.tarjeta-turno-grilla.presente-grilla {
+  background: var(--color-accent-secondary-soft);
+  border-color: var(--color-accent-secondary);
+}
+
+.checkbox-presente-grilla {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.checkbox-presente-grilla:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .tarjeta-turno-grilla.vertical-grilla .apellido-turno-grilla {
   writing-mode: vertical-rl;
   text-orientation: mixed;

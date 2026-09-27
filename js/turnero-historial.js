@@ -92,15 +92,22 @@ let datosUsuarioActualHistorialTurnos = null;
 let rolActualHistorialTurnos = null;
 
 let estadoFiltroHistorialTurnos = {
-  modo: "recientes", // recientes | tipo | medico | paciente | fecha | sede
+  modo: "recientes", // recientes | tipo | medico | paciente | fecha | sede | asistencia
   tipoAccion: null,
   medicoId: null,
   medicoEsOtro: false,
   pacienteId: null,
   fechaDesde: null,
   fechaHasta: null,
-  sedeId: null
+  sedeId: null,
+  asistencia: null // "presente" | "ausente"
 };
+
+// Etapa 4, punto 10 — turnos con fecha en esta era o anterior (inclusive) nunca tuvieron
+// forma de marcarse "presente" (el campo no existía) — nunca cuentan como "ausente" en
+// este filtro, aunque no tengan el campo. Ver Handoff de la Etapa 4 para el porqué de la
+// fecha exacta.
+const FECHA_LIMITE_SIN_DATO_ASISTENCIA_HISTORIAL_TURNOS = "2026-09-26";
 
 // Etapa T8: qué tan restringida queda la vista según el rol. Administrador/enfermería
 // ven todo, igual que antes de esta etapa; médico/administrativo ven los mismos turnos
@@ -221,6 +228,7 @@ function iniciarHistorialTurnos(user, datosUsuario) {
 
   configurarTabsHistorialTurnos();
   configurarTabsTipoAccionHistorialTurnos();
+  configurarTabsAsistenciaHistorialTurnos();
   cargarMedicosParaFiltroHistorialTurnos();
 
   document.getElementById("campo-buscar-paciente-historial-turnos")
@@ -243,6 +251,13 @@ function configurarTabsTipoAccionHistorialTurnos() {
   });
 }
 
+// Etapa 4, punto 10
+function configurarTabsAsistenciaHistorialTurnos() {
+  document.querySelectorAll("#selector-asistencia-historial-turnos .filtro-tab").forEach((btn) => {
+    btn.addEventListener("click", () => seleccionarAsistenciaHistorialTurnos(btn.dataset.asistencia));
+  });
+}
+
 function configurarCierreCadenaHistorialTurnos() {
   const overlay = document.getElementById("overlay-cadena-historial-turnos");
   document.addEventListener("keydown", (e) => {
@@ -261,6 +276,7 @@ function cambiarModoFiltroHistorialTurnos(modo) {
   document.getElementById("bloque-filtro-paciente").style.display = modo === "paciente" ? "block" : "none";
   document.getElementById("bloque-filtro-fecha").style.display = modo === "fecha" ? "block" : "none";
   document.getElementById("bloque-filtro-sede").style.display = modo === "sede" ? "block" : "none";
+  document.getElementById("bloque-filtro-asistencia").style.display = modo === "asistencia" ? "block" : "none";
 
   if (modo === "recientes") {
     cargarPaginaHistorialTurnos(true);
@@ -305,6 +321,14 @@ function cambiarModoFiltroHistorialTurnos(modo) {
     } else {
       mostrarPlaceholderHistorialTurnos("Elegí una sede.");
     }
+    return;
+  }
+  if (modo === "asistencia") {
+    if (estadoFiltroHistorialTurnos.asistencia) {
+      cargarPaginaHistorialTurnos(true);
+    } else {
+      mostrarPlaceholderHistorialTurnos("Elegí presente o ausente.");
+    }
   }
 }
 
@@ -320,6 +344,16 @@ function seleccionarTipoAccionHistorialTurnos(tipo) {
   estadoFiltroHistorialTurnos.tipoAccion = tipo;
   document.querySelectorAll("#selector-tipo-accion-historial-turnos .filtro-tab").forEach((btn) => {
     btn.classList.toggle("activo", btn.dataset.tipo === tipo);
+  });
+  cargarPaginaHistorialTurnos(true);
+}
+
+// --- Filtro "presente / ausente" (Etapa 4, punto 10) ---
+
+function seleccionarAsistenciaHistorialTurnos(valor) {
+  estadoFiltroHistorialTurnos.asistencia = valor;
+  document.querySelectorAll("#selector-asistencia-historial-turnos .filtro-tab").forEach((btn) => {
+    btn.classList.toggle("activo", btn.dataset.asistencia === valor);
   });
   cargarPaginaHistorialTurnos(true);
 }
@@ -520,6 +554,22 @@ function construirConsultaHistorialTurnos(paraExportar) {
     ordenarPor = "fecha";
   } else if (estadoFiltroHistorialTurnos.modo === "sede" && estadoFiltroHistorialTurnos.sedeId) {
     consulta = consulta.where("sedeId", "==", estadoFiltroHistorialTurnos.sedeId);
+  } else if (estadoFiltroHistorialTurnos.modo === "asistencia" && estadoFiltroHistorialTurnos.asistencia === "presente") {
+    // Solo turnos otorgados (no tiene sentido marcar presente/ausente un reasignado o
+    // cancelado — ese registro ya no representa una visita real).
+    consulta = consulta.where("estado", "==", "activo").where("presente", "==", true);
+    ordenarPor = "fecha";
+  } else if (estadoFiltroHistorialTurnos.modo === "asistencia" && estadoFiltroHistorialTurnos.asistencia === "ausente") {
+    // Firestore no permite desigualdad sobre dos campos distintos en la misma consulta
+    // (acá harían falta dos: "fecha" y "presente"). Se filtra por fecha en el rango
+    // donde el dato es confiable (posterior a FECHA_LIMITE_SIN_DATO..., anterior a hoy)
+    // y se descartan del lado del cliente, en cargarPaginaHistorialTurnos(), los que sí
+    // tienen presente:true — mismo criterio de "date math frágil, evitar en la consulta
+    // en sí" que ya documenta firestore.rules para el resto del sistema.
+    consulta = consulta.where("estado", "==", "activo")
+      .where("fecha", ">", FECHA_LIMITE_SIN_DATO_ASISTENCIA_HISTORIAL_TURNOS)
+      .where("fecha", "<", fechaLocalHoyHistorialTurnos());
+    ordenarPor = "fecha";
   }
 
   consulta = consulta.orderBy(ordenarPor, "desc");
@@ -552,16 +602,37 @@ async function cargarPaginaHistorialTurnos(reset) {
 
     if (reset) tbody.innerHTML = "";
 
-    if (snapshot.empty && reset) {
-      tbody.innerHTML = `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);padding:16px 6px;">No hay registros con ese filtro.</td></tr>`;
-    } else {
-      snapshot.docs.forEach((doc) => {
-        tbody.appendChild(filaHistorialTurnos(doc.id, doc.data()));
-      });
-    }
+    // Etapa 4, punto 10: el filtro "ausente" trae toda la ventana de fechas confiable
+    // (ver construirConsultaHistorialTurnos) y descarta acá los que sí tienen
+    // presente:true — por eso esta página puede traer menos de
+    // TAMANO_PAGINA_HISTORIAL_TURNOS filas visibles aunque haya más para cargar.
+    const docsAMostrar = (estadoFiltroHistorialTurnos.modo === "asistencia" && estadoFiltroHistorialTurnos.asistencia === "ausente")
+      ? snapshot.docs.filter((doc) => doc.data().presente !== true)
+      : snapshot.docs;
+
+    docsAMostrar.forEach((doc) => {
+      tbody.appendChild(filaHistorialTurnos(doc.id, doc.data()));
+    });
 
     hayMasHistorialTurnos = snapshot.docs.length === TAMANO_PAGINA_HISTORIAL_TURNOS;
     if (snapshot.docs.length > 0) cursorHistorialTurnos = snapshot.docs[snapshot.docs.length - 1];
+
+    if (docsAMostrar.length === 0) {
+      if (hayMasHistorialTurnos) {
+        // Etapa 4, punto 10: esta página del filtro "ausente" no trajo ninguna fila
+        // visible (todo lo que había en este tramo de fechas resultó presente:true),
+        // pero puede haber más adelante — se sigue buscando sola en vez de mostrar "sin
+        // resultados" antes de tiempo. Termina sola cuando Firestore se queda sin más
+        // turnos que matcheen fecha/estado.
+        cargandoHistorialTurnos = false;
+        botonMas.disabled = false;
+        await cargarPaginaHistorialTurnos(false);
+        return;
+      }
+      if (reset) {
+        tbody.innerHTML = `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);padding:16px 6px;">No hay registros con ese filtro.</td></tr>`;
+      }
+    }
     actualizarBotonCargarMasHistorialTurnos();
   } catch (error) {
     console.error("Error al cargar el historial de turnos:", error);

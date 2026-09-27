@@ -619,15 +619,52 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
   // el CSS) para aprovechar el largo de la tarjeta en vez del ancho.
   const modoVertical = totalLanes >= 3;
 
+  // Etapa 4, punto 10 — "paciente presente". Se guarda solo "presente: true" (nunca
+  // "false": destildar borra el campo, ver alternarPresenteTurnoGrilla). El color de la
+  // tarjeta (.presente-grilla) es visible para cualquier rol — le sirve a todos ver de
+  // un vistazo quién ya llegó —, pero el checkbox para tildar/destildar es exclusivo de
+  // enfermería/administrador, mismo criterio que el resto de las acciones operativas del
+  // día. Ventana de edición: nunca después de que pase el día del turno (turno.fecha <
+  // hoy) — validado acá para la interfaz Y en firestore.rules del lado del dato en sí
+  // (presenteTurnoValido() no valida fecha, es un riesgo de huso horario aceptado, mismo
+  // criterio que el resto del sistema — ver comentario en las reglas).
+  const estaPresente = turno.presente === true;
+  const puedeMarcarPresente = rolActualGrilla === "administrador" || rolActualGrilla === "enfermeria";
+  const puedeEditarPresente = puedeMarcarPresente && turno.fecha >= fechaLocalHoy();
+  const checkboxPresenteHtml = puedeMarcarPresente
+    ? `<input type="checkbox" class="checkbox-presente-grilla" ${estaPresente ? "checked" : ""} ${puedeEditarPresente ? "" : "disabled"}
+        title="${puedeEditarPresente ? "Paciente presente" : "Paciente presente (no editable: ya pasó el día del turno)"}"
+        onpointerdown="event.stopPropagation()"
+        onclick="event.stopPropagation(); alternarPresenteTurnoGrilla('${turno.id}', this.checked)" />`
+    : "";
+
   return `
-    <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""} ${modoVertical ? "vertical-grilla" : ""}"
+    <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""} ${modoVertical ? "vertical-grilla" : ""} ${estaPresente ? "presente-grilla" : ""}"
       style="top:${top}px;height:${alto}px;${posicionHtml}" title="${tituloCompleto}"
       data-turno-id="${turno.id}" ${accionClic}>
+      ${checkboxPresenteHtml}
       <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
       ${fueReacomodado ? `<span class="badge-reacomodo-grilla" title="Sillón reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})">↻</span>` : ""}
       <span class="apellido-turno-grilla">${escaparHtmlGrilla(nombreMostrado)}</span>
     </div>
   `;
+}
+
+// Etapa 4, punto 10 — tilda/destilda "paciente presente" desde la grilla. Nunca se
+// escribe "presente: false": al destildar se borra el campo (mismo criterio que ya usan
+// las reglas del lado del servidor, ver presenteTurnoValido() en firestore.rules).
+async function alternarPresenteTurnoGrilla(turnoId, tildado) {
+  try {
+    const cambio = tildado
+      ? { presente: true }
+      : { presente: firebase.firestore.FieldValue.delete() };
+    await db.collection("turnos").doc(turnoId).update(cambio);
+    await cargarYRenderizarGrilla();
+  } catch (error) {
+    console.error("Error al actualizar presente:", error);
+    mostrarMensajeAgenda("No se pudo actualizar si el paciente está presente. Reintentá.", "error");
+    await cargarYRenderizarGrilla();
+  }
 }
 
 // --- Fase 4 (T9): indicador visual de bloqueos ---
@@ -2225,6 +2262,8 @@ function abrirDetalleTurnoGrilla(turnoId) {
     // de la tarjeta, con más detalle acá — nunca cambió horario ni fecha, solo sillón.
     filas.push(["Sillón reasignado", `Automático (antes: sillón ${turno.reacomodo.sillonAnterior})`]);
   }
+  // Etapa 4, punto 10 — mismo dato que ya muestra el color de la tarjeta, en texto acá.
+  filas.push(["Presente", turno.presente === true ? "Sí" : "No"]);
 
   const filasHtml = filas.map(([etiqueta, valor]) => `
     <div class="fila-detalle-turno-grilla">
