@@ -275,6 +275,10 @@
         <div class="comp-dato-valor" id="comp-paciente"></div>
       </div>
       <div class="comp-dato-grupo">
+        <div class="comp-dato-label">Documento</div>
+        <div class="comp-dato-valor" id="comp-documento"></div>
+      </div>
+      <div class="comp-dato-grupo">
         <div class="comp-dato-label">Médico</div>
         <div class="comp-dato-valor" id="comp-medico"></div>
       </div>
@@ -384,6 +388,24 @@
       return `${horas} h ${mins} min`;
     }
 
+    // Documento del paciente: "DNI 12345678" (tipo + número, sin puntos) — mismo criterio que el
+    // detalle de la agenda y el comprobante de medicación. El tipo puede ser DNI, LC o LE, por
+    // eso el rótulo es "Documento" y no "DNI". Todos los turnos guardan tipoDocumento y
+    // numeroDocumento dentro de "paciente"; por las dudas con un turno viejo que no los tuviera,
+    // se recuperan de paciente.id, que siempre se arma como "TIPO-NÚMERO".
+    function formatearDocumentoComprobanteTurno(paciente) {
+      let tipo = paciente.tipoDocumento || "";
+      let numero = paciente.numeroDocumento || "";
+      if (!numero && typeof paciente.id === "string") {
+        const guion = paciente.id.indexOf("-");
+        if (guion > 0) {
+          tipo = tipo || paciente.id.slice(0, guion);
+          numero = paciente.id.slice(guion + 1);
+        }
+      }
+      return numero ? `${tipo} ${numero}`.trim() : "-";
+    }
+
     // Todo el contenido de este comprobante se pinta con .textContent (nunca innerHTML),
     // así que no hace falta ninguna función de escape de HTML.
 
@@ -405,6 +427,7 @@
         const paciente = d.paciente || {};
         document.getElementById("comp-paciente").textContent =
           `${paciente.apellido || ""}, ${paciente.nombre || ""}`.trim() || "-";
+        document.getElementById("comp-documento").textContent = formatearDocumentoComprobanteTurno(paciente);
         // Etapa 5B, punto 1: la obra social ya no se imprime en el comprobante (el dato sigue
         // guardado en el turno y se ve en la agenda, en "Modificar" y en la carga).
         document.getElementById("comp-medico").textContent = d.medicoNombre || "-";
