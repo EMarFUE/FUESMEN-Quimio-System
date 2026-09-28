@@ -33,6 +33,27 @@ let ultimoDocCorrecciones = null;
 let hayMasCorrecciones = false;
 let procesando = false;
 
+// Etapa 5B — stock negativo: qué líneas de stock quedarían más negativas si se aprueba la
+// solicitud que está abierta en el modal de revisión. Si hay alguna, "Aprobar" exige tildar
+// una casilla, y al aprobar se deja anotado en "comentarioResolucion" (ese campo ya está
+// permitido por firestore.rules; agregar un campo nuevo a "correcciones" requeriría tocarlas).
+let negativosRevisionCorreccion = { correccionId: null, lineas: [] };
+
+// Etapa 5B, punto 2 — los depósitos "(viejo)" son de solo consumo: una entrega no puede
+// MOVERSE hacia uno (corregir una entrega que ya está en uno, manteniendo el depósito, sí se
+// permite). El formulario de historial.js ya no ofrece esa opción, y firestore.rules la
+// rechaza; esto cubre solicitudes pendientes que se hayan pedido antes del cambio, para que
+// el administrador vea un mensaje claro en vez de un error de permisos al aprobar.
+const DEPOSITOS_SOLO_CONSUMO_CORRECCIONES = ["POP (viejo)", "FUESMEN (viejo)"];
+
+function correccionMueveEntregaAViejo(correccion) {
+  return correccion.coleccionOrigen === "entregas" &&
+    correccion.tipo === "correccion" &&
+    !!correccion.datosCorregidos &&
+    DEPOSITOS_SOLO_CONSUMO_CORRECCIONES.includes(correccion.datosCorregidos.deposito) &&
+    correccion.datosCorregidos.deposito !== (correccion.datosOriginales || {}).deposito;
+}
+
 const TAMANO_PAGINA_CORRECCIONES = 25;
 
 function normalizarTexto(texto) {
@@ -347,6 +368,7 @@ function configurarCierreModalRevision() {
 function cerrarRevisionCorreccion() {
   document.getElementById("panel-revision-correccion").style.display = "none";
   document.getElementById("modal-panel-revision").innerHTML = "";
+  negativosRevisionCorreccion = { correccionId: null, lineas: [] };
 }
 
 async function abrirRevisionCorreccion(id) {
@@ -424,6 +446,45 @@ function renderComparacionDatos(correccion) {
   `;
 }
 
+function numeroPlanoCorreccion(numero) {
+  return Number(numero).toLocaleString("es-AR", { maximumFractionDigits: 3 });
+}
+
+function redondearStockCorreccion(numero) {
+  const r = Math.round(Number(numero) * 1000) / 1000;
+  return r === 0 ? 0 : r;
+}
+
+// Solo cuentan las líneas donde la aprobación BAJA el stock (delta < 0) y el resultado queda
+// en negativo: anular un tratamiento que devuelve stock, aunque siga en negativo, lo mejora
+// (se sigue viendo en rojo en la tabla, pero no requiere confirmar nada).
+function calcularNegativosDeAprobacion(ajustes, previews) {
+  const lineas = [];
+  ajustes.forEach((a) => {
+    const actual = previews.get(a.stockId);
+    if (actual == null) return; // no se pudo leer: el modal ya lo avisa aparte
+    const despues = redondearStockCorreccion(actual + a.delta);
+    if (a.delta < 0 && despues < 0) {
+      lineas.push({
+        stockId: a.stockId,
+        droga: a.droga,
+        marca: a.marca || "",
+        deposito: a.deposito,
+        unidadMedida: a.unidadMedida,
+        actual: redondearStockCorreccion(actual),
+        despues
+      });
+    }
+  });
+  return lineas;
+}
+
+function alternarAprobarPorNegativo() {
+  const tilde = document.getElementById("confirmar-stock-negativo");
+  const boton = document.getElementById("boton-aprobar-correccion");
+  if (tilde && boton) boton.disabled = !tilde.checked;
+}
+
 function renderizarModalRevision(correccion, ajustes, previews) {
   const contenedor = document.getElementById("modal-panel-revision");
   const vinculado = !!correccion.documentoVinculadoId;
@@ -466,6 +527,31 @@ function renderizarModalRevision(correccion, ajustes, previews) {
     `;
   }
 
+  const bloqueadaPorViejo = correccionMueveEntregaAViejo(correccion);
+  const negativos = (vinculado || bloqueadaPorViejo) ? [] : calcularNegativosDeAprobacion(ajustes, previews);
+  const bloqueAvisoViejo = !bloqueadaPorViejo ? "" : `
+    <div class="tarjeta-confirmacion-stock" style="margin-top:14px;border-color:var(--color-danger);background:var(--color-danger-soft);">
+      <div class="titulo-confirmacion-stock" style="color:var(--color-danger);">No se puede aprobar</div>
+      <div class="texto-confirmacion-stock" style="color:var(--color-danger);margin-bottom:0;">
+        Esta solicitud mueve la entrega al depósito «${escaparHtml(correccion.datosCorregidos.deposito)}», que es de solo
+        consumo y ya no admite cargas. Rechazala y pedí que se cargue en otro depósito.
+      </div>
+    </div>
+  `;
+  negativosRevisionCorreccion = { correccionId: correccion.id, lineas: negativos };
+  const bloqueNegativo = negativos.length === 0 ? "" : `
+    <div class="tarjeta-confirmacion-stock" style="margin-top:14px;border-color:var(--color-danger);background:var(--color-danger-soft);">
+      <div class="titulo-confirmacion-stock" style="color:var(--color-danger);">Esta aprobación deja stock en negativo</div>
+      <div class="texto-confirmacion-stock" style="color:var(--color-danger);">
+        ${negativos.map((n) => `<div style="margin-bottom:4px;">${escaparHtml(n.droga)}${n.marca ? " — " + escaparHtml(n.marca) : ""} · ${escaparHtml(n.deposito)} · ${escaparHtml(n.unidadMedida)}: ${n.actual < 0 ? "el stock YA está en negativo y baja" : "pasa"} de ${numeroPlanoCorreccion(n.actual)} a ${numeroPlanoCorreccion(n.despues)}.</div>`).join("")}
+      </div>
+      <label class="check-linea" style="margin:0;color:var(--color-danger);">
+        <input type="checkbox" id="confirmar-stock-negativo" onchange="alternarAprobarPorNegativo()" />
+        Entiendo que el stock queda en negativo y quiero aprobar igual
+      </label>
+    </div>
+  `;
+
   const bloqueComparacion = correccion.tipo === "correccion" && !vinculado
     ? renderComparacionDatos(correccion)
     : renderResumenOriginal(correccion);
@@ -483,6 +569,8 @@ function renderizarModalRevision(correccion, ajustes, previews) {
 
     ${bloqueComparacion}
     ${bloqueEfecto}
+    ${bloqueNegativo}
+    ${bloqueAvisoViejo}
 
     <div class="campo" style="margin-top:16px;margin-bottom:12px;">
       <label>Comentario de resolución (opcional)</label>
@@ -493,7 +581,7 @@ function renderizarModalRevision(correccion, ajustes, previews) {
       <button type="button" class="enlace-accion peligro" style="margin-left:0;" onclick="rechazarCorreccion('${correccion.id}')">Rechazar</button>
       <div style="flex:1;"></div>
       <button type="button" class="boton-secundario" style="width:auto;" onclick="cerrarRevisionCorreccion()">Cancelar</button>
-      <button type="button" class="boton-principal" style="width:auto;padding-left:20px;padding-right:20px;" onclick="aprobarCorreccion('${correccion.id}')">Aprobar</button>
+      <button type="button" id="boton-aprobar-correccion" class="boton-principal" style="width:auto;padding-left:20px;padding-right:20px;" ${(negativos.length > 0 || bloqueadaPorViejo) ? "disabled" : ""} onclick="aprobarCorreccion('${correccion.id}')">Aprobar</button>
     </div>
   `;
 }
@@ -594,6 +682,24 @@ async function aprobarCorreccion(id) {
   const correccion = correccionesCache.find((c) => c.id === id);
   if (!correccion) { procesando = false; return; }
 
+  if (correccionMueveEntregaAViejo(correccion)) {
+    mostrarErrorEnModal(`Esta solicitud mueve la entrega a «${correccion.datosCorregidos.deposito}», un depósito de solo consumo. No se puede aprobar: rechazala.`);
+    procesando = false;
+    return;
+  }
+
+  // Etapa 5B: si la aprobación deja stock más negativo, hace falta la casilla tildada (el
+  // botón ya viene deshabilitado hasta entonces; esto es la segunda barrera).
+  const negativos = negativosRevisionCorreccion.correccionId === id ? negativosRevisionCorreccion.lineas : [];
+  if (negativos.length > 0) {
+    const tilde = document.getElementById("confirmar-stock-negativo");
+    if (!tilde || !tilde.checked) {
+      mostrarErrorEnModal("Para aprobar tenés que tildar que entendés que el stock queda en negativo.");
+      procesando = false;
+      return;
+    }
+  }
+
   try {
     // Salvaguarda: releer el estado actual justo antes de aplicar, para no revertir el
     // mismo stock dos veces si había dos solicitudes pendientes sobre el mismo documento
@@ -618,7 +724,13 @@ async function aprobarCorreccion(id) {
       }
     }
 
-    const comentario = (document.getElementById("comentario-resolucion").value || "").trim();
+    let comentario = (document.getElementById("comentario-resolucion").value || "").trim();
+    if (negativos.length > 0) {
+      const nota = "Aprobada con stock negativo confirmado: " + negativos
+        .map((n) => `${n.droga}${n.marca ? " — " + n.marca : ""} (${n.deposito}, ${n.unidadMedida}) de ${numeroPlanoCorreccion(n.actual)} a ${numeroPlanoCorreccion(n.despues)}`)
+        .join("; ") + ".";
+      comentario = comentario ? `${comentario} — ${nota}` : nota;
+    }
     const adminInfo = {
       uid: usuarioActualCorrecciones.uid,
       nombre: datosUsuarioActualCorrecciones.nombre || usuarioActualCorrecciones.email

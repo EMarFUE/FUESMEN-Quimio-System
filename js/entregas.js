@@ -91,6 +91,13 @@ function idPaciente(tipoDocumento, numeroDocumento) {
   return `${tipoDocumento}-${numeroDocumento}`;
 }
 
+// Etapa 5B, punto 2 — los dos depósitos "(viejo)" son de SOLO CONSUMO: se puede descontar de
+// ahí (tratamientos, egresos.html) pero no cargar medicación, ni siquiera con "uso inmediato".
+// Las opciones ya vienen deshabilitadas en entregas.html; esta lista es la segunda barrera
+// (si el HTML estuviera desactualizado o se tocara el desplegable a mano). El servidor también
+// lo rechaza (ver firestore.rules, depositoEntregaValido()).
+const DEPOSITOS_SOLO_CONSUMO_ENTREGAS = ["POP (viejo)", "FUESMEN (viejo)"];
+
 function slugDeposito(deposito) {
   return normalizarTexto(deposito).replace(/\s+/g, "-");
 }
@@ -477,6 +484,14 @@ async function guardarEntrega() {
   const quienEntregaDocumento = soloDigitos(document.getElementById("entrega-documento").value);
   const esMismoPaciente = document.getElementById("campo-es-mismo-paciente").checked;
   const filas = [...document.querySelectorAll(".fila-medicamento")];
+
+  if (DEPOSITOS_SOLO_CONSUMO_ENTREGAS.includes(deposito)) {
+    mostrarMensajeGeneral(
+      `«${deposito}» es un depósito de solo consumo: no admite cargas de medicación (tampoco con uso inmediato). Elegí otro depósito.`,
+      "error"
+    );
+    return;
+  }
 
   if (!pacienteSeleccionado) {
     mostrarMensajeGeneral(

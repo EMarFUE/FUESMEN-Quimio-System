@@ -5,6 +5,16 @@
 
 const UNIDADES_MEDIDA_LABELS = { g: "gramo", cc: "centímetro cúbico", mg: "miligramo" };
 
+// Etapa 5B — stock negativo. Los dos depósitos "(viejo)" se cargaron de forma masiva porque
+// la medicación real no estaba identificada por paciente ni por depósito, así que al
+// consumir es esperable que aparezcan negativos (y que a fin de mes se compensen contra
+// sobrantes de otros depósitos). Ahí NO rige el bloqueo de "sin stock cargado": se puede
+// cargar un tratamiento aunque ese medicamento nunca se haya ingresado en esa unidad, con
+// aviso y confirmación. En los otros tres depósitos el bloqueo sigue igual (evita el
+// "stock fantasma" en una unidad que nunca tuvo ingresos, ver Handoff_etapa_6.md).
+const DEPOSITOS_HISTORICOS_EGRESOS = ["POP (viejo)", "FUESMEN (viejo)"];
+const TEXTO_AVISO_SIN_STOCK = "No hay stock cargado de este medicamento en este depósito.";
+
 let usuarioActualEgresos = null;
 let datosUsuarioActualEgresos = null;
 let pacientesCacheEgresos = [];
@@ -13,6 +23,7 @@ let stockCacheEgresos = [];
 let pacienteSeleccionado = null;
 let contadorFilasMedicamento = 0;
 let guardando = false;
+let verificandoStock = false;
 let pendingEgresoData = null;
 let rolActualEgresos = null;
 let temporizadorBusquedaDocumento = null;
@@ -90,6 +101,20 @@ function idPaciente(tipoDocumento, numeroDocumento) {
 
 function slugDeposito(deposito) {
   return normalizarTexto(deposito).replace(/\s+/g, "-");
+}
+
+function esDepositoHistorico(deposito) {
+  return DEPOSITOS_HISTORICOS_EGRESOS.includes(deposito);
+}
+
+function formatearNumeroStock(numero) {
+  return Number(numero).toLocaleString("es-AR", { maximumFractionDigits: 3 });
+}
+
+// Evita que un resultado como 0.3 - 0.1 - 0.2 muestre -0 o un residuo binario.
+function redondearStock(numero) {
+  const r = Math.round(Number(numero) * 1000) / 1000;
+  return r === 0 ? 0 : r;
 }
 
 // Escapa texto libre antes de insertarlo con innerHTML (nombre/apellido de paciente,
@@ -389,6 +414,7 @@ function agregarFilaMedicamento() {
   `;
   div.querySelector("[data-quitar]").addEventListener("click", () => quitarFilaMedicamento(id));
   div.querySelector(".sel-medicamento").addEventListener("change", () => actualizarUnidadesFila(id));
+  div.querySelector(".sel-unidad").addEventListener("change", () => actualizarAvisoUnidadFila(id));
   document.getElementById("lista-medicamentos").appendChild(div);
 }
 
@@ -399,6 +425,8 @@ function actualizarUnidadesFila(filaId) {
   const selUnidad = fila.querySelector(".sel-unidad");
   const inpCantidad = fila.querySelector(".inp-cantidad");
   const aviso = fila.querySelector(".aviso-sin-stock");
+
+  aviso.textContent = TEXTO_AVISO_SIN_STOCK;
 
   if (!medicamentoId) {
     selUnidad.innerHTML = `<option value="">Elegí el medicamento primero</option>`;
@@ -411,8 +439,9 @@ function actualizarUnidadesFila(filaId) {
   const unidadesConStock = stockCacheEgresos.filter(
     (s) => s.medicamentoId === medicamentoId && s.deposito === deposito
   );
+  const historico = esDepositoHistorico(deposito);
 
-  if (unidadesConStock.length === 0) {
+  if (unidadesConStock.length === 0 && !historico) {
     selUnidad.innerHTML = `<option value="">Sin stock cargado</option>`;
     selUnidad.disabled = true;
     inpCantidad.disabled = true;
@@ -420,16 +449,76 @@ function actualizarUnidadesFila(filaId) {
     return;
   }
 
-  aviso.style.display = "none";
   selUnidad.disabled = false;
   inpCantidad.disabled = false;
-  selUnidad.innerHTML = unidadesConStock
-    .map((s) => {
-      const label = s.unidadMedidaLabel || UNIDADES_MEDIDA_LABELS[s.unidadMedida] || s.unidadMedida;
-      const disponible = Number(s.cantidad) || 0;
-      return `<option value="${s.unidadMedida}">${label} (${disponible.toLocaleString("es-AR", { maximumFractionDigits: 3 })} disponibles)</option>`;
-    })
-    .join("");
+
+  if (!historico) {
+    aviso.style.display = "none";
+    selUnidad.innerHTML = unidadesConStock
+      .map((s) => {
+        const label = s.unidadMedidaLabel || UNIDADES_MEDIDA_LABELS[s.unidadMedida] || s.unidadMedida;
+        const disponible = Number(s.cantidad) || 0;
+        return `<option value="${s.unidadMedida}">${label} (${formatearNumeroStock(disponible)} disponibles)</option>`;
+      })
+      .join("");
+    return;
+  }
+
+  // Depósito "(viejo)": se ofrecen las tres unidades. Las que ya tienen stock muestran
+  // cuánto hay (y la primera queda preseleccionada); las demás dicen "sin stock cargado" y
+  // al usarlas se crea el documento de stock directamente en negativo. Si el medicamento
+  // no tiene stock en ninguna unidad, no se preselecciona nada: hay que elegir a propósito.
+  const unidades = Object.keys(UNIDADES_MEDIDA_LABELS);
+  unidadesConStock.forEach((s) => { if (!unidades.includes(s.unidadMedida)) unidades.push(s.unidadMedida); });
+  const preseleccionada = unidadesConStock.length > 0 ? unidadesConStock[0].unidadMedida : "";
+  selUnidad.innerHTML =
+    (preseleccionada ? "" : `<option value="">Elegir unidad...</option>`) +
+    unidades
+      .map((u) => {
+        const existente = unidadesConStock.find((s) => s.unidadMedida === u);
+        const label = (existente && existente.unidadMedidaLabel) || UNIDADES_MEDIDA_LABELS[u] || u;
+        const detalle = existente
+          ? `${formatearNumeroStock(Number(existente.cantidad) || 0)} disponibles`
+          : "sin stock cargado";
+        return `<option value="${u}" ${u === preseleccionada ? "selected" : ""}>${label} (${detalle})</option>`;
+      })
+      .join("");
+  actualizarAvisoUnidadFila(filaId);
+}
+
+// Solo en depósitos "(viejo)": avisa, antes de guardar, cuando la unidad elegida no tiene
+// documento de stock (se va a crear en negativo) o cuando el medicamento no tiene stock en
+// ninguna unidad. En el resto de los depósitos no aplica (ahí directamente no se puede elegir).
+function actualizarAvisoUnidadFila(filaId) {
+  const fila = document.getElementById(filaId);
+  if (!fila) return;
+  const deposito = document.getElementById("campo-deposito").value;
+  const aviso = fila.querySelector(".aviso-sin-stock");
+  if (!esDepositoHistorico(deposito)) return;
+
+  const medicamentoId = fila.querySelector(".sel-medicamento").value;
+  const unidad = fila.querySelector(".sel-unidad").value;
+  if (!medicamentoId) {
+    aviso.style.display = "none";
+    return;
+  }
+  const hayAlgunaUnidad = stockCacheEgresos.some((s) => s.medicamentoId === medicamentoId && s.deposito === deposito);
+  if (!unidad) {
+    aviso.textContent = hayAlgunaUnidad
+      ? TEXTO_AVISO_SIN_STOCK
+      : "Este medicamento no tiene stock cargado en este depósito. Elegí la unidad: al confirmar, el stock va a quedar en negativo.";
+    aviso.style.display = hayAlgunaUnidad ? "none" : "block";
+    return;
+  }
+  const existe = stockCacheEgresos.some(
+    (s) => s.medicamentoId === medicamentoId && s.unidadMedida === unidad && s.deposito === deposito
+  );
+  if (existe) {
+    aviso.style.display = "none";
+  } else {
+    aviso.textContent = "En este depósito no hay stock cargado de este medicamento en esta unidad: al confirmar, el stock va a quedar en negativo.";
+    aviso.style.display = "block";
+  }
 }
 
 function recalcularUnidadesTodasLasFilas() {
@@ -445,10 +534,10 @@ function quitarFilaMedicamento(id) {
   document.getElementById(id).remove();
 }
 
-// --- Guardado: valida, chequea stock disponible y arma la confirmación si falta ---
+// --- Guardado: valida, relee el stock real y arma la confirmación si va a quedar en negativo ---
 
-function intentarGuardarEgreso() {
-  if (guardando) return;
+async function intentarGuardarEgreso() {
+  if (guardando || verificandoStock) return;
 
   const deposito = document.getElementById("campo-deposito").value;
   const ciclo = parseInt(document.getElementById("campo-ciclo").value, 10);
@@ -481,7 +570,12 @@ function intentarGuardarEgreso() {
       return;
     }
     if (!unidadValue) {
-      mostrarMensajeGeneral(`No hay stock cargado de ${med.droga} en este depósito, así que no se puede descontar (línea ${i + 1}).`, "error");
+      mostrarMensajeGeneral(
+        esDepositoHistorico(deposito)
+          ? `Elegí la unidad de medida de ${med.droga} (línea ${i + 1}).`
+          : `No hay stock cargado de ${med.droga} en este depósito, así que no se puede descontar (línea ${i + 1}).`,
+        "error"
+      );
       return;
     }
     if (!cantidad || cantidad <= 0) {
@@ -493,7 +587,6 @@ function intentarGuardarEgreso() {
       (s) => s.medicamentoId === med.id && s.unidadMedida === unidadValue && s.deposito === deposito
     );
     const unidadLabel = (stockEntry && stockEntry.unidadMedidaLabel) || UNIDADES_MEDIDA_LABELS[unidadValue] || unidadValue;
-    const disponible = stockEntry ? Number(stockEntry.cantidad) || 0 : 0;
 
     medicamentos.push({
       medicamentoId: med.id,
@@ -501,12 +594,23 @@ function intentarGuardarEgreso() {
       marca: med.marca || "",
       unidadMedida: unidadValue,
       unidadMedidaLabel: unidadLabel,
-      cantidad,
-      disponible
+      cantidad
     });
   }
 
-  const faltantes = medicamentos.filter((m) => m.disponible < m.cantidad);
+  // El stock se relee ahora, justo antes de avisar (etapa 5B): con dos personas cargando a
+  // la vez, el número que trajo la pantalla al abrirse puede estar viejo.
+  verificandoStock = true;
+  document.getElementById("boton-guardar-egreso").disabled = true;
+  let lineasStock;
+  try {
+    lineasStock = await leerStockActualLineas(deposito, medicamentos);
+  } finally {
+    verificandoStock = false;
+    document.getElementById("boton-guardar-egreso").disabled = false;
+  }
+
+  const faltantes = lineasStock.filter((l) => l.resultante < 0);
 
   const datos = { deposito, ciclo, sesion, medicamentos };
 
@@ -518,17 +622,88 @@ function intentarGuardarEgreso() {
   guardarEgresoReal(datos);
 }
 
+// Agrupa las líneas por documento de stock (dos líneas del mismo medicamento y unidad
+// descuentan del mismo lugar, así que el aviso tiene que sumarlas) y trae el valor real de
+// cada documento. Si una lectura falla, se usa lo que había en la caché de la pantalla: el
+// aviso es informativo, no un límite, así que un error de lectura no debe frenar la carga.
+async function leerStockActualLineas(deposito, medicamentos) {
+  const grupos = new Map();
+  medicamentos.forEach((m) => {
+    const clave = `${m.medicamentoId}_${m.unidadMedida}_${slugDeposito(deposito)}`;
+    if (!grupos.has(clave)) {
+      const enCache = stockCacheEgresos.find(
+        (s) => s.medicamentoId === m.medicamentoId && s.unidadMedida === m.unidadMedida && s.deposito === deposito
+      );
+      grupos.set(clave, {
+        clave,
+        medicamentoId: m.medicamentoId,
+        droga: m.droga,
+        marca: m.marca,
+        unidadMedida: m.unidadMedida,
+        unidadMedidaLabel: m.unidadMedidaLabel,
+        cantidad: 0,
+        existe: !!enCache,
+        disponible: enCache ? Number(enCache.cantidad) || 0 : 0
+      });
+    }
+    grupos.get(clave).cantidad += m.cantidad;
+  });
+
+  await Promise.all(
+    [...grupos.values()].map(async (g) => {
+      try {
+        const snap = await db.collection("stock").doc(g.clave).get();
+        g.existe = snap.exists;
+        g.disponible = snap.exists ? Number(snap.data().cantidad) || 0 : 0;
+      } catch (error) {
+        console.warn("No se pudo releer el stock de", g.clave, "- se usa el valor de la pantalla:", error);
+      }
+    })
+  );
+
+  grupos.forEach((g) => {
+    g.cantidad = redondearStock(g.cantidad);
+    g.resultante = redondearStock(g.disponible - g.cantidad);
+  });
+  return [...grupos.values()];
+}
+
+function textoAvisoStockNegativo(l) {
+  const nombre = `${l.droga}${l.marca ? " — " + l.marca : ""}`;
+  const u = l.unidadMedida;
+  const resultado = `va a quedar en ${formatearNumeroStock(l.resultante)} ${u}`;
+  if (!l.existe) {
+    return `${nombre}: no hay stock cargado en este depósito; ${resultado}.`;
+  }
+  if (l.disponible < 0) {
+    return `${nombre}: el stock YA está en negativo (${formatearNumeroStock(l.disponible)} ${u}) y se descuentan ${formatearNumeroStock(l.cantidad)} más; ${resultado}.`;
+  }
+  return `${nombre}: hay ${formatearNumeroStock(l.disponible)} ${u} y se descuentan ${formatearNumeroStock(l.cantidad)}; ${resultado}.`;
+}
+
 function mostrarConfirmacionStock(faltantes, datos) {
-  pendingEgresoData = datos;
-  const detalle = faltantes
-    .map(
-      (f) =>
-        `${f.droga}${f.marca ? " — " + f.marca : ""}: hay ${f.disponible.toLocaleString("es-AR", { maximumFractionDigits: 3 })} ${f.unidadMedidaLabel} disponibles y se están descontando ${f.cantidad.toLocaleString("es-AR", { maximumFractionDigits: 3 })}.`
-    )
-    .join(" ");
-  document.getElementById("texto-confirmacion-stock").textContent = detalle + " ¿Confirmás igual?";
-  document.getElementById("bloque-confirmacion-stock").style.display = "block";
-  document.getElementById("bloque-confirmacion-stock").scrollIntoView({ behavior: "smooth", block: "center" });
+  pendingEgresoData = { ...datos, negativos: faltantes };
+
+  const contenedor = document.getElementById("texto-confirmacion-stock");
+  contenedor.innerHTML = "";
+  faltantes.forEach((l) => {
+    const linea = document.createElement("div");
+    linea.style.marginBottom = "6px";
+    linea.textContent = textoAvisoStockNegativo(l);
+    contenedor.appendChild(linea);
+  });
+  const cierre = document.createElement("div");
+  cierre.style.marginTop = "8px";
+  cierre.textContent = "¿Confirmás seguir cargando con el stock en negativo?";
+  contenedor.appendChild(cierre);
+
+  // Aviso fuerte (rojo) cuando el stock ya estaba en negativo o directamente no existía.
+  const bloque = document.getElementById("bloque-confirmacion-stock");
+  const fuerte = faltantes.some((l) => !l.existe || l.disponible < 0);
+  bloque.style.borderColor = fuerte ? "var(--color-danger)" : "";
+  bloque.style.background = fuerte ? "var(--color-danger-soft)" : "";
+  bloque.style.display = "block";
+  bloque.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function cancelarConfirmacionStock() {
@@ -552,7 +727,7 @@ async function guardarEgresoReal(datos) {
     const batch = db.batch();
 
     const egresoRef = db.collection("egresos").doc();
-    batch.set(egresoRef, {
+    const datosEgreso = {
       deposito: datos.deposito,
       paciente: {
         id: pacienteSeleccionado.id,
@@ -579,7 +754,23 @@ async function guardarEgresoReal(datos) {
       ),
       creadoPor: { uid: usuarioActualEgresos.uid, nombre: datosUsuarioActualEgresos.nombre || usuarioActualEgresos.email },
       creadoEn: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    };
+
+    // Etapa 5B: si quien carga confirmó seguir con el stock en negativo, el egreso lo deja
+    // registrado (una entrada por documento de stock afectado) para la revisión de fin de
+    // mes. No lleva estado ni afecta ninguna otra lógica: es solo una marca de auditoría.
+    if (datos.negativos && datos.negativos.length > 0) {
+      datosEgreso.stockNegativoConfirmado = datos.negativos.map((n) => ({
+        medicamentoId: n.medicamentoId,
+        unidadMedida: n.unidadMedida,
+        stockPrevio: n.disponible,
+        cantidad: n.cantidad,
+        stockResultante: n.resultante,
+        sinDocumento: !n.existe
+      }));
+    }
+
+    batch.set(egresoRef, datosEgreso);
 
     datos.medicamentos.forEach((linea) => {
       const stockId = `${linea.medicamentoId}_${linea.unidadMedida}_${slugDeposito(datos.deposito)}`;

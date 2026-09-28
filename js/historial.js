@@ -47,6 +47,34 @@ const UNIDADES_MEDIDA_CORRECCION = [
   { value: "mg", label: "miligramo" }
 ];
 
+// Etapa 5B — mismo criterio que egresos.js: en los depósitos "(viejo)" no rige el bloqueo de
+// "sin stock cargado" (se cargaron de forma masiva y es esperable que aparezcan negativos).
+// Ahí la corrección de un tratamiento puede usar cualquiera de las tres unidades; en los otros
+// tres depósitos sigue habiendo que elegir entre las unidades que ya tienen stock.
+const DEPOSITOS_HISTORICOS_CORRECCION = ["POP (viejo)", "FUESMEN (viejo)"];
+const TEXTO_AVISO_SIN_STOCK_CORRECCION = "No hay stock cargado de este medicamento en este depósito.";
+
+function esDepositoHistoricoCorreccion(deposito) {
+  return DEPOSITOS_HISTORICOS_CORRECCION.includes(deposito);
+}
+
+// Etapa 5B, punto 2 — al corregir una ENTREGA no se puede mover hacia un depósito "(viejo)"
+// (son de solo consumo). Si la entrega YA está en uno, esa opción queda habilitada y
+// seleccionada (mantener el depósito es válido); NO se borra el <option>, porque entonces el
+// desplegable caería en la primera opción y cambiaría el depósito sin avisar.
+function opcionesDepositoCorreccionEntrega(depositoActual) {
+  return ["FUESMEN", "Programa Oncológico", "Donaciones", "POP (viejo)", "FUESMEN (viejo)"]
+    .map((d) => {
+      const bloqueado = esDepositoHistoricoCorreccion(d) && d !== depositoActual;
+      return `<option value="${d}" ${d === depositoActual ? "selected" : ""} ${bloqueado ? "disabled" : ""}>${d}${bloqueado ? " — solo consumo" : ""}</option>`;
+    })
+    .join("");
+}
+
+function labelUnidadCorreccion(unidad) {
+  return (UNIDADES_MEDIDA_CORRECCION.find((u) => u.value === unidad) || {}).label || unidad;
+}
+
 let estadoFiltroHistorial = {
   coleccion: "entregas", // entregas | egresos (etapa 9)
   modo: "recientes", // recientes | paciente | ciclo-sesion | fecha
@@ -1118,13 +1146,7 @@ function renderFormularioCorreccionEntrega(datos) {
   cuerpo.innerHTML = `
     <div class="campo" style="margin-top:10px;">
       <label>Depósito</label>
-      <select id="corr-deposito">
-        <option value="FUESMEN" ${datos.deposito === "FUESMEN" ? "selected" : ""}>FUESMEN</option>
-        <option value="Programa Oncológico" ${datos.deposito === "Programa Oncológico" ? "selected" : ""}>Programa Oncológico</option>
-        <option value="Donaciones" ${datos.deposito === "Donaciones" ? "selected" : ""}>Donaciones</option>
-        <option value="POP (viejo)" ${datos.deposito === "POP (viejo)" ? "selected" : ""}>POP (viejo)</option>
-        <option value="FUESMEN (viejo)" ${datos.deposito === "FUESMEN (viejo)" ? "selected" : ""}>FUESMEN (viejo)</option>
-      </select>
+      <select id="corr-deposito">${opcionesDepositoCorreccionEntrega(datos.deposito)}</select>
     </div>
 
     <div class="titulo-bloque" style="margin-top:14px;">a quién pertenece</div>
@@ -1244,6 +1266,12 @@ function recolectarDatosCorreccionEntrega() {
   const nombre = capitalizarPalabras(document.getElementById("corr-entrega-nombre").value);
   const apellido = capitalizarPalabras(document.getElementById("corr-entrega-apellido").value);
   const documento = soloDigitos(document.getElementById("corr-entrega-documento").value);
+
+  // Segunda barrera (las opciones ya vienen deshabilitadas): no mover una entrega hacia un viejo.
+  if (esDepositoHistoricoCorreccion(deposito) && (!panelDatosOriginales || panelDatosOriginales.deposito !== deposito)) {
+    mostrarError(`«${deposito}» es un depósito de solo consumo: no se puede mover una entrega hacia allí. Elegí otro depósito.`);
+    return null;
+  }
 
   if (!correccionPacienteSeleccionado) {
     mostrarError(esDonacion ? "Falta indicar a quién pertenecía la medicación." : "Falta indicar a quién pertenece la medicación.");
@@ -1411,6 +1439,7 @@ function agregarFilaMedicamentoCorreccionEgreso(datosLinea) {
     div.remove();
   });
   div.querySelector(".corr-sel-medicamento").addEventListener("change", () => actualizarUnidadesFilaCorreccion(id));
+  div.querySelector(".corr-sel-unidad").addEventListener("change", () => actualizarAvisoUnidadCorreccion(id));
   document.getElementById("corr-lista-medicamentos").appendChild(div);
 
   if (datosLinea) {
@@ -1424,6 +1453,9 @@ function actualizarUnidadesFilaCorreccion(filaId, unidadPreseleccionada, cantida
   const selUnidad = fila.querySelector(".corr-sel-unidad");
   const inpCantidad = fila.querySelector(".corr-inp-cantidad");
   const aviso = fila.querySelector(".aviso-sin-stock");
+  const historico = esDepositoHistoricoCorreccion(document.getElementById("corr-deposito").value);
+
+  aviso.textContent = TEXTO_AVISO_SIN_STOCK_CORRECCION;
 
   if (!medicamentoId) {
     selUnidad.innerHTML = `<option value="">Elegí el medicamento primero</option>`;
@@ -1435,7 +1467,7 @@ function actualizarUnidadesFilaCorreccion(filaId, unidadPreseleccionada, cantida
 
   const unidadesConStock = (stockCacheHistorialCorreccion || []).filter((s) => s.medicamentoId === medicamentoId);
 
-  if (unidadesConStock.length === 0) {
+  if (unidadesConStock.length === 0 && !historico) {
     selUnidad.innerHTML = `<option value="">Sin stock cargado</option>`;
     selUnidad.disabled = true;
     inpCantidad.disabled = true;
@@ -1446,15 +1478,63 @@ function actualizarUnidadesFilaCorreccion(filaId, unidadPreseleccionada, cantida
   aviso.style.display = "none";
   selUnidad.disabled = false;
   inpCantidad.disabled = false;
-  selUnidad.innerHTML = unidadesConStock
-    .map((s) => {
-      const label = s.unidadMedidaLabel || (UNIDADES_MEDIDA_CORRECCION.find((u) => u.value === s.unidadMedida) || {}).label || s.unidadMedida;
-      const seleccionado = unidadPreseleccionada && unidadPreseleccionada === s.unidadMedida ? "selected" : "";
-      return `<option value="${s.unidadMedida}" ${seleccionado}>${label}</option>`;
-    })
-    .join("");
+
+  if (!historico) {
+    selUnidad.innerHTML = unidadesConStock
+      .map((s) => {
+        const label = s.unidadMedidaLabel || labelUnidadCorreccion(s.unidadMedida);
+        const seleccionado = unidadPreseleccionada && unidadPreseleccionada === s.unidadMedida ? "selected" : "";
+        return `<option value="${s.unidadMedida}" ${seleccionado}>${label}</option>`;
+      })
+      .join("");
+  } else {
+    // Depósito "(viejo)": las tres unidades; se preselecciona la del tratamiento original si
+    // corresponde, si no la primera que ya tenga stock, y si no hay ninguna hay que elegir.
+    const unidades = UNIDADES_MEDIDA_CORRECCION.map((u) => u.value);
+    unidadesConStock.forEach((s) => { if (!unidades.includes(s.unidadMedida)) unidades.push(s.unidadMedida); });
+    const preseleccionada =
+      unidadPreseleccionada && unidades.includes(unidadPreseleccionada)
+        ? unidadPreseleccionada
+        : (unidadesConStock.length > 0 ? unidadesConStock[0].unidadMedida : "");
+    selUnidad.innerHTML =
+      (preseleccionada ? "" : `<option value="">Elegir unidad...</option>`) +
+      unidades
+        .map((u) => {
+          const existente = unidadesConStock.find((s) => s.unidadMedida === u);
+          const label = (existente && existente.unidadMedidaLabel) || labelUnidadCorreccion(u);
+          return `<option value="${u}" ${u === preseleccionada ? "selected" : ""}>${label}${existente ? "" : " (sin stock cargado)"}</option>`;
+        })
+        .join("");
+    actualizarAvisoUnidadCorreccion(filaId);
+  }
 
   if (cantidadPreseleccionada != null) inpCantidad.value = cantidadPreseleccionada;
+}
+
+// Solo depósitos "(viejo)": avisa que la unidad elegida no tiene documento de stock (se va a
+// crear en negativo al aprobar) o que el medicamento no tiene stock en ninguna unidad.
+function actualizarAvisoUnidadCorreccion(filaId) {
+  const fila = document.getElementById(filaId);
+  if (!fila || !esDepositoHistoricoCorreccion(document.getElementById("corr-deposito").value)) return;
+  const aviso = fila.querySelector(".aviso-sin-stock");
+  const medicamentoId = fila.querySelector(".corr-sel-medicamento").value;
+  const unidad = fila.querySelector(".corr-sel-unidad").value;
+  if (!medicamentoId) {
+    aviso.style.display = "none";
+    return;
+  }
+  const unidadesConStock = (stockCacheHistorialCorreccion || []).filter((s) => s.medicamentoId === medicamentoId);
+  if (!unidad) {
+    aviso.textContent = "Este medicamento no tiene stock cargado en este depósito. Elegí la unidad: al aprobar, el stock va a quedar en negativo.";
+    aviso.style.display = unidadesConStock.length === 0 ? "block" : "none";
+    return;
+  }
+  if (unidadesConStock.some((s) => s.unidadMedida === unidad)) {
+    aviso.style.display = "none";
+  } else {
+    aviso.textContent = "En este depósito no hay stock cargado de este medicamento en esta unidad: al aprobar, el stock va a quedar en negativo.";
+    aviso.style.display = "block";
+  }
 }
 
 function recolectarDatosCorreccionEgreso() {
@@ -1496,7 +1576,11 @@ function recolectarDatosCorreccionEgreso() {
       return null;
     }
     if (!unidadValue) {
-      mostrarError(`No hay stock cargado de ${med.droga} en este depósito, así que no se puede descontar (línea ${i + 1}).`);
+      mostrarError(
+        esDepositoHistoricoCorreccion(deposito)
+          ? `Elegí la unidad de medida de ${med.droga} (línea ${i + 1}).`
+          : `No hay stock cargado de ${med.droga} en este depósito, así que no se puede descontar (línea ${i + 1}).`
+      );
       return null;
     }
     if (!cantidad || cantidad <= 0) {
@@ -1505,7 +1589,7 @@ function recolectarDatosCorreccionEgreso() {
     }
 
     const stockEntry = (stockCacheHistorialCorreccion || []).find((s) => s.medicamentoId === med.id && s.unidadMedida === unidadValue);
-    const unidadLabel = (stockEntry && stockEntry.unidadMedidaLabel) || unidadValue;
+    const unidadLabel = (stockEntry && stockEntry.unidadMedidaLabel) || labelUnidadCorreccion(unidadValue);
 
     medicamentos.push({
       medicamentoId: med.id,

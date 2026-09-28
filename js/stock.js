@@ -39,6 +39,7 @@ async function iniciarStock(rol) {
   }
   document.getElementById("filtro-deposito").addEventListener("change", renderizarTablaStock);
   document.getElementById("filtro-droga").addEventListener("input", renderizarTablaStock);
+  document.getElementById("filtro-solo-negativos").addEventListener("change", renderizarTablaStock);
   configurarCierreModalAuditoria();
   await cargarStock();
 }
@@ -80,11 +81,14 @@ async function cargarStock() {
 function filasFiltradas() {
   const deposito = document.getElementById("filtro-deposito").value;
   const filtroDroga = normalizarTextoStock(document.getElementById("filtro-droga").value);
+  // Etapa 5B: filtro para la revisión de fin de mes — solo las filas con stock negativo.
+  const soloNegativos = document.getElementById("filtro-solo-negativos").checked;
 
   return stockCache.filter((item) => {
     const coincideDeposito = !deposito || item.deposito === deposito;
     const coincideDroga = !filtroDroga || normalizarTextoStock(item.droga).includes(filtroDroga);
-    return coincideDeposito && coincideDroga;
+    const coincideNegativo = !soloNegativos || (Number(item.cantidad) || 0) < 0;
+    return coincideDeposito && coincideDroga && coincideNegativo;
   });
 }
 
@@ -93,7 +97,10 @@ function renderizarTablaStock() {
   const filtrados = filasFiltradas();
 
   if (filtrados.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--color-muted);padding:16px 6px;">No hay stock cargado con ese filtro.</td></tr>`;
+    const mensajeVacio = document.getElementById("filtro-solo-negativos").checked
+      ? "No hay stock en negativo con ese filtro."
+      : "No hay stock cargado con ese filtro.";
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--color-muted);padding:16px 6px;">${mensajeVacio}</td></tr>`;
     return;
   }
 
@@ -298,13 +305,22 @@ function formatearCantidad(cantidad) {
   return texto;
 }
 
+function estadoStock(cantidad) {
+  const numero = Number(cantidad) || 0;
+  if (numero < 0) return "Negativo";
+  if (numero === 0) return "En cero";
+  return "Con stock";
+}
+
 function exportarStockAExcel() {
   const filas = filasFiltradas().map((item) => ({
     Droga: item.droga || "",
     Marca: item.marca || "",
     "Unidad de medida": item.unidadMedidaLabel || item.unidadMedida || "",
     Depósito: item.deposito || "",
-    Cantidad: Number(item.cantidad) || 0
+    Cantidad: Number(item.cantidad) || 0,
+    // Etapa 5B: para poder filtrar/ordenar en Excel durante la revisión de fin de mes.
+    Estado: estadoStock(item.cantidad)
   }));
 
   if (filas.length === 0) {
