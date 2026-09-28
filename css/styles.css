@@ -15,6 +15,9 @@
      --color-accent-secondary (ya usados en todo el sistema para "mal"/"bien"); el
      amarillo no tenía equivalente en la paleta existente. */
   --color-prioridad-amarilla: #d8a930;
+  /* Etapa 5: botón "+ Nuevo turno" — azul más profundo que --color-accent (blanco sobre
+     --color-accent no llega a un contraste legible) para que sea la acción que más resalta. */
+  --color-accion-principal: #1f78a8;
   --radius: 10px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -1038,13 +1041,69 @@ h1 {
   padding: 8px 12px 12px;
 }
 
+/* Barra superior de la agenda semanal y de la vista mensual (Etapa 5): tres zonas fijas —
+   filtros a la izquierda (sede, médico), navegación en el centro (selector de vista +
+   fechas) y acciones a la derecha (+ Nuevo turno, Disponibilidad) — y el menú ☰ al final.
+   Todos los controles miden 32 px de alto, salvo "+ Nuevo turno" (38 px, color propio) para
+   que sea lo que más resalte. En pantallas angostas pasa a dos filas fijas: navegación +
+   menú arriba, filtros + acciones abajo (no se parte al azar). */
 .barra-controles-grilla {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "filtros navegacion acciones menu";
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+
+.barra-controles-grilla.sin-acciones {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "filtros navegacion menu";
+}
+
+.zona-filtros-barra {
+  grid-area: filtros;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 8px;
+}
+
+.zona-navegacion-barra {
+  grid-area: navegacion;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.zona-acciones-barra {
+  grid-area: acciones;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zona-menu-barra {
+  grid-area: menu;
+}
+
+@media (max-width: 1180px) {
+  .barra-controles-grilla,
+  .barra-controles-grilla.sin-acciones {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "navegacion menu" "filtros acciones";
+  }
+  .barra-controles-grilla.sin-acciones {
+    grid-template-areas: "navegacion menu" "filtros filtros";
+  }
+  .zona-navegacion-barra {
+    justify-content: flex-start;
+  }
+  .zona-acciones-barra {
+    justify-self: end;
+  }
 }
 
 .selector-sede-grilla {
@@ -1074,6 +1133,37 @@ h1 {
   font-weight: 600;
 }
 
+/* En la barra, las sedes son un solo control segmentado (botones unidos). En la lateral de
+   la vista de día, donde se mueve el mismo elemento, quedan como botones sueltos. */
+.zona-filtros-barra .selector-sede-grilla {
+  gap: 0;
+}
+
+.zona-filtros-barra .boton-sede-grilla {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 0;
+  margin-left: -1px;
+}
+
+.zona-filtros-barra .boton-sede-grilla:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+  margin-left: 0;
+}
+
+.zona-filtros-barra .boton-sede-grilla:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.zona-filtros-barra .boton-sede-grilla:only-child {
+  border-radius: var(--radius);
+}
+
+.zona-filtros-barra .boton-sede-grilla.activo {
+  position: relative;
+  z-index: 1;
+}
+
 .filtro-medico-grilla {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -1084,31 +1174,141 @@ h1 {
   background: var(--color-surface);
 }
 
-.navegacion-semana-grilla {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13.5px;
+.zona-filtros-barra .filtro-medico-grilla {
+  height: 32px;
+  padding: 0 10px;
+  max-width: 200px;
 }
 
-.navegacion-semana-grilla button {
+/* Selector de vista [Día | Semana | Mes]: mismo control en semana, mes y día. */
+.selector-vista-grilla {
+  display: inline-flex;
+}
+
+.selector-vista-grilla button {
+  height: 32px;
+  padding: 0 14px;
+  margin-left: -1px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.selector-vista-grilla button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+  margin-left: 0;
+}
+
+.selector-vista-grilla button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.selector-vista-grilla button:hover:not(.activo) {
+  background: var(--color-bg);
+}
+
+.selector-vista-grilla button.activo {
+  position: relative;
+  z-index: 1;
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: #1c5c7a;
+  font-weight: 600;
+  cursor: default;
+}
+
+/* Navegación de fechas: ‹ rango › + Hoy (+ ↻ en mes y día). */
+.navegador-fechas-grilla {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.boton-nav-grilla {
+  height: 32px;
+  min-width: 32px;
+  padding: 0 12px;
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 5px 10px;
-  cursor: pointer;
   font-family: var(--font);
+  font-size: 13px;
   color: var(--color-text);
+  cursor: pointer;
 }
 
-.navegacion-semana-grilla button:hover {
+.boton-nav-grilla.icono {
+  width: 32px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.boton-nav-grilla:hover {
   background: var(--color-bg);
 }
 
 .etiqueta-semana-grilla {
   font-weight: 600;
-  min-width: 210px;
+  font-size: 14px;
+  min-width: 170px;
   text-align: center;
+  white-space: nowrap;
+}
+
+.conteo-nav-grilla {
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+
+/* Acciones: "+ Nuevo turno" es la que más presencia tiene (más alta, color propio, sombra
+   suave); "Disponibilidad" es secundaria, con la misma altura que el resto de la barra. */
+.boton-nuevo-turno-barra {
+  width: auto;
+  height: 38px;
+  padding: 0 22px;
+  background: var(--color-accion-principal);
+  font-size: 14.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(31, 120, 168, 0.4);
+}
+
+.boton-nuevo-turno-barra:hover {
+  background: #1a6690;
+  opacity: 1;
+}
+
+.boton-disponibilidad-barra {
+  height: 32px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+/* Pantallas de grilla (semana y mes): la pantalla mide el alto de la ventana, la barra
+   ocupa lo que necesite y la grilla se queda con el resto y scrollea por dentro. Así no hay
+   doble scroll ni un alto "de memoria" que dependa de cuánto mida la barra. */
+.contenedor-ancho.pantalla-grilla {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.pantalla-grilla > * {
+  flex: none;
+}
+
+.pantalla-grilla > .grilla-scroll-grilla,
+.pantalla-grilla > .grilla-scroll-mensual {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 
 /* Menú de cuenta: imperceptible hasta que se abre — solo un botón chico de
@@ -1483,10 +1683,6 @@ h1 {
   .contenedor-ancho {
     padding: 12px 12px 20px;
   }
-  .barra-controles-grilla {
-    flex-direction: column;
-    align-items: flex-start;
-  }
 }
 
 /* Historial con filtros en pestañas + tabla ancha (Turnero T8, ajuste post-entrega;
@@ -1563,4 +1759,577 @@ h1 {
   border: 1px solid var(--color-border);
   border-radius: 999px;
   padding: 1px 8px;
+}
+
+/* Etapa 5, fase 1: vista mensual de la agenda (turnero/agenda-mensual.html). Reutiliza la
+   barra de controles, el selector de sede, el menú de cuenta y el modal de detalle de la
+   agenda semanal; acá solo va lo propio de la grilla del mes. Seis columnas (lunes a
+   sábado, como la semana); cada fila es una semana y toma la altura de su día más cargado. */
+.etiqueta-mes-mensual {
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 190px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.grilla-scroll-mensual {
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.grilla-mensual {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  min-width: 900px;
+}
+
+.encabezado-columna-mensual {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg);
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  padding: 8px 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.dia-mensual {
+  min-width: 0; /* deja que los apellidos largos se recorten con "…" en vez de ensanchar la columna */
+  min-height: 84px;
+  padding: 4px;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Última columna de cada fila (encabezados y días comparten la misma grilla de 6). */
+.encabezado-columna-mensual:nth-child(6n),
+.dia-mensual:nth-child(6n) {
+  border-right: none;
+}
+
+.dia-mensual.fuera {
+  background: var(--color-bg);
+}
+
+.encabezado-dia-mensual {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.encabezado-dia-mensual:hover {
+  background: var(--color-bg);
+}
+
+.dia-mensual.hoy .encabezado-dia-mensual {
+  background: var(--color-accent-soft);
+  color: #1c5c7a;
+}
+
+.cantidad-dia-mensual {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-muted);
+  background: var(--color-bg);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.lista-turnos-mensual {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.turno-mensual {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-accent);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-family: var(--font);
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.turno-mensual:hover {
+  border-color: #1c5c7a;
+}
+
+.hora-turno-mensual {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.apellido-turno-mensual {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* Bloqueo de todos los sillones (día completo o franja): misma trama que la banda de la
+   agenda semanal, en formato de etiqueta. */
+.marca-bloqueo-mensual {
+  align-self: flex-start;
+  padding: 1px 8px;
+  border: 1px dashed #9a978b;
+  border-radius: 999px;
+  background-image: repeating-linear-gradient(135deg, rgba(91, 100, 112, 0.05) 0, rgba(91, 100, 112, 0.05) 6px, rgba(91, 100, 112, 0.12) 6px, rgba(91, 100, 112, 0.12) 12px);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: help;
+}
+
+/* Etapa 5, fase 2: vista de día de la agenda (turnero-dia.js). Lateral angosta a la
+   izquierda (calendario de navegación + controles), fecha grande y lista por hora a la
+   derecha. Reutiliza .badge-sillon-grilla, .badge-reacomodo-grilla y los colores de
+   prioridad/presente. */
+.encabezado-dia-grilla.enlace-dia-grilla {
+  cursor: pointer;
+}
+
+.encabezado-dia-grilla.enlace-dia-grilla:hover {
+  text-decoration: underline;
+}
+
+.layout-dia {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.lateral-dia {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 8px;
+}
+
+/* Calendario: solo navegación, chico. Días de 26 px de alto: más chicos cuestan en tablet. */
+.calendario-dia {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.encabezado-calendario-dia {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.encabezado-calendario-dia button {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  width: 26px;
+  height: 24px;
+  cursor: pointer;
+  font-family: var(--font);
+  color: var(--color-text);
+  padding: 0;
+}
+
+.encabezado-calendario-dia button:hover {
+  background: var(--color-bg);
+}
+
+.grilla-calendario-dia {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+}
+
+.inicial-calendario-dia {
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--color-muted);
+  padding: 1px 0;
+}
+
+.celda-calendario-dia {
+  position: relative;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 11.5px;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0;
+}
+
+.celda-calendario-dia.vacia {
+  cursor: default;
+}
+
+.celda-calendario-dia:not(.vacia):hover {
+  background: var(--color-bg);
+}
+
+.celda-calendario-dia.hoy {
+  border-color: var(--color-accent);
+}
+
+.celda-calendario-dia.seleccionado {
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Marca de "este día tiene turnos": puntito bajo el número. */
+.celda-calendario-dia.con-turnos::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.celda-calendario-dia.seleccionado.con-turnos::after {
+  background: #fff;
+}
+
+.pie-calendario-dia {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--color-muted);
+}
+
+.pie-calendario-dia .enlace-accion {
+  align-self: flex-start;
+  font-size: 10.5px;
+  padding: 0;
+}
+
+/* Controles que en semana/mes viven en la barra de arriba (los mueve turnero-dia.js). */
+.controles-lateral-dia {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grupo-lateral-dia {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rotulo-lateral-dia {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.controles-lateral-dia .selector-sede-grilla {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.controles-lateral-dia .filtro-medico-grilla {
+  width: 100%;
+}
+
+/* Los botones "+ Nuevo turno" y "Consultar disponibilidad" traen width:auto en línea. */
+.controles-lateral-dia .boton-principal,
+.controles-lateral-dia .boton-secundario {
+  width: 100% !important;
+  margin: 0;
+}
+
+.controles-lateral-dia .selector-vista-grilla {
+  display: flex;
+}
+
+.controles-lateral-dia .selector-vista-grilla button {
+  flex: 1;
+  padding: 0;
+}
+
+.columna-principal-dia {
+  min-width: 0;
+}
+
+/* Cabecera: fecha grande (como en la imagen de referencia), ‹ Hoy › y el menú ☰. */
+.cabecera-dia {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.fecha-grande-dia {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.numero-dia-dia {
+  font-size: 40px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.textos-fecha-dia {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.nombre-dia-dia {
+  font-size: 18px;
+  color: #1c5c7a;
+}
+
+.mes-dia-dia {
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+
+.navegacion-dia-cabecera {
+  display: flex;
+  gap: 6px;
+}
+
+.navegacion-dia-cabecera button {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 13.5px;
+  color: var(--color-text);
+}
+
+.navegacion-dia-cabecera button:hover {
+  background: var(--color-bg);
+}
+
+.navegacion-dia-cabecera button.icono {
+  min-width: 32px;
+  width: 32px;
+  padding: 0;
+}
+
+.slot-menu-cuenta-dia {
+  margin-left: auto;
+}
+
+.panel-dia {
+  min-width: 0;
+}
+
+.resumen-dia {
+  font-size: 12.5px;
+  color: var(--color-muted);
+  margin-bottom: 10px;
+}
+
+.bloqueos-dia {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chip-bloqueo-dia {
+  border: 1px dashed #9a978b;
+  border-radius: 999px;
+  background-image: repeating-linear-gradient(135deg, rgba(91, 100, 112, 0.05) 0, rgba(91, 100, 112, 0.05) 6px, rgba(91, 100, 112, 0.12) 6px, rgba(91, 100, 112, 0.12) 12px);
+  padding: 3px 10px;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.vacio-dia {
+  color: var(--color-muted);
+  padding: 24px 4px;
+}
+
+.lista-turnos-dia {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.fila-turno-dia {
+  display: grid;
+  grid-template-columns: 40px 100px 48px minmax(140px, 1.6fr) minmax(110px, 1.1fr) 108px minmax(110px, auto);
+  align-items: center;
+  gap: 8px;
+  min-width: 720px;
+  padding: 7px 10px 7px 6px;
+  border-bottom: 1px solid var(--color-border);
+  border-left: 5px solid transparent;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.fila-turno-dia:last-child {
+  border-bottom: none;
+}
+
+.fila-turno-dia:not(.encabezado-lista-dia):hover {
+  background: var(--color-bg);
+}
+
+.fila-turno-dia.encabezado-lista-dia {
+  background: var(--color-bg);
+  cursor: default;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-muted);
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* Presente: mismo par de colores que la tarjeta semanal. */
+.fila-turno-dia.presente-dia {
+  background: var(--color-accent-secondary-soft);
+}
+
+/* Semáforo: borde izquierdo, igual criterio que la tarjeta semanal. */
+.fila-turno-dia.borde-prioridad-rojo-dia { border-left-color: var(--color-danger); }
+.fila-turno-dia.borde-prioridad-amarillo-dia { border-left-color: var(--color-prioridad-amarilla); }
+.fila-turno-dia.borde-prioridad-verde-dia { border-left-color: var(--color-accent-secondary); }
+
+.celda-presente-dia {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px; /* área de toque amplia: el checkbox de la tarjeta semanal es de 12 px */
+  cursor: pointer;
+  color: #3c6e0f;
+  font-weight: 700;
+}
+
+.checkbox-presente-dia {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.checkbox-presente-dia:disabled {
+  cursor: not-allowed;
+}
+
+.horario-dia {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.paciente-dia,
+.medico-dia,
+.ciclo-dia {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paciente-dia {
+  font-weight: 600;
+}
+
+.medico-dia,
+.ciclo-dia {
+  color: var(--color-muted);
+}
+
+.indicadores-dia {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.etiqueta-prioridad-dia {
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.etiqueta-prioridad-dia.prioridad-rojo { color: var(--color-danger); }
+.etiqueta-prioridad-dia.prioridad-amarillo { color: #8a6a0c; }
+.etiqueta-prioridad-dia.prioridad-verde { color: #3c6e0f; }
+
+.boton-notas-dia {
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.boton-notas-dia:hover {
+  color: var(--color-text);
+}
+
+/* Pantallas angostas: la lateral pasa arriba, con el calendario a la izquierda y los
+   controles a su lado, para no empujar la lista hacia abajo. */
+@media (max-width: 900px) {
+  .layout-dia {
+    grid-template-columns: 1fr;
+  }
+  .lateral-dia {
+    display: grid;
+    grid-template-columns: 208px minmax(0, 1fr);
+    align-items: start;
+    position: static;
+  }
+}
+
+@media (max-width: 560px) {
+  .lateral-dia {
+    grid-template-columns: 1fr;
+  }
 }

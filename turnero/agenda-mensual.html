@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agenda mensual · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <!-- Etapa 5, fase 1: vista mensual de la agenda. Pantalla de SOLO CONSULTA: no tiene
+       arrastre ni edición. Para editar, comentar o reimprimir un turno, el detalle lleva
+       a agenda.html (semana de ese turno, con el detalle ya abierto). Reutiliza el motor
+       únicamente por sus funciones puras de fecha/bloqueo; no carga turnero-carga.js ni
+       turnero-grilla.js. -->
+  <div class="contenedor-ancho pantalla-grilla">
+    <div class="barra-controles-grilla sin-acciones">
+      <div class="zona-filtros-barra">
+        <div id="selector-sede-mensual" class="selector-sede-grilla"></div>
+        <select id="filtro-medico-mensual" class="filtro-medico-grilla" onchange="cambiarFiltroMedicoMensual(this.value)">
+          <option value="">Todos los médicos</option>
+        </select>
+      </div>
+      <div class="zona-navegacion-barra">
+        <div class="selector-vista-grilla" role="group" aria-label="Vista de la agenda">
+          <button type="button" onclick="irADiaDesdeMesMensual()" title="Ver la agenda de un día">Día</button>
+          <button type="button" onclick="irASemanaDesdeMesMensual()" title="Ver la semana">Semana</button>
+          <button type="button" class="activo" aria-pressed="true">Mes</button>
+        </div>
+        <div class="navegador-fechas-grilla">
+          <button type="button" class="boton-nav-grilla icono" onclick="cambiarMesMensual(-1)" title="Mes anterior" aria-label="Mes anterior">‹</button>
+          <span class="etiqueta-mes-mensual"><span id="etiqueta-mes-mensual"></span> <span class="conteo-nav-grilla" id="conteo-mes-mensual"></span></span>
+          <button type="button" class="boton-nav-grilla icono" onclick="cambiarMesMensual(1)" title="Mes siguiente" aria-label="Mes siguiente">›</button>
+          <button type="button" class="boton-nav-grilla" onclick="irAMesActualMensual()" title="Ir al mes actual">Hoy</button>
+          <button type="button" class="boton-nav-grilla icono" id="boton-actualizar-mensual" onclick="actualizarMesMensual()" title="Volver a leer este mes desde la base" aria-label="Actualizar este mes">↻</button>
+        </div>
+      </div>
+      <div class="zona-menu-barra">
+        <div class="menu-cuenta-grilla">
+          <button type="button" class="boton-menu-cuenta-grilla" onclick="alternarMenuCuentaMensual(event)" title="Cuenta">☰</button>
+          <div class="panel-menu-cuenta-grilla" id="panel-menu-cuenta-mensual" style="display:none;">
+            <div class="datos-sesion-menu-grilla" id="datos-sesion"></div>
+            <a href="index.html" class="opcion-menu-cuenta-grilla">← Volver a Turnero</a>
+            <button type="button" class="opcion-menu-cuenta-grilla" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grilla-scroll-mensual">
+      <div id="grilla-mensual-contenedor">
+        <p style="color:var(--color-muted);padding:20px;">Cargando...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detalle de solo lectura de un turno. -->
+  <div class="overlay-modal" id="overlay-detalle-mensual" style="display:none;" onclick="cerrarDetalleMensualSiFondo(event)">
+    <div class="modal-panel" style="max-width:460px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarDetalleMensual()">×</button>
+      </div>
+      <div id="contenido-detalle-mensual"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/turnero-motor.js"></script>
+  <script src="../js/turnero-mensual.js"></script>
+  <script>
+    requireAuth(async (user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtmlMensual(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${escaparHtmlMensual(rolLabel)}</strong>`;
+
+      await iniciarAgendaMensual(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>

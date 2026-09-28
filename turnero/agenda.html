@@ -7,25 +7,41 @@
   <link rel="stylesheet" href="../css/styles.css" />
 </head>
 <body style="visibility:hidden">
-  <div class="contenedor-ancho">
+  <div class="contenedor-ancho pantalla-grilla">
     <div id="mensaje-agenda" class="mensaje-info" style="display:none;"></div>
 
+    <!-- Etapa 5: barra en tres zonas (ver .barra-controles-grilla en styles.css). Los ids no
+         cambiaron; turnero-dia.js mueve varios de estos elementos a la lateral de la vista
+         de día y los devuelve acá. -->
     <div class="barra-controles-grilla">
-      <div id="selector-sede-grilla" class="selector-sede-grilla"></div>
-      <select id="filtro-medico-grilla" class="filtro-medico-grilla" onchange="cambiarFiltroMedicoGrilla(this.value)">
-        <option value="">Todos los médicos</option>
-      </select>
-      <button type="button" id="boton-nuevo-turno-grilla" class="boton-principal" style="display:none;width:auto;"
-        onclick="abrirModalNuevoTurnoGrilla()">+ Nuevo turno</button>
-      <!-- Etapa T10: mismo criterio de rol que "+ Nuevo turno" (administrativo no lo ve) —
-           ver iniciarAgenda() en turnero-grilla.js. -->
-      <button type="button" id="boton-consultar-disponibilidad-grilla" class="boton-secundario" style="display:none;width:auto;"
-        onclick="abrirConsultaDisponibilidadGrilla()">Consultar disponibilidad</button>
-      <div class="navegacion-semana-grilla">
-        <button type="button" onclick="cambiarSemanaGrilla(-1)">‹ Semana anterior</button>
-        <span class="etiqueta-semana-grilla" id="etiqueta-semana-grilla"></span>
-        <button type="button" onclick="irASemanaActualGrilla()">Hoy</button>
-        <button type="button" onclick="cambiarSemanaGrilla(1)">Semana siguiente ›</button>
+      <div class="zona-filtros-barra">
+        <div id="selector-sede-grilla" class="selector-sede-grilla"></div>
+        <select id="filtro-medico-grilla" class="filtro-medico-grilla" onchange="cambiarFiltroMedicoGrilla(this.value)">
+          <option value="">Todos los médicos</option>
+        </select>
+      </div>
+      <div class="zona-navegacion-barra">
+        <div class="selector-vista-grilla" role="group" aria-label="Vista de la agenda">
+          <button type="button" onclick="irADiaDesdeSemanaGrilla()" title="Ver la agenda de un día">Día</button>
+          <button type="button" class="activo" aria-pressed="true">Semana</button>
+          <button type="button" onclick="irAMesGrilla()" title="Ver el mes (solo consulta)">Mes</button>
+        </div>
+        <div class="navegador-fechas-grilla">
+          <button type="button" class="boton-nav-grilla icono" onclick="cambiarSemanaGrilla(-1)" title="Semana anterior" aria-label="Semana anterior">‹</button>
+          <span class="etiqueta-semana-grilla" id="etiqueta-semana-grilla"></span>
+          <button type="button" class="boton-nav-grilla icono" onclick="cambiarSemanaGrilla(1)" title="Semana siguiente" aria-label="Semana siguiente">›</button>
+          <button type="button" class="boton-nav-grilla" onclick="irASemanaActualGrilla()" title="Ir a la semana actual">Hoy</button>
+        </div>
+      </div>
+      <div class="zona-acciones-barra">
+        <button type="button" id="boton-nuevo-turno-grilla" class="boton-principal boton-nuevo-turno-barra" style="display:none;width:auto;"
+          onclick="abrirModalNuevoTurnoGrilla()">+ Nuevo turno</button>
+        <!-- Etapa T10: mismo criterio de rol que "+ Nuevo turno" (administrativo no lo ve) —
+             ver iniciarAgenda() en turnero-grilla.js. -->
+        <button type="button" id="boton-consultar-disponibilidad-grilla" class="boton-secundario boton-disponibilidad-barra" style="display:none;width:auto;"
+          title="Consultar disponibilidad" onclick="abrirConsultaDisponibilidadGrilla()">Disponibilidad</button>
+      </div>
+      <div class="zona-menu-barra">
         <div class="menu-cuenta-grilla">
           <button type="button" class="boton-menu-cuenta-grilla" onclick="alternarMenuCuentaGrilla(event)" title="Cuenta">☰</button>
           <div class="panel-menu-cuenta-grilla" id="panel-menu-cuenta-grilla" style="display:none;">
@@ -41,6 +57,55 @@
       <div id="grilla-contenedor">
         <p style="color:var(--color-muted);padding:20px;">Cargando...</p>
       </div>
+    </div>
+
+    <!-- Etapa 5, fase 2: vista de día (ver turnero-dia.js). Lateral angosta a la izquierda con
+         el calendario de navegación y, debajo, los controles que en semana/mes están en la
+         barra de arriba; a la derecha, la fecha y la lista de turnos. Al entrar al modo día,
+         turnero-dia.js MUEVE a los "slot-…" de acá los mismos elementos de la barra (sede,
+         médico, nuevo turno, consultar disponibilidad y el menú ☰) — no hay copias, así que
+         sus ids y su lógica no cambian — y los devuelve a la barra al volver a la semana.
+         Los modales de abajo son los mismos de la semana. -->
+    <div id="vista-dia" class="layout-dia" style="display:none;">
+      <aside class="lateral-dia">
+        <div id="calendario-dia" class="calendario-dia"></div>
+        <div class="controles-lateral-dia">
+          <div class="selector-vista-grilla" role="group" aria-label="Vista de la agenda">
+            <button type="button" class="activo" aria-pressed="true">Día</button>
+            <button type="button" onclick="irASemanaDesdeDiaDia()">Semana</button>
+            <button type="button" onclick="irAMesDesdeDiaDia()">Mes</button>
+          </div>
+          <div class="grupo-lateral-dia">
+            <span class="rotulo-lateral-dia">Sede</span>
+            <div id="slot-sede-dia"></div>
+          </div>
+          <div class="grupo-lateral-dia">
+            <span class="rotulo-lateral-dia">Médico</span>
+            <div id="slot-medico-dia"></div>
+          </div>
+          <div id="slot-nuevo-turno-dia"></div>
+          <div id="slot-consultar-dia"></div>
+        </div>
+      </aside>
+      <section class="columna-principal-dia">
+        <header class="cabecera-dia">
+          <div class="fecha-grande-dia">
+            <span class="numero-dia-dia" id="numero-dia-dia"></span>
+            <span class="textos-fecha-dia">
+              <span class="nombre-dia-dia" id="nombre-dia-dia"></span>
+              <span class="mes-dia-dia" id="mes-dia-dia"></span>
+            </span>
+          </div>
+          <div class="navegacion-dia-cabecera">
+            <button type="button" onclick="cambiarDiaDia(-1)" title="Día anterior" aria-label="Día anterior">‹</button>
+            <button type="button" onclick="irAHoyDia()">Hoy</button>
+            <button type="button" onclick="cambiarDiaDia(1)" title="Día siguiente" aria-label="Día siguiente">›</button>
+            <button type="button" class="icono" onclick="actualizarDiaDia()" title="Actualizar este día (vuelve a leerlo de la base)" aria-label="Actualizar este día">↻</button>
+          </div>
+          <div id="slot-menu-cuenta-dia" class="slot-menu-cuenta-dia"></div>
+        </header>
+        <div id="panel-dia" class="panel-dia"></div>
+      </section>
     </div>
   </div>
 
@@ -427,6 +492,7 @@
   <script src="../js/turnero-motor.js"></script>
   <script src="../js/turnero-carga.js"></script>
   <script src="../js/turnero-grilla.js"></script>
+  <script src="../js/turnero-dia.js"></script>
   <script>
     requireAuth(async (user, datosUsuario) => {
       const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
