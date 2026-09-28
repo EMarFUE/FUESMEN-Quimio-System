@@ -46,6 +46,11 @@
         <div class="tarjeta-texto">Carga por Excel del padrón histórico, no para altas individuales.</div>
         <div class="tarjeta-enlace">Entrar →</div>
       </a>
+      <a class="tarjeta" href="ajustes.html" id="tarjeta-ajustes" style="display:none;">
+        <div class="tarjeta-titulo">ajuste de stock</div>
+        <div class="tarjeta-texto">Ajustar el stock de un depósito por recuento o transferir entre depósitos. Solo administrador.</div>
+        <div class="tarjeta-enlace">Entrar →</div>
+      </a>
     </div>
   </div>
 
@@ -70,6 +75,9 @@
 
       if (datosUsuario.rol === "administrador" || datosUsuario.rol === "enfermeria") {
         document.getElementById("tarjeta-importacion").style.display = "block";
+      }
+      if (datosUsuario.rol === "administrador") {
+        document.getElementById("tarjeta-ajustes").style.display = "block";
       }
     }, "../login.html");
   </script>

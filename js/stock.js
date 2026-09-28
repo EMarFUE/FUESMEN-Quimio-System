@@ -181,17 +181,19 @@ async function abrirAuditoriaStock(item) {
     // "item.id" ya es el mismo formato que se guarda en "clavesStock" de cada
     // entrega/egreso (${medicamentoId}_${unidadMedida}_${slugDeposito(deposito)}),
     // así que la consulta encuentra exactamente los movimientos de esta fila.
-    const [snapEntregas, snapEgresos] = await Promise.all([
+    const [snapEntregas, snapEgresos, ajustes] = await Promise.all([
       db.collection("entregas").where("clavesStock", "array-contains", item.id).orderBy("creadoEn", "asc").get(),
-      db.collection("egresos").where("clavesStock", "array-contains", item.id).orderBy("creadoEn", "asc").get()
+      db.collection("egresos").where("clavesStock", "array-contains", item.id).orderBy("creadoEn", "asc").get(),
+      leerAjustesDeStock(item.id)
     ]);
 
     const movimientos = [];
     snapEntregas.docs.forEach((doc) => movimientos.push(armarMovimientoStock("entregas", doc.id, doc.data(), item)));
     snapEgresos.docs.forEach((doc) => movimientos.push(armarMovimientoStock("egresos", doc.id, doc.data(), item)));
+    ajustes.docs.forEach((doc) => movimientos.push(armarMovimientoAjuste(doc.id, doc.data(), item)));
     movimientos.sort((a, b) => milisegundosStock(a.creadoEn) - milisegundosStock(b.creadoEn));
 
-    renderizarAuditoriaStock(item, movimientos);
+    renderizarAuditoriaStock(item, movimientos, ajustes.noDisponibles);
   } catch (error) {
     console.error("Error al buscar movimientos de stock:", error);
     contenedor.innerHTML = `
@@ -203,6 +205,41 @@ async function abrirAuditoriaStock(item) {
         Firestore — abrí la consola del navegador (F12): el error trae un enlace directo para crearlo con un clic.
       </div>`;
   }
+}
+
+// Etapa 5B, punto 3b: ajustes y transferencias entre depósitos (ajustes.html, colección
+// "ajustesStock"). Sin orderBy a propósito: con "array-contains" + orderBy Firestore exigiría
+// un índice compuesto nuevo, y son pocos documentos por fila, así que se ordenan acá. Si la
+// lectura falla (por ejemplo, las reglas nuevas todavía no están desplegadas), la auditoría
+// NO se rompe: se muestra igual, con un aviso de que faltan los ajustes.
+async function leerAjustesDeStock(clave) {
+  try {
+    const snap = await db.collection("ajustesStock").where("clavesStock", "array-contains", clave).get();
+    return { docs: snap.docs, noDisponibles: false };
+  } catch (error) {
+    console.warn("No se pudieron leer los ajustes de stock:", error);
+    return { docs: [], noDisponibles: true };
+  }
+}
+
+// Un ajuste/transferencia trae una línea por cada fila de stock que toca; acá interesa la de
+// ESTA fila (item.id), con su diferencia (delta) con signo.
+function armarMovimientoAjuste(id, d, item) {
+  const linea = (d.lineas || []).find((l) => l.clave === item.id) || {};
+  const delta = Number(linea.delta) || 0;
+  const otra = (d.lineas || []).find((l) => l.clave !== item.id);
+  return {
+    coleccion: "ajustesStock",
+    id,
+    creadoEn: d.creadoEn,
+    cantidad: Math.abs(delta),
+    signo: delta >= 0 ? 1 : -1,
+    anulada: false,
+    tipoAjuste: d.tipo,
+    motivo: d.motivo || "",
+    contraparte: otra ? otra.deposito : null,
+    paciente: {}
+  };
 }
 
 // Un documento puede tener varias líneas de medicamentos; se queda solo con las
@@ -228,17 +265,26 @@ function armarMovimientoStock(coleccion, id, d, item) {
   };
 }
 
-function renderizarAuditoriaStock(item, movimientos) {
+function renderizarAuditoriaStock(item, movimientos, ajustesNoDisponibles) {
   const contenedor = document.getElementById("modal-panel-auditoria");
 
   let acumulado = 0;
   const filas = movimientos
     .map((m) => {
-      const etiquetaTipo = m.coleccion === "entregas" ? "entrega" : "tratamiento";
-      const referencia = m.coleccion === "entregas"
-        ? (m.numeroComprobante ? `N.° ${m.numeroComprobante}` : `ID ${m.id.slice(0, 8)}`)
-        : `ciclo ${m.ciclo ?? "—"} / sesión ${m.sesion ?? "—"}`;
-      const paciente = `${escaparHtml(m.paciente.apellido)}, ${escaparHtml(m.paciente.nombre)}`;
+      const esAjuste = m.coleccion === "ajustesStock";
+      const etiquetaTipo = esAjuste
+        ? (m.tipoAjuste === "transferencia" ? "transferencia" : "ajuste")
+        : (m.coleccion === "entregas" ? "entrega" : "tratamiento");
+      let referencia;
+      if (esAjuste) {
+        const contraparte = m.contraparte ? `${m.signo > 0 ? "desde" : "hacia"} ${escaparHtml(m.contraparte)} · ` : "";
+        referencia = `${contraparte}${escaparHtml(m.motivo)}`;
+      } else {
+        referencia = m.coleccion === "entregas"
+          ? (m.numeroComprobante ? `N.° ${m.numeroComprobante}` : `ID ${m.id.slice(0, 8)}`)
+          : `ciclo ${m.ciclo ?? "—"} / sesión ${m.sesion ?? "—"}`;
+      }
+      const paciente = esAjuste ? "—" : `${escaparHtml(m.paciente.apellido)}, ${escaparHtml(m.paciente.nombre)}`;
       const signoTexto = m.signo > 0 ? "+" : "−";
 
       if (m.anulada) {
@@ -283,6 +329,7 @@ function renderizarAuditoriaStock(item, movimientos) {
         <tbody>${filas || '<tr><td colspan="6" style="color:var(--color-muted);">No hay movimientos registrados para esta combinación.</td></tr>'}</tbody>
       </table>
     </div>
+    ${ajustesNoDisponibles ? `<div style="font-size:13px;color:var(--color-danger);margin-top:8px;">No se pudieron leer los ajustes y transferencias de esta fila (puede faltar desplegar las reglas nuevas): el total puede no coincidir por eso.</div>` : ""}
     <div class="tarjeta-confirmacion-stock" style="margin-top:4px;${coincide ? "" : "border-color:var(--color-danger);background:var(--color-danger-soft);"}">
       <div class="titulo-confirmacion-stock" style="${coincide ? "" : "color:var(--color-danger);"}">
         ${coincide ? "El total coincide con el stock actual" : "El total no coincide con el stock actual"}

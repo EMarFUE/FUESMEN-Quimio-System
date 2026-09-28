@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ajuste de stock · Servicio de quimioterapia</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body style="visibility:hidden">
+  <div class="contenedor">
+    <div class="encabezado-sesion">
+      <div>
+        <img src="../assets/FUESMEN-Logo.png" alt="FUESMEN" style="height: 48px; width: auto; margin-bottom: 8px;" />
+        <div class="breadcrumb"><a href="../index.html">Inicio</a> &gt; <a href="index.html">Medicación</a> &gt; Ajuste de stock</div>
+        <span class="etiqueta-tipo-carga etiqueta-tipo-egreso">ajuste — solo administrador</span>
+        <h1 style="margin-bottom:0;margin-top:8px;">Ajuste de stock</h1>
+      </div>
+      <div style="text-align:right;">
+        <div class="datos-sesion" id="datos-sesion"></div>
+        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion('../login.html')">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div id="mensaje-general" class="mensaje-info" style="display:none;"></div>
+
+    <div id="contenido-ajustes" style="display:none;">
+
+      <div class="tarjeta-formulario">
+        <div class="titulo-bloque">Medicamento</div>
+        <div class="campo">
+          <label for="aj-medicamento">Droga / marca</label>
+          <select id="aj-medicamento"></select>
+        </div>
+        <div id="bloque-stock-medicamento" style="display:none;">
+          <div style="font-size:13px;color:var(--color-muted);margin-bottom:8px;">Stock actual de este medicamento en todos los depósitos</div>
+          <div style="overflow-x:auto;">
+            <table class="tabla">
+              <thead><tr><th>Depósito</th><th>Unidad</th><th>Stock</th></tr></thead>
+              <tbody id="cuerpo-stock-medicamento"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="filtro-tabs" id="selector-modo" style="margin-top:16px;">
+        <button type="button" class="filtro-tab activo" data-modo="ajuste">Ajustar un depósito</button>
+        <button type="button" class="filtro-tab" data-modo="transferencia">Transferir entre depósitos</button>
+      </div>
+
+      <div class="tarjeta-formulario" id="panel-ajuste">
+        <div class="titulo-bloque">Ajuste (recuento físico)</div>
+        <div class="fila-3">
+          <div class="campo">
+            <label for="aj-deposito">Depósito</label>
+            <select id="aj-deposito"></select>
+          </div>
+          <div class="campo">
+            <label for="aj-unidad">Unidad de medida</label>
+            <select id="aj-unidad"></select>
+          </div>
+          <div class="campo">
+            <label for="aj-nuevo-valor">Dejar el stock en</label>
+            <input type="number" id="aj-nuevo-valor" min="0" step="any" placeholder="0" />
+          </div>
+        </div>
+        <div id="aj-stock-actual" style="font-size:13px;color:var(--color-muted);margin-bottom:12px;"></div>
+        <div class="campo">
+          <label for="aj-motivo">Motivo (obligatorio)</label>
+          <input type="text" id="aj-motivo" maxlength="300" placeholder="Ej.: recuento físico de fin de mes" />
+        </div>
+        <button type="button" class="boton-principal" onclick="revisarAjuste()">Revisar ajuste</button>
+      </div>
+
+      <div class="tarjeta-formulario" id="panel-transferencia" style="display:none;">
+        <div class="titulo-bloque">Transferencia entre depósitos</div>
+        <div class="fila-3">
+          <div class="campo">
+            <label for="tr-unidad">Unidad de medida</label>
+            <select id="tr-unidad"></select>
+          </div>
+          <div class="campo">
+            <label for="tr-origen">Depósito de origen</label>
+            <select id="tr-origen"></select>
+          </div>
+          <div class="campo">
+            <label for="tr-destino">Depósito de destino</label>
+            <select id="tr-destino"></select>
+          </div>
+        </div>
+        <div class="campo" style="max-width:240px;">
+          <label for="tr-cantidad">Cantidad a transferir</label>
+          <input type="number" id="tr-cantidad" min="0" step="any" placeholder="0" />
+        </div>
+        <div id="tr-stock-actual" style="font-size:13px;color:var(--color-muted);margin-bottom:12px;"></div>
+        <div class="campo">
+          <label for="tr-motivo">Motivo (obligatorio)</label>
+          <input type="text" id="tr-motivo" maxlength="300" placeholder="Ej.: compensación de fin de mes" />
+        </div>
+        <button type="button" class="boton-principal" onclick="revisarTransferencia()">Revisar transferencia</button>
+      </div>
+
+      <div id="bloque-confirmacion-ajuste" class="tarjeta-confirmacion-stock" style="display:none;">
+        <div class="titulo-confirmacion-stock" id="titulo-confirmacion-ajuste">Confirmá el ajuste</div>
+        <div id="texto-confirmacion-ajuste" class="texto-confirmacion-stock"></div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="boton-secundario" style="flex:1;" onclick="cancelarConfirmacionAjuste()">Volver</button>
+          <button type="button" id="boton-confirmar-ajuste" class="boton-confirmar-stock" style="flex:1;" onclick="confirmarAjuste()">Confirmar</button>
+        </div>
+      </div>
+
+      <div class="tarjeta-formulario" style="margin-top:24px;">
+        <div class="titulo-bloque">Últimos ajustes y transferencias</div>
+        <div id="aviso-ultimos-ajustes" style="display:none;font-size:13px;color:var(--color-danger);margin-bottom:8px;"></div>
+        <div style="overflow-x:auto;">
+          <table class="tabla">
+            <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Motivo</th><th>Quién</th></tr></thead>
+            <tbody id="cuerpo-ultimos-ajustes"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="../js/firebase-config.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/ajustes.js"></script>
+  <script>
+    requireAuth(async (user, datosUsuario) => {
+      const rolLabel = ROLES[datosUsuario.rol] || datosUsuario.rol;
+      document.getElementById("datos-sesion").innerHTML =
+        `Hola, <strong>${escaparHtml(datosUsuario.nombre || user.email)}</strong> · rol: <strong>${rolLabel}</strong>`;
+
+      if (datosUsuario.rol !== "administrador") {
+        document.getElementById("mensaje-general").className = "mensaje-info error";
+        document.getElementById("mensaje-general").textContent = "Esta pantalla es exclusiva para el administrador.";
+        document.getElementById("mensaje-general").style.display = "block";
+        return;
+      }
+
+      document.getElementById("contenido-ajustes").style.display = "block";
+      await iniciarAjustes(user, datosUsuario);
+    }, "../login.html");
+  </script>
+</body>
+</html>
