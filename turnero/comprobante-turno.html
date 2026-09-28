@@ -275,10 +275,6 @@
         <div class="comp-dato-valor" id="comp-paciente"></div>
       </div>
       <div class="comp-dato-grupo">
-        <div class="comp-dato-label">Obra social</div>
-        <div class="comp-dato-valor" id="comp-obra-social"></div>
-      </div>
-      <div class="comp-dato-grupo">
         <div class="comp-dato-label">Médico</div>
         <div class="comp-dato-valor" id="comp-medico"></div>
       </div>
@@ -409,7 +405,8 @@
         const paciente = d.paciente || {};
         document.getElementById("comp-paciente").textContent =
           `${paciente.apellido || ""}, ${paciente.nombre || ""}`.trim() || "-";
-        document.getElementById("comp-obra-social").textContent = paciente.obraSocial || "-";
+        // Etapa 5B, punto 1: la obra social ya no se imprime en el comprobante (el dato sigue
+        // guardado en el turno y se ve en la agenda, en "Modificar" y en la carga).
         document.getElementById("comp-medico").textContent = d.medicoNombre || "-";
         document.getElementById("comp-protocolos").textContent =
           (d.protocolos || []).map((p) => (p && p.nombre) || p).join(", ") || "-";
