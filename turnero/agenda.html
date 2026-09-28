@@ -201,6 +201,28 @@
             se respeta que haya sillón libre a esa hora, los bloqueos vigentes y el horario de apertura y cierre de la sede.
           </div>
 
+          <!-- Etapa 4, punto 9 — mismo bloque que carga.html, mismos ids. -->
+          <div class="campo" id="bloque-nota-inicial-turno" style="margin-top:10px;">
+            <button type="button" id="boton-abrir-nota-inicial-turno" class="enlace-accion" onclick="mostrarNotaInicialCarga()">+ Agregar un comentario</button>
+            <div id="contenedor-nota-inicial-turno" style="display:none;margin-top:6px;">
+              <textarea id="campo-nota-inicial-turno" maxlength="200" rows="2"
+                style="width:100%;box-sizing:border-box;font-size:13px;"
+                placeholder="Observación para el equipo (la va a poder ver y editar cualquier rol; solo vos podés editarla o borrarla después)"></textarea>
+            </div>
+          </div>
+
+          <!-- Etapa 4, punto 8 — mismo bloque que carga.html, mismos ids (ver el porqué
+               de la duplicación en el comentario de arriba, "Modal + nuevo turno"). -->
+          <div class="campo" id="bloque-prioridad-turno" style="display:none;margin-top:6px;">
+            <label style="font-size:12px;color:var(--color-muted);">(Prioridad del paciente — opcional)</label>
+            <select id="campo-prioridad-turno" style="max-width:260px;font-size:13px;">
+              <option value="">Sin definir</option>
+              <option value="rojo">🔴 Rojo — hay que verlo obligatoriamente</option>
+              <option value="amarillo">🟡 Amarillo — trae análisis/consulta corta</option>
+              <option value="verde">🟢 Verde — pasa directo a hospital de día</option>
+            </select>
+          </div>
+
           <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Buscar disponibilidad y guardar turno</button>
         </div>
       </div>
@@ -268,6 +290,26 @@
         <button type="button" class="modal-cerrar" onclick="cerrarDetalleTurnoGrilla()">×</button>
       </div>
       <div id="contenido-detalle-turno-grilla"></div>
+    </div>
+  </div>
+
+  <!-- Etapa 4, punto 9 — comentarios/observaciones de un turno. Panel propio, separado
+       del detalle del turno (arriba): acceso directo desde el badge "💬" de la tarjeta,
+       para los cuatro roles. -->
+  <div class="overlay-modal" id="overlay-notas-turno-grilla" style="display:none;" onclick="cerrarNotasTurnoGrillaSiFondo(event)">
+    <div class="modal-panel" style="max-width:420px;">
+      <div class="modal-encabezado">
+        <button type="button" class="modal-cerrar" onclick="cerrarNotasTurnoGrilla()">×</button>
+      </div>
+      <h2 style="margin-top:0;font-size:17px;">Comentarios</h2>
+      <div id="lista-notas-turno-grilla" style="max-height:280px;overflow-y:auto;"></div>
+      <div id="bloque-nueva-nota-grilla" style="margin-top:10px;">
+        <button type="button" id="boton-abrir-nueva-nota-grilla" class="enlace-accion" style="margin-left:0;" onclick="mostrarFormularioNuevaNotaGrilla()">+ Agregar un comentario</button>
+        <div id="contenedor-nueva-nota-grilla" style="display:none;margin-top:6px;">
+          <textarea id="campo-nueva-nota-grilla" maxlength="200" rows="2" style="width:100%;box-sizing:border-box;font-size:13px;" placeholder="Observación para el equipo"></textarea>
+          <button type="button" class="boton-principal" style="width:auto;margin-top:6px;font-size:13px;padding:5px 12px;" onclick="guardarNuevaNotaTurnoGrilla()">Guardar</button>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -282,6 +282,12 @@ function cambiarModoFiltroHistorialTurnos(modo) {
     cargarPaginaHistorialTurnos(true);
     return;
   }
+  // Etapa 4 (ronda de ajustes) — turnos con al menos un comentario. Sin selección
+  // secundaria, mismo criterio que "recientes".
+  if (modo === "comentarios") {
+    cargarPaginaHistorialTurnos(true);
+    return;
+  }
   if (modo === "tipo") {
     if (estadoFiltroHistorialTurnos.tipoAccion) {
       cargarPaginaHistorialTurnos(true);
@@ -570,6 +576,14 @@ function construirConsultaHistorialTurnos(paraExportar) {
       .where("fecha", ">", FECHA_LIMITE_SIN_DATO_ASISTENCIA_HISTORIAL_TURNOS)
       .where("fecha", "<", fechaLocalHoyHistorialTurnos());
     ordenarPor = "fecha";
+  } else if (estadoFiltroHistorialTurnos.modo === "comentarios") {
+    // Ronda de ajustes tras la Etapa 4 — "turnos con comentarios". cantidadNotas es un
+    // entero (no un booleano), así que filtrarlo con desigualdad en la propia consulta
+    // exigiría ordenar por cantidad de notas en vez de por fecha/creación (Firestore
+    // exige que el primer orderBy coincida con el campo de la desigualdad) — se
+    // descarta del lado del cliente en cargarPaginaHistorialTurnos(), mismo criterio ya
+    // usado para "ausente".
+    consulta = consulta.where("estado", "==", "activo");
   }
 
   consulta = consulta.orderBy(ordenarPor, "desc");
@@ -582,7 +596,16 @@ function construirConsultaHistorialTurnos(paraExportar) {
   return consulta;
 }
 
-async function cargarPaginaHistorialTurnos(reset) {
+// Ronda de ajustes tras la Etapa 4 — tope a la auto-continuación de "ausente"/
+// "comentarios" cuando una página no trae ninguna fila visible. Sin este tope, un
+// filtro con muy pocos resultados en TODO el historial (recién estrenado "comentarios",
+// por ejemplo, con casi nada cargado todavía) terminaría recorriendo sola la colección
+// completa de turnos buscando la próxima coincidencia — mismo criterio de "evitar
+// lecturas de más" del resto del sistema. Pasado el tope, se corta y el usuario sigue
+// con "Cargar más" a mano si quiere insistir.
+const LIMITE_AUTOCONTINUACION_HISTORIAL_TURNOS = 15;
+
+async function cargarPaginaHistorialTurnos(reset, profundidadAuto = 0) {
   if (cargandoHistorialTurnos) return;
   cargandoHistorialTurnos = true;
 
@@ -602,13 +625,16 @@ async function cargarPaginaHistorialTurnos(reset) {
 
     if (reset) tbody.innerHTML = "";
 
-    // Etapa 4, punto 10: el filtro "ausente" trae toda la ventana de fechas confiable
-    // (ver construirConsultaHistorialTurnos) y descarta acá los que sí tienen
-    // presente:true — por eso esta página puede traer menos de
+    // Etapa 4, punto 10 / ronda de ajustes: "ausente" y "comentarios" traen la página
+    // completa de Firestore y descartan acá lo que no corresponde (ver el porqué en
+    // construirConsultaHistorialTurnos) — por eso esta página puede traer menos de
     // TAMANO_PAGINA_HISTORIAL_TURNOS filas visibles aunque haya más para cargar.
-    const docsAMostrar = (estadoFiltroHistorialTurnos.modo === "asistencia" && estadoFiltroHistorialTurnos.asistencia === "ausente")
-      ? snapshot.docs.filter((doc) => doc.data().presente !== true)
-      : snapshot.docs;
+    let docsAMostrar = snapshot.docs;
+    if (estadoFiltroHistorialTurnos.modo === "asistencia" && estadoFiltroHistorialTurnos.asistencia === "ausente") {
+      docsAMostrar = snapshot.docs.filter((doc) => doc.data().presente !== true);
+    } else if (estadoFiltroHistorialTurnos.modo === "comentarios") {
+      docsAMostrar = snapshot.docs.filter((doc) => (doc.data().cantidadNotas || 0) > 0);
+    }
 
     docsAMostrar.forEach((doc) => {
       tbody.appendChild(filaHistorialTurnos(doc.id, doc.data()));
@@ -618,19 +644,25 @@ async function cargarPaginaHistorialTurnos(reset) {
     if (snapshot.docs.length > 0) cursorHistorialTurnos = snapshot.docs[snapshot.docs.length - 1];
 
     if (docsAMostrar.length === 0) {
-      if (hayMasHistorialTurnos) {
-        // Etapa 4, punto 10: esta página del filtro "ausente" no trajo ninguna fila
-        // visible (todo lo que había en este tramo de fechas resultó presente:true),
-        // pero puede haber más adelante — se sigue buscando sola en vez de mostrar "sin
-        // resultados" antes de tiempo. Termina sola cuando Firestore se queda sin más
-        // turnos que matcheen fecha/estado.
+      if (hayMasHistorialTurnos && profundidadAuto < LIMITE_AUTOCONTINUACION_HISTORIAL_TURNOS) {
+        // Etapa 4, punto 10 / ronda de ajustes: esta página no trajo ninguna fila
+        // visible, pero puede haber más adelante — se sigue buscando sola (hasta el
+        // tope de arriba) en vez de mostrar "sin resultados" antes de tiempo. Termina
+        // sola cuando Firestore se queda sin más turnos que matcheen el filtro de base.
         cargandoHistorialTurnos = false;
         botonMas.disabled = false;
-        await cargarPaginaHistorialTurnos(false);
+        await cargarPaginaHistorialTurnos(false, profundidadAuto + 1);
         return;
       }
-      if (reset) {
-        tbody.innerHTML = `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);padding:16px 6px;">No hay registros con ese filtro.</td></tr>`;
+      // Se llega acá en dos casos: ya no hay más turnos que matcheen el filtro de base
+      // (búsqueda realmente terminada), o se llegó al tope de auto-continuación sin
+      // encontrar nada todavía (puede haber más atrás, pero no se sigue buscando sola).
+      // Solo se pisa la tabla si todavía no hay ninguna fila cargada — un "cargar más"
+      // manual que no trae nada nuevo no debe borrar lo que ya estaba.
+      if (tbody.children.length === 0) {
+        tbody.innerHTML = hayMasHistorialTurnos
+          ? `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);padding:16px 6px;">No se encontraron resultados en el tramo revisado — probá «Cargar más» para seguir buscando más atrás.</td></tr>`
+          : `<tr><td colspan="${columnasVisiblesHistorialTurnos}" style="color:var(--color-muted);padding:16px 6px;">No hay registros con ese filtro.</td></tr>`;
       }
     }
     actualizarBotonCargarMasHistorialTurnos();
@@ -724,6 +756,21 @@ function filaHistorialTurnos(id, d) {
   enlaceReimprimir.textContent = "Reimprimir";
   enlaceReimprimir.style.marginLeft = "10px";
   celdaAcciones.appendChild(enlaceReimprimir);
+
+  // Ronda de ajustes tras la Etapa 4 — de solo lectura acá (a pedido de Elías: agregar/
+  // editar/borrar sigue siendo exclusivo de la grilla). Solo se muestra si hay algo para
+  // ver — no tiene sentido el botón en un turno sin comentarios.
+  if (d.cantidadNotas > 0) {
+    const botonNotas = document.createElement("button");
+    botonNotas.type = "button";
+    botonNotas.className = "enlace-accion";
+    botonNotas.style.marginLeft = "10px";
+    botonNotas.textContent = `Ver comentarios (${d.cantidadNotas})`;
+    // Los comentarios viven bajo el primer turno de la cadena (ver el bloque de comentarios
+    // de turnero-grilla.js) — notasTurnoId, si existe, dice cuál.
+    botonNotas.addEventListener("click", () => abrirNotasHistorialTurnos(d.notasTurnoId || id));
+    celdaAcciones.appendChild(botonNotas);
+  }
 
   return tr;
 }
@@ -1174,6 +1221,46 @@ function exportarReporteCambiosHistorialTurnosAExcel() {
 
   const fecha = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(libro, `reporte_cambios_turnos_${fecha}.xlsx`);
+}
+
+// --- Ronda de ajustes tras la Etapa 4 — comentarios del turno, de SOLO LECTURA ---
+//
+// Misma subcolección que ya usa la grilla (turnos/{id}/notas), pero acá no hay forma de
+// agregar, editar ni borrar — decisión explícita con Elías, para no duplicar esa lógica
+// (con sus reglas de "solo el creador") en una segunda pantalla.
+
+async function abrirNotasHistorialTurnos(turnoId) {
+  document.getElementById("overlay-notas-historial-turnos").style.display = "flex";
+  const contenedor = document.getElementById("lista-notas-historial-turnos");
+  contenedor.innerHTML = `<p style="color:var(--color-muted);font-size:13px;">Cargando…</p>`;
+
+  try {
+    const snapshot = await db.collection("turnos").doc(turnoId).collection("notas").orderBy("creadoEn", "asc").get();
+    if (snapshot.empty) {
+      contenedor.innerHTML = `<p style="color:var(--color-muted);font-size:13px;">Todavía no hay comentarios.</p>`;
+      return;
+    }
+    contenedor.innerHTML = snapshot.docs.map((doc) => {
+      const nota = doc.data();
+      return `
+        <div style="padding:8px 0;border-bottom:1px solid var(--color-border);">
+          <div style="font-size:12px;color:var(--color-muted);">${escaparHtml(nota.autorNombre || "")} · ${escaparHtml(ROLES[nota.autorRol] || nota.autorRol || "")}</div>
+          <div style="font-size:13px;white-space:pre-wrap;">${escaparHtml(nota.texto || "")}</div>
+        </div>
+      `;
+    }).join("");
+  } catch (error) {
+    console.error("Error al leer los comentarios:", error);
+    contenedor.innerHTML = `<p style="color:var(--color-danger);font-size:13px;">No se pudieron cargar los comentarios. Reintentá.</p>`;
+  }
+}
+
+function cerrarNotasHistorialTurnos() {
+  document.getElementById("overlay-notas-historial-turnos").style.display = "none";
+}
+
+function cerrarNotasHistorialTurnosSiFondo(evento) {
+  if (evento.target.id === "overlay-notas-historial-turnos") cerrarNotasHistorialTurnos();
 }
 
 // Exporta la función pura para poder probarla en Node (mismo criterio que ya usa

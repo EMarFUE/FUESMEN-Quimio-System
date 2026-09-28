@@ -596,6 +596,17 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
   // modal (abrirDetalleTurnoGrilla) y en "Ver cadena completa" del historial.
   const fueReacomodado = !!turno.reacomodo;
 
+  // Etapa 4, punto 8 — semáforo de prioridad. Visible (tooltip + borde de color) para
+  // TODOS los roles (ronda de ajustes: se abrió la visibilidad a enfermería y
+  // administrativo), pero solo se EDITA desde el modal de detalle, y únicamente por
+  // administrador o el médico dueño del turno (ver puedeEditarPrioridadDetalle más abajo
+  // y firestore.rules, que no cambian). Se pinta como borde izquierdo, no como badge
+  // nuevo, para no competir por espacio con sillón/apellido/checkbox en una tarjeta que
+  // ya es chica — funciona igual en modo vertical (3+ turnos superpuestos).
+  const ETIQUETAS_PRIORIDAD_GRILLA = { rojo: "Rojo — hay que verlo obligatoriamente", amarillo: "Amarillo — trae análisis/consulta corta", verde: "Verde — pasa directo a hospital de día" };
+  const prioridadVisible = turno.prioridad || null;
+  const clasePrioridad = prioridadVisible ? `prioridad-${prioridadVisible}-grilla` : "";
+
   const tituloPartes = [
     pacienteCompleto,
     turno.medicoNombre || "",
@@ -603,7 +614,8 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
     (turno.ciclo != null || turno.sesion != null) ? `Ciclo ${turno.ciclo ?? "-"} · Sesión ${turno.sesion ?? "-"}` : null,
     turno.paciente && turno.paciente.numeroDocumento ? `DNI ${turno.paciente.numeroDocumento}` : null,
     turno.paciente && turno.paciente.obraSocial ? turno.paciente.obraSocial : null,
-    fueReacomodado ? `Sillón reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})` : null
+    fueReacomodado ? `Sillón reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})` : null,
+    prioridadVisible ? `Prioridad: ${ETIQUETAS_PRIORIDAD_GRILLA[prioridadVisible] || prioridadVisible}` : null
   ].filter(Boolean);
   const tituloCompleto = escaparHtmlGrilla(tituloPartes.join(" · "));
 
@@ -638,16 +650,42 @@ function renderizarTarjetaTurnoGrilla(turno, minutoApertura, sede, laneInfo) {
         onclick="event.stopPropagation(); alternarPresenteTurnoGrilla('${turno.id}', this.checked)" />`
     : "";
 
+  // Etapa 4, punto 9 — comentarios/observaciones. Habilitado para los cuatro roles, a
+  // diferencia del checkbox de presente y el borde de prioridad. Siempre visible (no
+  // solo cuando ya hay notas) para que cualquiera pueda dejar la primera. Esquina
+  // inferior izquierda: la superior derecha ya la ocupa el checkbox de presente.
+  const cantidadNotas = turno.cantidadNotas || 0;
+  const badgeNotasHtml = `
+    <button type="button" class="badge-notas-grilla" title="${cantidadNotas > 0 ? `Comentarios (${cantidadNotas})` : "Agregar un comentario"}"
+      onpointerdown="event.stopPropagation()"
+      onclick="event.stopPropagation(); abrirNotasTurnoGrilla('${turno.id}')">💬${cantidadNotas > 0 ? cantidadNotas : ""}</button>`;
+
   return `
-    <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""} ${modoVertical ? "vertical-grilla" : ""} ${estaPresente ? "presente-grilla" : ""}"
+    <div class="tarjeta-turno-grilla ${puedeArrastrar ? "arrastrable-grilla" : ""} ${modoVertical ? "vertical-grilla" : ""} ${estaPresente ? "presente-grilla" : ""} ${clasePrioridad}"
       style="top:${top}px;height:${alto}px;${posicionHtml}" title="${tituloCompleto}"
       data-turno-id="${turno.id}" ${accionClic}>
       ${checkboxPresenteHtml}
+      ${badgeNotasHtml}
       <span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span>
       ${fueReacomodado ? `<span class="badge-reacomodo-grilla" title="Sillón reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})">↻</span>` : ""}
       <span class="apellido-turno-grilla">${escaparHtmlGrilla(nombreMostrado)}</span>
     </div>
   `;
+}
+
+// Etapa 4, punto 8 — cambia la prioridad de un turno ya cargado desde el modal de
+// detalle (único lugar donde se puede editar después de creado — no hay control en la
+// tarjeta, a diferencia de "presente"). "" en el <select> ("Sin definir") se guarda como
+// null, nunca como string vacío.
+async function actualizarPrioridadTurnoGrilla(turnoId, valor) {
+  try {
+    await db.collection("turnos").doc(turnoId).update({ prioridad: valor || null });
+    await cargarYRenderizarGrilla();
+  } catch (error) {
+    console.error("Error al actualizar la prioridad:", error);
+    mostrarMensajeAgenda("No se pudo actualizar la prioridad. Reintentá.", "error");
+    await cargarYRenderizarGrilla();
+  }
 }
 
 // Etapa 4, punto 10 — tilda/destilda "paciente presente" desde la grilla. Nunca se
@@ -2178,6 +2216,18 @@ async function anularYCrearTurnoGrilla(turnoOriginal, camposNuevos, motivo, tipo
     if (!camposExcluidos.has(clave)) docNuevo[clave] = valor;
   }
   Object.assign(docNuevo, camposNuevos);
+  // Etapa 4: "presente" es de la asistencia del día original — si el turno se mueve a
+  // otro día (o se re-agenda el mismo), el nuevo arranca sin marcar. prioridad, en cambio,
+  // sigue al paciente y se copia con el resto de los campos.
+  delete docNuevo.presente;
+  // Etapa 4: los comentarios acompañan al turno (ver el bloque de comentarios más abajo).
+  // cantidadNotas ya viaja copiado con el resto de los campos; lo que hay que dejar
+  // apuntado es dónde viven las notas: la raíz de la cadena. Si el turno original ya
+  // apuntaba a una raíz, esa se hereda sola (notasTurnoId no está excluido); si no, pero
+  // tiene comentarios, el turno original ES la raíz.
+  if (!docNuevo.notasTurnoId && turnoOriginal.cantidadNotas > 0) {
+    docNuevo.notasTurnoId = turnoOriginal.id;
+  }
   docNuevo.estado = "activo";
   docNuevo.creadoPor = {
     uid: usuarioActualGrilla.uid,
@@ -2272,6 +2322,40 @@ function abrirDetalleTurnoGrilla(turnoId) {
     </div>
   `).join("");
 
+  // Etapa 4, punto 8 — semáforo de prioridad. Visible (fila con el valor en texto) para
+  // todos los roles, mismo criterio que el borde de color de la tarjeta; editable
+  // (select) solo para administrador o el médico dueño del turno — el resto la ve
+  // siempre en modo texto (ver el "else" de abajo). No hay control en la tarjeta en sí
+  // (a diferencia de "presente"), así que este modal es la única forma de cambiarla
+  // después de cargado el turno.
+  const ETIQUETAS_PRIORIDAD_DETALLE_GRILLA = { rojo: "🔴 Rojo", amarillo: "🟡 Amarillo", verde: "🟢 Verde" };
+  const puedeVerPrioridadDetalle = true; // todos los roles la ven; la edición se decide aparte (puedeEditarPrioridadDetalle)
+  const puedeEditarPrioridadDetalle = rolActualGrilla === "administrador" ||
+    (rolActualGrilla === "medico" && !!turno.medicoId && datosUsuarioActualGrilla && turno.medicoId === datosUsuarioActualGrilla.medicoId);
+  let filaPrioridadHtml = "";
+  if (puedeVerPrioridadDetalle) {
+    if (puedeEditarPrioridadDetalle) {
+      const opciones = ["", "rojo", "amarillo", "verde"].map((valor) => {
+        const etiqueta = valor ? ETIQUETAS_PRIORIDAD_DETALLE_GRILLA[valor] : "Sin definir";
+        const seleccionado = (turno.prioridad || "") === valor ? "selected" : "";
+        return `<option value="${valor}" ${seleccionado}>${etiqueta}</option>`;
+      }).join("");
+      filaPrioridadHtml = `
+        <div class="fila-detalle-turno-grilla">
+          <span class="etiqueta-detalle-turno-grilla">Prioridad</span>
+          <select onchange="actualizarPrioridadTurnoGrilla('${turno.id}', this.value)" style="font-size:13px;">${opciones}</select>
+        </div>
+      `;
+    } else {
+      filaPrioridadHtml = `
+        <div class="fila-detalle-turno-grilla">
+          <span class="etiqueta-detalle-turno-grilla">Prioridad</span>
+          <span>${turno.prioridad ? ETIQUETAS_PRIORIDAD_DETALLE_GRILLA[turno.prioridad] || turno.prioridad : "Sin definir"}</span>
+        </div>
+      `;
+    }
+  }
+
   // Etapa T7: "Reasignar"/"Modificar"/"Eliminar" respetan el mismo permiso que ya regía
   // el arrastre (administrador/enfermería sin restricción; médico solo turnos propios y
   // habilitado). "Eliminar" se distingue con el color de peligro (--color-danger), nada
@@ -2299,6 +2383,7 @@ function abrirDetalleTurnoGrilla(turnoId) {
   document.getElementById("contenido-detalle-turno-grilla").innerHTML = `
     <h2 style="margin-top:0;">Detalle del turno</h2>
     ${filasHtml}
+    ${filaPrioridadHtml}
     ${botonesAccionHtml}
   `;
   document.getElementById("overlay-detalle-turno-grilla").style.display = "flex";
@@ -2310,4 +2395,168 @@ function cerrarDetalleTurnoGrilla() {
 
 function cerrarDetalleTurnoGrillaSiFondo(evento) {
   if (evento.target.id === "overlay-detalle-turno-grilla") cerrarDetalleTurnoGrilla();
+}
+
+// --- Etapa 4, punto 9 — comentarios/observaciones ---
+//
+// Subcolección turnos/{id}/notas/{notaId} (no array embebido — ver el porqué en el
+// comentario de firestore.rules). "Editable/borrable solo por su creador" es una
+// decisión con Elías, sin excepción para administrador. cantidadNotas en el turno es un
+// contador denormalizado para que la tarjeta de la grilla sepa si mostrar el badge sin
+// tener que leer la subcolección de cada turno visible — se actualiza acá mismo, no hay
+// un proceso aparte.
+//
+// Los comentarios son del TURNO, no de cada documento que lo representa: cuando un turno
+// se modifica/reasigna/arrastra se anula y se crea uno nuevo (ver anularYCrearTurnoGrilla),
+// y los comentarios tienen que acompañarlo. Para eso los comentarios viven siempre bajo
+// el PRIMER turno de la cadena, y cada turno posterior guarda en notasTurnoId cuál es ese
+// primer turno (sin campo = el turno es su propia raíz). El contador cantidadNotas, en
+// cambio, se mantiene en el turno vigente — es el que lee la tarjeta de la grilla. Así no
+// se copia ninguna nota (copiar notas ajenas exigiría aflojar la regla "solo el autor
+// crea su nota") ni cambia quién puede hacer qué.
+
+let turnoIdNotasActualGrilla = null; // turno vigente: dueño del contador cantidadNotas
+let raizNotasActualGrilla = null;    // turno raíz de la cadena: dueño de la subcolección notas
+let notasCacheGrilla = [];
+
+function raizNotasDeTurnoGrilla(turnoId) {
+  const turno = turnosCacheGrilla.find(t => t.id === turnoId);
+  return (turno && turno.notasTurnoId) || turnoId;
+}
+
+async function abrirNotasTurnoGrilla(turnoId) {
+  turnoIdNotasActualGrilla = turnoId;
+  raizNotasActualGrilla = raizNotasDeTurnoGrilla(turnoId);
+  document.getElementById("overlay-notas-turno-grilla").style.display = "flex";
+  document.getElementById("lista-notas-turno-grilla").innerHTML = `<p style="color:var(--color-muted);font-size:13px;">Cargando…</p>`;
+  cerrarFormularioNuevaNotaGrilla();
+
+  try {
+    const snapshot = await db.collection("turnos").doc(raizNotasActualGrilla).collection("notas").orderBy("creadoEn", "asc").get();
+    notasCacheGrilla = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    renderizarListaNotasGrilla();
+  } catch (error) {
+    console.error("Error al leer los comentarios:", error);
+    document.getElementById("lista-notas-turno-grilla").innerHTML = `<p style="color:var(--color-danger);font-size:13px;">No se pudieron cargar los comentarios. Reintentá.</p>`;
+  }
+}
+
+function renderizarListaNotasGrilla() {
+  const contenedor = document.getElementById("lista-notas-turno-grilla");
+  if (notasCacheGrilla.length === 0) {
+    contenedor.innerHTML = `<p style="color:var(--color-muted);font-size:13px;">Todavía no hay comentarios.</p>`;
+    return;
+  }
+  contenedor.innerHTML = notasCacheGrilla.map((nota) => {
+    const esPropia = usuarioActualGrilla && nota.autorUid === usuarioActualGrilla.uid;
+    const accionesHtml = esPropia
+      ? `<button type="button" class="enlace-accion" style="font-size:12px;" onclick="iniciarEdicionNotaGrilla('${nota.id}')">Editar</button>
+         <button type="button" class="enlace-accion peligro" style="font-size:12px;" onclick="borrarNotaTurnoGrilla('${nota.id}')">Borrar</button>`
+      : "";
+    return `
+      <div class="fila-nota-grilla" id="fila-nota-${nota.id}" style="padding:8px 0;border-bottom:1px solid var(--color-border);">
+        <div style="font-size:12px;color:var(--color-muted);">${escaparHtmlGrilla(nota.autorNombre || "")} · ${escaparHtmlGrilla(ROLES[nota.autorRol] || nota.autorRol || "")}</div>
+        <div style="font-size:13px;white-space:pre-wrap;">${escaparHtmlGrilla(nota.texto)}</div>
+        ${accionesHtml ? `<div style="margin-top:2px;">${accionesHtml}</div>` : ""}
+      </div>
+    `;
+  }).join("");
+}
+
+function cerrarNotasTurnoGrilla() {
+  document.getElementById("overlay-notas-turno-grilla").style.display = "none";
+  turnoIdNotasActualGrilla = null;
+  raizNotasActualGrilla = null;
+  notasCacheGrilla = [];
+}
+
+function cerrarNotasTurnoGrillaSiFondo(evento) {
+  if (evento.target.id === "overlay-notas-turno-grilla") cerrarNotasTurnoGrilla();
+}
+
+function mostrarFormularioNuevaNotaGrilla() {
+  document.getElementById("boton-abrir-nueva-nota-grilla").style.display = "none";
+  const contenedor = document.getElementById("contenedor-nueva-nota-grilla");
+  contenedor.style.display = "block";
+  document.getElementById("campo-nueva-nota-grilla").focus();
+}
+
+function cerrarFormularioNuevaNotaGrilla() {
+  document.getElementById("campo-nueva-nota-grilla").value = "";
+  document.getElementById("contenedor-nueva-nota-grilla").style.display = "none";
+  document.getElementById("boton-abrir-nueva-nota-grilla").style.display = "inline-block";
+}
+
+async function guardarNuevaNotaTurnoGrilla() {
+  const campoTexto = document.getElementById("campo-nueva-nota-grilla");
+  const texto = campoTexto.value.trim();
+  if (!texto) return;
+
+  try {
+    const turnoRef = db.collection("turnos").doc(turnoIdNotasActualGrilla);
+    const notaRef = db.collection("turnos").doc(raizNotasActualGrilla).collection("notas").doc();
+    const batch = db.batch();
+    batch.set(notaRef, {
+      texto: texto.slice(0, 200),
+      autorUid: usuarioActualGrilla.uid,
+      autorNombre: datosUsuarioActualGrilla.nombre || usuarioActualGrilla.email,
+      autorRol: rolActualGrilla,
+      creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    batch.update(turnoRef, { cantidadNotas: firebase.firestore.FieldValue.increment(1) });
+    await batch.commit();
+
+    cerrarFormularioNuevaNotaGrilla();
+    await abrirNotasTurnoGrilla(turnoIdNotasActualGrilla); // vuelve a leer para traer el creadoEn real
+    await cargarYRenderizarGrilla(); // refresca el badge de la tarjeta por detrás
+  } catch (error) {
+    console.error("Error al guardar el comentario:", error);
+    mostrarMensajeAgenda("No se pudo guardar el comentario. Reintentá.", "error");
+  }
+}
+
+function iniciarEdicionNotaGrilla(notaId) {
+  const nota = notasCacheGrilla.find(n => n.id === notaId);
+  if (!nota) return;
+  const fila = document.getElementById(`fila-nota-${notaId}`);
+  fila.innerHTML = `
+    <textarea id="campo-editar-nota-${notaId}" maxlength="200" rows="2" style="width:100%;box-sizing:border-box;font-size:13px;">${escaparHtmlGrilla(nota.texto)}</textarea>
+    <div style="margin-top:4px;">
+      <button type="button" class="boton-principal" style="width:auto;font-size:12px;padding:4px 10px;" onclick="guardarEdicionNotaGrilla('${notaId}')">Guardar</button>
+      <button type="button" class="enlace-accion" onclick="renderizarListaNotasGrilla()">Cancelar</button>
+    </div>
+  `;
+}
+
+async function guardarEdicionNotaGrilla(notaId) {
+  const campoTexto = document.getElementById(`campo-editar-nota-${notaId}`);
+  const texto = campoTexto.value.trim();
+  if (!texto) return;
+
+  try {
+    await db.collection("turnos").doc(raizNotasActualGrilla).collection("notas").doc(notaId).update({ texto: texto.slice(0, 200) });
+    const nota = notasCacheGrilla.find(n => n.id === notaId);
+    if (nota) nota.texto = texto.slice(0, 200);
+    renderizarListaNotasGrilla();
+  } catch (error) {
+    console.error("Error al editar el comentario:", error);
+    mostrarMensajeAgenda("No se pudo guardar la edición. Reintentá.", "error");
+  }
+}
+
+async function borrarNotaTurnoGrilla(notaId) {
+  try {
+    const turnoRef = db.collection("turnos").doc(turnoIdNotasActualGrilla);
+    const batch = db.batch();
+    batch.delete(db.collection("turnos").doc(raizNotasActualGrilla).collection("notas").doc(notaId));
+    batch.update(turnoRef, { cantidadNotas: firebase.firestore.FieldValue.increment(-1) });
+    await batch.commit();
+
+    notasCacheGrilla = notasCacheGrilla.filter(n => n.id !== notaId);
+    renderizarListaNotasGrilla();
+    await cargarYRenderizarGrilla(); // refresca el badge de la tarjeta por detrás
+  } catch (error) {
+    console.error("Error al borrar el comentario:", error);
+    mostrarMensajeAgenda("No se pudo borrar el comentario. Reintentá.", "error");
+  }
 }

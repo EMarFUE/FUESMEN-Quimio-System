@@ -43,6 +43,7 @@
         <button type="button" class="filtro-tab" data-modo="sede">Por sede</button>
         <button type="button" class="filtro-tab" data-modo="fecha">Por rango de fechas</button>
         <button type="button" class="filtro-tab" data-modo="asistencia">Presente / ausente</button>
+        <button type="button" class="filtro-tab" data-modo="comentarios">Con comentarios</button>
       </div>
 
       <!-- Filtro por tipo de acción -->
@@ -186,6 +187,19 @@
     <!-- Cadena completa de un turno (original → reemplazos sucesivos) -->
     <div id="overlay-cadena-historial-turnos" class="overlay-modal" style="display:none;" onclick="cerrarCadenaHistorialTurnosSiFondo(event)">
       <div class="modal-panel" id="modal-panel-cadena-historial-turnos"></div>
+    </div>
+
+    <!-- Ronda de ajustes tras la Etapa 4 — comentarios del turno, de SOLO LECTURA acá
+         (a pedido de Elías: no se agrega, edita ni borra desde el historial, solo
+         desde la grilla). -->
+    <div id="overlay-notas-historial-turnos" class="overlay-modal" style="display:none;" onclick="cerrarNotasHistorialTurnosSiFondo(event)">
+      <div class="modal-panel" style="max-width:420px;">
+        <div class="modal-encabezado">
+          <button type="button" class="modal-cerrar" onclick="cerrarNotasHistorialTurnos()">×</button>
+        </div>
+        <h2 style="margin-top:0;font-size:17px;">Comentarios</h2>
+        <div id="lista-notas-historial-turnos"></div>
+      </div>
     </div>
   </div>
 

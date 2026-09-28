@@ -1072,6 +1072,17 @@ function actualizarVisibilidadCamposEspeciales() {
     if (campoHorarioManual) campoHorarioManual.value = "";
   }
 
+  // Etapa 4, punto 8 — semáforo de prioridad: visible/editable solo médico y administrador.
+  const bloquePrioridad = document.getElementById("bloque-prioridad-turno");
+  if (bloquePrioridad) {
+    const puedePrioridad = rolActualCarga === "medico" || rolActualCarga === "administrador";
+    bloquePrioridad.style.display = puedePrioridad ? "block" : "none";
+    if (!puedePrioridad) {
+      const campoPrioridad = document.getElementById("campo-prioridad-turno");
+      if (campoPrioridad) campoPrioridad.value = "";
+    }
+  }
+
   const medicoSelect = document.getElementById("campo-medico");
   const medicoValor = medicoSelect ? medicoSelect.value : "";
   const hayProtocolos = Object.values(protocolosSeleccionados).some(p => p !== null);
@@ -1082,6 +1093,15 @@ function actualizarVisibilidadCamposEspeciales() {
     const campoBackup = document.getElementById("campo-sillon-backup");
     if (campoBackup) campoBackup.checked = false;
   }
+}
+
+// Etapa 4, punto 9 — despliega la nota inicial opcional (mismo patrón que "+ agregar
+// otro protocolo": arranca colapsado como un botón, se despliega recién al tocarlo).
+function mostrarNotaInicialCarga() {
+  document.getElementById("boton-abrir-nota-inicial-turno").style.display = "none";
+  const contenedor = document.getElementById("contenedor-nota-inicial-turno");
+  contenedor.style.display = "block";
+  document.getElementById("campo-nota-inicial-turno").focus();
 }
 
 // --- Guardado del turno (Etapa T3: motor de búsqueda de huecos) ---
@@ -1213,7 +1233,22 @@ async function intentarGuardarTurno() {
     fecha,
     diasSolicitados,
     fechaCalculadaDesdeDias,
-    pacienteObraSocial: pacienteSeleccionadoCarga.obraSocial || "" // T7: ver guardarComoSobreturnoFisico (caso Occhipinti)
+    pacienteObraSocial: pacienteSeleccionadoCarga.obraSocial || "", // T7: ver guardarComoSobreturnoFisico (caso Occhipinti)
+    // Etapa 4, punto 8: se lee del <select> solo si el rol puede definirlo — para el
+    // resto de los roles el bloque está oculto y campoPrioridad.value siempre es "" de
+    // todas formas, pero se refuerza acá para no depender solo del CSS del lado del cliente.
+    prioridad: (() => {
+      if (rolActualCarga !== "medico" && rolActualCarga !== "administrador") return null;
+      const campoPrioridad = document.getElementById("campo-prioridad-turno");
+      return (campoPrioridad && campoPrioridad.value) || null;
+    })(),
+    // Etapa 4, punto 9: habilitado para los cuatro roles, sin gating por rol acá (a
+    // diferencia de prioridad).
+    notaInicial: (() => {
+      const campoNota = document.getElementById("campo-nota-inicial-turno");
+      const texto = campoNota ? campoNota.value.trim() : "";
+      return texto ? texto.slice(0, 200) : null;
+    })()
   };
 
   // Ronda "mejoras motor": horario manual (Frente 2, exclusivo administrador) y checkbox
@@ -2310,6 +2345,15 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno, cambios
       horarioInicio: hueco.horaInicio,
       horarioFin: hueco.horaFin,
       tipoSobreturno: tipoSobreturno || null,
+      // Etapa 4, punto 8 — semáforo de prioridad. null si no se definió (incluye
+      // siempre: turno cargado por enfermería/administrativo, o médico/administrador
+      // que lo dejó "Sin definir").
+      prioridad: datosBasicos.prioridad || null,
+      // Etapa 4, punto 9 — contador denormalizado (ver comentario de
+      // contadorNotasValido() en firestore.rules). Se fija en 0 o 1 acá mismo, en la
+      // creación — no hace falta pasar por esa regla de "+1/-1" para el caso inicial,
+      // ya viene resuelto en el mismo batch de abajo.
+      cantidadNotas: datosBasicos.notaInicial ? 1 : 0,
       // Standard
       estado: "activo",
       creadoPor: { uid: usuarioActualCarga.uid, nombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email },
@@ -2325,6 +2369,21 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno, cambios
     const contadorRef = db.collection("contadores").doc("comprobantesTurno");
     batch.set(turnoRef, docTurno);
     batch.set(contadorRef, { [anio]: firebase.firestore.FieldValue.increment(1) }, { merge: true });
+
+    // Etapa 4, punto 9 — nota inicial opcional (bloque colapsado del modal de carga). Va
+    // en el mismo batch que el turno: el "create" de una nota no depende de que el
+    // turno padre ya exista (ver /turnos/{id}/notas/{notaId} en firestore.rules), así
+    // que no hace falta un segundo viaje al servidor para esto.
+    if (datosBasicos.notaInicial) {
+      const notaRef = turnoRef.collection("notas").doc();
+      batch.set(notaRef, {
+        texto: datosBasicos.notaInicial,
+        autorUid: usuarioActualCarga.uid,
+        autorNombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email,
+        autorRol: rolActualCarga,
+        creadoEn: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
 
     if (cambiosReacomodo && cambiosReacomodo.length > 0) {
       const quienDisparo = { uid: usuarioActualCarga.uid, nombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email };
@@ -2389,6 +2448,21 @@ function resetearFormularioCarga() {
   if (campoHorarioManual) campoHorarioManual.value = "";
   const campoBackup = document.getElementById("campo-sillon-backup");
   if (campoBackup) campoBackup.checked = false;
+
+  // Etapa 4, punto 8 — mismo motivo que el bug de horario manual/backup de arriba: sin
+  // este reset, la prioridad del turno anterior quedaba pisada en el siguiente.
+  const campoPrioridad = document.getElementById("campo-prioridad-turno");
+  if (campoPrioridad) campoPrioridad.value = "";
+
+  // Etapa 4, punto 9 — mismo motivo: sin esto, una nota tipeada y no guardada (turno
+  // cancelado antes de guardar, o guardado con otra) quedaba pisada en el siguiente, y
+  // el bloque quedaba desplegado en vez de volver a su estado colapsado inicial.
+  const campoNotaInicial = document.getElementById("campo-nota-inicial-turno");
+  if (campoNotaInicial) campoNotaInicial.value = "";
+  const contenedorNotaInicial = document.getElementById("contenedor-nota-inicial-turno");
+  if (contenedorNotaInicial) contenedorNotaInicial.style.display = "none";
+  const botonNotaInicial = document.getElementById("boton-abrir-nota-inicial-turno");
+  if (botonNotaInicial) botonNotaInicial.style.display = "inline-block";
 
   modoFechaTurno = "dias";
   document.getElementById("campo-dias-turno").value = "";

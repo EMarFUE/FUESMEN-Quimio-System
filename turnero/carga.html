@@ -167,6 +167,34 @@
         se respeta que haya sillón libre a esa hora, los bloqueos vigentes y el horario de apertura y cierre de la sede.
       </div>
 
+      <!-- Etapa 4, punto 9 — nota inicial opcional al cargar el turno. Colapsada por
+           defecto (mismo patrón visual que "+ agregar otro protocolo" de arriba). El
+           resto de los comentarios (ver, agregar más, editar/borrar los propios) vive en
+           la grilla una vez creado el turno — acá es solo para dejar algo escrito desde
+           el vamos, si hace falta. -->
+      <div class="campo" id="bloque-nota-inicial-turno" style="margin-top:10px;">
+        <button type="button" id="boton-abrir-nota-inicial-turno" class="enlace-accion" onclick="mostrarNotaInicialCarga()">+ Agregar un comentario</button>
+        <div id="contenedor-nota-inicial-turno" style="display:none;margin-top:6px;">
+          <textarea id="campo-nota-inicial-turno" maxlength="200" rows="2"
+            style="width:100%;box-sizing:border-box;font-size:13px;"
+            placeholder="Observación para el equipo (la va a poder ver y editar cualquier rol; solo vos podés editarla o borrarla después)"></textarea>
+        </div>
+      </div>
+
+      <!-- Etapa 4, punto 8 — semáforo de prioridad. Visible/editable solo para médico y
+           administrador (mismo criterio que la visibilidad en la grilla); para el resto
+           de los roles el bloque queda oculto (ver actualizarVisibilidadCamposEspeciales
+           en turnero-carga.js) y el turno se guarda sin prioridad definida. -->
+      <div class="campo" id="bloque-prioridad-turno" style="display:none;margin-top:6px;">
+        <label style="font-size:12px;color:var(--color-muted);">(Prioridad del paciente — opcional)</label>
+        <select id="campo-prioridad-turno" style="max-width:260px;font-size:13px;">
+          <option value="">Sin definir</option>
+          <option value="rojo">🔴 Rojo — hay que verlo obligatoriamente</option>
+          <option value="amarillo">🟡 Amarillo — trae análisis/consulta corta</option>
+          <option value="verde">🟢 Verde — pasa directo a hospital de día</option>
+        </select>
+      </div>
+
       <button type="button" id="boton-guardar-turno" class="boton-principal" style="margin-top:20px;" onclick="intentarGuardarTurno()">Buscar disponibilidad y guardar turno</button>
     </div>
     </div><!-- /contenido-carga -->
