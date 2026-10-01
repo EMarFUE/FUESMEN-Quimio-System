@@ -1510,6 +1510,22 @@ h1 {
     ve el indicador que sigue al puntero, para no tener dos cuadrados a la vez en pantalla */
 }
 
+/* Etapa 5C, punto 2.1 — paciente internado: no ocupa sillón, tamaño fijo (ver
+   ALTURA_FIJA_INTERNADO_GRILLA en renderizarTarjetaTurnoGrilla), difuminado a propósito
+   para diferenciarlo de un turno común de un vistazo. Color propio (violeta/lila) — no
+   compite con los que ya usa prioridad (rojo/amarillo/verde) ni con el gris/azulado que
+   Elías tiene reservado para otra cosa. */
+:root {
+  --color-internado: #7c5ea8;
+  --color-internado-soft: #efe8f5;
+}
+
+.tarjeta-turno-grilla.internado-grilla {
+  background: var(--color-internado-soft);
+  border-color: var(--color-internado);
+  opacity: 0.72;
+}
+
 .pista-dia-grilla.dia-sin-huecos-grilla {
   background-color: var(--color-danger-soft);
   background-image: repeating-linear-gradient(
@@ -1567,6 +1583,22 @@ h1 {
 .badge-sillon-grilla.backup {
   background: var(--color-accent-secondary);
   color: #274a08;
+}
+
+/* Etapa 5C, ajuste del 2.1 (pedido de Elías): óvalo "Int." del internado en rojo, distinto
+   del celeste (sillón común) y del verde (backup). Mismo rojo base del sistema. */
+.badge-sillon-grilla.internado {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+/* Etapa 5C: turno cargado con horario manual — solo en la vista diaria (en la tarjeta
+   semanal ya no entra). Mismo tamaño/tono discreto que .badge-reacomodo-grilla. */
+.badge-horario-manual-dia {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--color-muted);
+  cursor: help;
 }
 
 /* Ronda "reacomodo automático de sillones": indicador discreto de que este turno cambió
@@ -1876,6 +1908,14 @@ h1 {
 
 .turno-mensual:hover {
   border-color: #1c5c7a;
+}
+
+/* Etapa 5C, punto 2.1 — mismo color que .internado-grilla (semana/día), para que se
+   reconozca de un vistazo en cualquiera de las tres vistas. */
+.turno-mensual.internado-mensual {
+  background: var(--color-internado-soft);
+  border-color: var(--color-internado);
+  opacity: 0.72;
 }
 
 .hora-turno-mensual {

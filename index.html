@@ -16,7 +16,15 @@
       </div>
       <div style="text-align:right;">
         <div class="datos-sesion" id="datos-sesion"></div>
-        <button class="boton-secundario" style="margin-top:8px;" onclick="cerrarSesion()">Cerrar sesión</button>
+        <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
+          <!-- Etapa 5C, punto 2.7: enlace a la carpeta compartida de SharePoint con los
+               protocolos del servicio. Sin lógica de rol (visible a los cuatro roles); URL
+               fija en el HTML, no editable desde la interfaz. -->
+          <a class="boton-secundario" style="text-decoration:none;display:inline-block;"
+            href="https://fuesmen683.sharepoint.com/:f:/s/sanrafael/IgBZ2fIMrh0oSrn-flAJluCZAdf5UJKKW3EzjVKVoTPT0sc?e=DjOh7y"
+            target="_blank" rel="noopener noreferrer">Protocolos ↗</a>
+          <button class="boton-secundario" onclick="cerrarSesion()">Cerrar sesión</button>
+        </div>
       </div>
     </div>
 

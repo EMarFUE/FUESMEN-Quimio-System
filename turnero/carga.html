@@ -110,6 +110,14 @@
         Premedicación / control de signos vitales (+30 min fijos)
       </label>
 
+      <!-- Etapa 5C, punto 2.1 — solo administrador/enfermería (visibilidad en
+           actualizarVisibilidadCamposEspeciales, turnero-carga.js). Chico a propósito,
+           a pedido de Elías, para que no se tilde por error. -->
+      <label class="check-linea" id="bloque-internado" style="display:none;font-size:12.5px;color:var(--color-muted);">
+        <input type="checkbox" id="campo-internado" onchange="alternarInternado()" style="width:14px;height:14px;vertical-align:middle;" />
+        Paciente internado (no ocupa sillón ni imprime comprobante)
+      </label>
+
       <div id="resumen-duracion" class="resumen-suma ok" style="margin:0 0 20px;"></div>
 
       <label class="check-linea" id="bloque-sillon-backup" style="display:none;font-size:15px;font-weight:600;padding:10px 12px;background:var(--color-warning-soft);border:1px solid var(--color-warning);border-radius:6px;color:var(--color-warning-text);">
@@ -162,7 +170,7 @@
       </div>
 
       <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:14px;padding:8px;background:#f9f9f9;border-radius:4px;">
-        ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada, salvo que completes el horario manual de arriba (solo administrador).
+        ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada, salvo que completes el horario manual de arriba (administrador o enfermería).
         Si lo completás, se fuerza ese horario por encima de la atadura de día, el cupo por porcentaje y la franja horaria del médico. Siempre
         se respeta que haya sillón libre a esa hora, los bloqueos vigentes y el horario de apertura y cierre de la sede.
       </div>

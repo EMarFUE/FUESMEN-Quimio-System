@@ -473,7 +473,9 @@ function renderizarFilaTurnoDia(turno, sede) {
   const pacienteCompleto = `${paciente.apellido || ""}, ${paciente.nombre || ""}`.trim().replace(/^,\s*/, "").replace(/,\s*$/, "") || "Sin paciente";
   const infoSillon = (sede && sede.sillones || []).find(s => s.numero === turno.sillon);
   const esBackup = !!infoSillon && infoSillon.tipo === "backup";
-  const textoSillon = turno.sillon != null ? `S${turno.sillon}` : "S?";
+  // Etapa 5C, ajuste del 2.1: un internado ya no aparece como "S?" (sobreturno) — "Int."
+  // con su óvalo propio, mismo criterio que la tarjeta semanal.
+  const textoSillon = turno.internado ? "Int." : (turno.sillon != null ? `S${turno.sillon}` : "S?");
   const estaPresente = turno.presente === true;
   const prioridad = turno.prioridad || null;
   const cantidadNotas = turno.cantidadNotas || 0;
@@ -499,6 +501,8 @@ function renderizarFilaTurnoDia(turno, sede) {
     paciente.numeroDocumento ? `DNI ${paciente.numeroDocumento}` : null,
     paciente.obraSocial || null,
     turno.reacomodo ? `Sillón reasignado automáticamente (antes: sillón ${turno.reacomodo.sillonAnterior})` : null,
+    turno.internado ? "Internado (no ocupa sillón)" : null,
+    turno.horarioManual === true ? "Cargado con horario manual (no se reacomoda)" : null,
     prioridad ? `Prioridad: ${ETIQUETAS_PRIORIDAD_DIA[prioridad] || prioridad}` : null
   ].filter(Boolean).join(" · ");
 
@@ -509,6 +513,11 @@ function renderizarFilaTurnoDia(turno, sede) {
     : "";
   const reacomodoHtml = turno.reacomodo
     ? `<span class="badge-reacomodo-grilla" title="Sillón reasignado automáticamente (antes: sillón ${escaparHtmlGrilla(turno.reacomodo.sillonAnterior)})">↻</span>`
+    : "";
+  // Etapa 5C (decisión de Elías): la marca de horario manual se ve SOLO en la vista
+  // diaria — en la tarjeta semanal ya no entra nada más.
+  const horarioManualHtml = turno.horarioManual === true
+    ? `<span class="badge-horario-manual-dia" title="Cargado con horario manual (no se reacomoda de sillón)">⏱</span>`
     : "";
   const notasHtml = `<button type="button" class="boton-notas-dia" title="${cantidadNotas > 0 ? `Comentarios (${cantidadNotas})` : "Agregar un comentario"}"
       onclick="event.stopPropagation(); abrirNotasTurnoGrilla('${escaparHtmlGrilla(turno.id)}')">💬${cantidadNotas > 0 ? cantidadNotas : ""}</button>`;
@@ -523,10 +532,10 @@ function renderizarFilaTurnoDia(turno, sede) {
       onclick="abrirDetalleTurnoGrilla('${escaparHtmlGrilla(turno.id)}')">
       ${celdaPresenteHtml}
       <span class="horario-dia">${escaparHtmlGrilla(turno.horarioInicio)}–${escaparHtmlGrilla(turno.horarioFin)}</span>
-      <span><span class="badge-sillon-grilla ${esBackup ? "backup" : ""}">${textoSillon}</span></span>
+      <span><span class="badge-sillon-grilla ${esBackup ? "backup" : ""} ${turno.internado ? "internado" : ""}">${textoSillon}</span></span>
       <span class="paciente-dia">${escaparHtmlGrilla(pacienteCompleto)}</span>
       <span class="medico-dia">${escaparHtmlGrilla(turno.medicoNombre || "-")}</span>
       <span class="ciclo-dia">${escaparHtmlGrilla(cicloSesion)}</span>
-      <span class="indicadores-dia">${prioridadHtml}${reacomodoHtml}${notasHtml}</span>
+      <span class="indicadores-dia">${prioridadHtml}${reacomodoHtml}${horarioManualHtml}${notasHtml}</span>
     </div>`;
 }

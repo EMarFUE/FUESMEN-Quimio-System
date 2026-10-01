@@ -64,9 +64,15 @@ const TIPO_SOBRETURNO_FRANJA = "franjaHoraria";
 //     medicoId, sedeNombre, fechaLegible,
 //     nombreDiaSolicitado, // "lunes", etc. — para el mensaje específico del rol médico
 //     diasAtencionMedico, // ["jueves", "viernes"] — días que sí le corresponden en esta sede
-//     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin }
+//     huecoDisponible?: { sedeId, sedeNombre, fecha, fechaLegible, horaInicio, horaFin,
+//                         sinHuecoFisico? }
 //     // huecoDisponible solo si tipo === "confirmable", para cargarlo como sobreturno
 //     // (tipoSobreturno: "ataduraDia") si se confirma.
+//     // Etapa 5C (P1): si el día pedido ADEMÁS no tenía lugar físico (lleno, bloqueado o sin
+//     // un bloque de la duración pedida), el aviso de atadura se informa igual (antes se
+//     // perdía y salía "no hay lugar en 10 días"): huecoDisponible llega con
+//     // sinHuecoFisico: true y horaInicio/horaFin en null — quien lo carga calcula el
+//     // horario con calcularBloqueSobreturno (no hay un bloque real que reutilizar).
 //   },
 //   bloqueoFranja?: { // Ronda "mejoras motor": igual que bloqueoAtadura/bloqueoCupo, pero la
 //                     // causa es que el médico tiene franjaHoraria propia y el turno no podía
@@ -170,11 +176,14 @@ async function determinarSedesABuscar(medicoId, obraSocial, medicosCacheLectura)
     return ["entre-rios", "emilio-civit"];
   }
 
+  // Etapa 5C (auditoría del motor): un médico sin diasPorSede cargado hacía fallar toda
+  // la búsqueda con "Error interno" — ahora cae al mismo fallback que un médico sin días.
+  const diasPorSede = medicoDoc.diasPorSede || {};
   const sedesDelMedico = [];
-  if (medicoDoc.diasPorSede["Entre Ríos"] && medicoDoc.diasPorSede["Entre Ríos"].length > 0) {
+  if (diasPorSede["Entre Ríos"] && diasPorSede["Entre Ríos"].length > 0) {
     sedesDelMedico.push("entre-rios");
   }
-  if (medicoDoc.diasPorSede["Emilio Civit"] && medicoDoc.diasPorSede["Emilio Civit"].length > 0) {
+  if (diasPorSede["Emilio Civit"] && diasPorSede["Emilio Civit"].length > 0) {
     sedesDelMedico.push("emilio-civit");
   }
 
@@ -314,6 +323,23 @@ function pseudoTurnosBloqueoEnFecha(bloqueosCacheLectura, sedeId, fechaActualISO
   return pseudoTurnos;
 }
 
+// --- Etapa 5C, P2: no ofrecer horarios que ya pasaron (fecha = hoy) ---
+//
+// El motor no conoce la hora actual: quien lo llama (turnero-carga.js, ahoraParaMotor)
+// le pasa un objeto opcional `ahora = { fechaISO: "2026-10-05", minuto: 632 }` (hoy y el
+// minuto del día, sin segundos). Si falta, nada cambia (retrocompatible: mismo
+// comportamiento de siempre). Si la fecha evaluada es HOY, el primer inicio que se puede
+// ofrecer es la hora actual redondeada HACIA ARRIBA a la misma grilla de GRANO_MINUTOS
+// anclada en la apertura de la sede — así los horarios que se ofrecen son exactamente los
+// de siempre, menos los que ya pasaron (una hora igual a la actual se acepta). Devuelve
+// null cuando no corresponde filtrar: sin `ahora`, otra fecha, o la sede todavía no abrió.
+// El arrastre semanal (buscarHuecosSemanaEnSede) no lo usa a propósito: decisión de Elías.
+function inicioMinimoPorAhora(ahora, fechaISODia, horaAperturaMinutos) {
+  if (!ahora || ahora.fechaISO !== fechaISODia || !Number.isFinite(ahora.minuto)) return null;
+  if (ahora.minuto <= horaAperturaMinutos) return null;
+  return horaAperturaMinutos + Math.ceil((ahora.minuto - horaAperturaMinutos) / GRANO_MINUTOS) * GRANO_MINUTOS;
+}
+
 // --- Evaluación de un solo día (T6 Fase 3: extraído de buscarHuecosEnSede) ---
 //
 // Contiene, sin cambios de comportamiento respecto de la versión anterior, la atadura
@@ -335,6 +361,7 @@ function evaluarDiaEnSede({
   turnosDelDia, turnosExistentesEnSede, sillonesDisponibles,
   medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura,
   diasBloqueadosPaciente, // Set de fechas ISO donde el paciente ya tiene otro turno (o undefined/vacío)
+  ahora, // opcional (Etapa 5C, P2): { fechaISO, minuto } — ver inicioMinimoPorAhora
   capturarCandidato // bool: true solo cuando corresponde buscar el candidato físico de
                      // respaldo para ofrecer como sobreturno (diasDesde === 0 en la
                      // búsqueda secuencial); la búsqueda semanal siempre pasa false,
@@ -384,6 +411,21 @@ function evaluarDiaEnSede({
             sedeId, sedeNombre, fecha: fechaActualISO,
             fechaLegible: formatearFechaLegibleMotor(fechaActual),
             horaInicio: probeHueco.horaInicio, horaFin: probeHueco.horaFin, medicoId,
+            nombreDiaSolicitado: nombreDiaActual,
+            diasAtencionMedico: diasDelMedicoEnSede
+          };
+        } else {
+          // Etapa 5C (P1, decisión de Elías): el día pedido no es del médico Y no tiene
+          // lugar físico. Antes el candidato quedaba en null, el aviso de atadura se
+          // perdía y la búsqueda terminaba informando "No hay lugar disponible dentro de
+          // 10 días" (sin haber mirado ningún otro día: la atadura corta en el día
+          // pedido). Ahora se informa la atadura igual, con un candidato sin horario:
+          // sinHuecoFisico le avisa a quien lo carga que el horario hay que calcularlo
+          // (calcularBloqueSobreturno), porque no existe un bloque físico real.
+          candidatoAtadura = {
+            sedeId, sedeNombre, fecha: fechaActualISO,
+            fechaLegible: formatearFechaLegibleMotor(fechaActual),
+            horaInicio: null, horaFin: null, sinHuecoFisico: true, medicoId,
             nombreDiaSolicitado: nombreDiaActual,
             diasAtencionMedico: diasDelMedicoEnSede
           };
@@ -469,6 +511,16 @@ function evaluarDiaEnSede({
     // médico ya contiene todo el horario de la sede, no hay nada que acotar y un día
     // sin huecos es un día sin huecos común, no un caso de franja.
     franjaRestringeEsteDia = horaAperturaBusqueda > horaAperturaMinutos || limiteInicioFranja < horaCierreMinutos;
+  }
+
+  // Etapa 5C (P2): si el día evaluado es HOY, no se ofrece nada anterior a la hora
+  // actual. Se aplica DESPUÉS de calcular franjaRestringeEsteDia, a propósito: la hora
+  // actual no cuenta como "restricción de la franja" (no cambia qué bloqueo se informa),
+  // solo acota el barrido de abajo. Si hoy ya no queda ningún inicio posible, el día
+  // devuelve huecos vacíos y quien llama sigue con el día siguiente.
+  const inicioMinimoHoy = inicioMinimoPorAhora(ahora, fechaActualISO, horaAperturaMinutos);
+  if (inicioMinimoHoy !== null) {
+    horaAperturaBusqueda = Math.max(horaAperturaBusqueda, inicioMinimoHoy);
   }
 
   // --- Búsqueda continua: recorrer el horario (el inicio, acotado por franja si
@@ -588,9 +640,10 @@ async function buscarHuecosEnSede(
   usaCuposPorcentaje, // T4: bool, de turneroSedes.usaCuposPorcentaje
   cuposCacheLectura, // T4: array de docs de turneroCupos
   diasBloqueadosPaciente, // opcional: Set de fechas ISO donde el paciente ya tiene otro turno
-  bloqueosCacheLectura // T9: array de docs de turneroBloqueos, activos, cualquier sede
+  bloqueosCacheLectura, // T9: array de docs de turneroBloqueos, activos, cualquier sede
                         // (se filtra por sedeId acá adentro) — opcional, un llamador que
                         // no lo pasa se comporta exactamente igual que antes de esta etapa.
+  ahora // opcional (Etapa 5C, P2): { fechaISO, minuto } — hoy no se ofrece nada anterior a la hora actual
 ) {
   // Retorna { huecos, candidatoCupoExcedido, candidatoAtaduraExcedida, bloqueadoPorPacienteMismoDia }.
   // huecos: array de huecos válidos (de mayor a menor ajuste), ya filtrados por paciente/atadura/cupo.
@@ -655,7 +708,7 @@ async function buscarHuecosEnSede(
       horaAperturaMinutos, horaCierreMinutos, duracionMinutos, duracionNormalizada,
       turnosDelDia, turnosExistentesEnSede, sillonesDisponibles,
       medicoId, medicoDoc, usaAtaduraDia, usaCuposPorcentaje, cuposCacheLectura,
-      diasBloqueadosPaciente,
+      diasBloqueadosPaciente, ahora,
       capturarCandidato: diasDesde === 0
     });
 
@@ -812,10 +865,11 @@ async function buscarHuecosSemanaEnSede(
 // ocupa el tiempo que corresponde (la duración pedida completa); si no entra completa, se
 // acomoda en lo que quede; si no queda nada de lugar, se carga con 1 minuto de duración
 // (una marca administrativa, no un horario real utilizable).
-// Solo hace falta para el sobreturno por falta de disponibilidad física: el sobreturno por
-// cupo y el sobreturno por atadura de día ya se construyen sobre un hueco físico real
-// (encontrarPrimerHuecoFisico encuentra el bloque completo o no encuentra nada), así que
-// nunca necesitan este ajuste.
+// Hace falta para el sobreturno por falta de disponibilidad física y, desde la Etapa 5C
+// (P1), también para el sobreturno por atadura cuando el día pedido no tenía lugar
+// (candidato con sinHuecoFisico). El sobreturno por cupo y el de atadura CON hueco libre
+// se construyen sobre un hueco físico real (encontrarPrimerHuecoFisico encuentra el
+// bloque completo o no encuentra nada), así que esos no necesitan este ajuste.
 function calcularBloqueSobreturno(horaAperturaString, horaCierreString, turnosDelDiaEnSede, duracionSolicitadaMinutos) {
   const horaAperturaMinutos = minutoDesdeString(horaAperturaString);
   const horaCierreMinutos = minutoDesdeString(horaCierreString);
@@ -867,6 +921,10 @@ async function buscarHuecos(
                  // atadura/cupo/franja a propósito (se fuerza medicoDoc a null más abajo, que
                  // es lo que ya hace que esas tres reglas nunca se evalúen — mismo mecanismo
                  // que ya usa "Otro"). Se usa desde el checkbox dedicado de "sillón backup".
+  ,
+  ahora // opcional (Etapa 5C, P2): { fechaISO, minuto }. Si la fecha evaluada es hoy, no se
+        // ofrece ningún horario anterior a la hora actual (ver inicioMinimoPorAhora).
+        // Sin este parámetro, comportamiento idéntico al de siempre.
 ) {
   // Retorna la estructura de resultado del motor.
 
@@ -929,8 +987,16 @@ async function buscarHuecos(
       const usaAtaduraDia = sedeDoc.usaAtaduraDia === true;
       const usaCuposPorcentaje = sedeDoc.usaCuposPorcentaje === true;
 
-      // Filtrar turnos de esta sede
-      const turnosEnSede = turnosExistentes.filter(t => t.sedeId === sedeId);
+      // Filtrar turnos de esta sede. Etapa 5C (auditoría del motor): se excluye también
+      // el propio turno que se está reasignando (turnoIdExcluir) — antes solo se lo
+      // excluía de la regla "un turno por día", pero seguía ocupando su propio sillón y
+      // sumando sus minutos al cupo del médico, así que "Reasignar → Buscar
+      // disponibilidad" podía mandarlo a otro día (o decir "sin lugar") cuando el lugar
+      // era justamente el suyo. Mismo criterio que ya usaba el arrastre semanal
+      // (turnosSinElArrastrado, turnero-grilla.js). undefined en un alta nueva: sin cambios.
+      const turnosEnSede = turnosExistentes.filter(t =>
+        t.sedeId === sedeId && !(turnoIdExcluir && t.id === turnoIdExcluir)
+      );
 
       const resultadoSede = await buscarHuecosEnSede(
         sedeId,
@@ -948,7 +1014,8 @@ async function buscarHuecos(
         usaCuposPorcentaje,
         cuposCacheLectura,
         diasBloqueadosPaciente,
-        bloqueosCacheLectura
+        bloqueosCacheLectura,
+        ahora
       );
 
       const huecos = resultadoSede.huecos;
@@ -1082,10 +1149,14 @@ async function buscarHuecos(
             fecha: candidatoAtaduraExcedidoGlobal.fecha,
             fechaLegible: candidatoAtaduraExcedidoGlobal.fechaLegible,
             horaInicio: candidatoAtaduraExcedidoGlobal.horaInicio,
-            horaFin: candidatoAtaduraExcedidoGlobal.horaFin
+            horaFin: candidatoAtaduraExcedidoGlobal.horaFin,
+            // Etapa 5C (P1): solo se agrega cuando es true — con hueco real, la forma de
+            // siempre queda idéntica.
+            ...(candidatoAtaduraExcedidoGlobal.sinHuecoFisico ? { sinHuecoFisico: true } : {})
           }
         },
-        sinHuecosMotivo: `El médico no atiende en ${candidatoAtaduraExcedidoGlobal.sedeNombre} el ${candidatoAtaduraExcedidoGlobal.fechaLegible}.`,
+        sinHuecosMotivo: `El médico no atiende en ${candidatoAtaduraExcedidoGlobal.sedeNombre} el ${candidatoAtaduraExcedidoGlobal.fechaLegible}.` +
+          (candidatoAtaduraExcedidoGlobal.sinHuecoFisico ? " Además, ese día no queda lugar en ningún sillón." : ""),
         sedesIntentadas: sedesABuscar,
         diasBuscados: TOPE_DIAS_BUSQUEDA
       };
@@ -1254,7 +1325,16 @@ function validarHuecoEspecificoEnSede({
   }
 
   // --- Superposición física en el sillón elegido, excluyendo el propio turno ---
-  const conflicto = turnosExistentesEnSede.some(t => {
+  //
+  // Bug reportado por Elías: solo aplica si se eligió un sillón físico real
+  // (sillon != null) — "Sin asignar (sobreturno)" no reclama ningún sillón físico, así
+  // que dos sobreturnos sin sillón NUNCA compiten entre sí por más que se superpongan en
+  // horario (son marcas administrativas, no ocupan nada). Sin este guard, "t.sillon !==
+  // sillon" comparaba null !== null → false → seguía al chequeo de horario, y cualquier
+  // sobreturno con horario superpuesto a otro sobreturno del mismo día disparaba
+  // "sillonOcupado" en falso — mismo criterio que el chequeo de bloqueos de arriba
+  // (sillon != null && bloqueosCacheLectura).
+  const conflicto = sillon != null && turnosExistentesEnSede.some(t => {
     if (t.id === turnoIdExcluir) return false;
     if (t.fecha !== fechaActualISO || t.sillon !== sillon) return false;
     if (typeof t.horarioInicio !== "string" || typeof t.horarioFin !== "string") return false;
@@ -1316,7 +1396,9 @@ function validarModificacionTurno(
   });
 }
 
-// --- Ronda "mejoras motor", Frente 2: horario manual (exclusivo administrador) ---
+// --- Ronda "mejoras motor", Frente 2: horario manual (administrador y enfermería desde
+// la Etapa 5C, punto 2.5; el rol se decide en turnero-carga.js, esta función no sabe de
+// roles) ---
 //
 // A diferencia de buscarHuecos (que recorre hasta 10 días buscando el mejor ajuste),
 // esta función valida UN horario fijo, elegido a mano, y solo decide qué sillón
@@ -1332,9 +1414,38 @@ function validarModificacionTurno(
 async function buscarSillonHorarioFijo(
   medicoId, obraSocialPaciente, duracionMinutos, fechaISOFija, horaInicioString,
   medicosCacheLectura, sedesCacheLectura, turnosExistentes, sedeIdManual,
-  bloqueosCacheLectura, soloBackup
+  bloqueosCacheLectura, soloBackup,
+  turnoIdExcluir, // opcional (Etapa 5C, bug de Reasignar con horario exacto): id del propio
+                  // turno que se está reasignando — nunca debe contar como ocupando su
+                  // propio sillón. undefined en un alta nueva (no hay turno propio todavía),
+                  // así que "+ nuevo turno" se comporta exactamente igual que antes.
+  pacienteId // opcional (Etapa 5C): id del paciente, para la regla "un turno por paciente por
+             // día" (transversal a sedes). Sin este parámetro la regla simplemente no se
+             // evalúa (mismo criterio que buscarHuecos). Antes de esto, el horario exacto
+             // era el único camino de carga que se la salteaba por olvido, no a propósito.
+  ,
+  ahora // opcional (Etapa 5C, P2): { fechaISO, minuto }. Si la fecha pedida es hoy y la hora
+        // exacta es anterior a la actual, se rechaza con motivo "horaPasada". Sin este
+        // parámetro, comportamiento idéntico al de siempre.
 ) {
   try {
+    // Regla "un turno por día": bloqueo total y el más básico de todos — se evalúa antes
+    // que horario de sede o disponibilidad de sillón, sin excepción de rol y sin ofrecer
+    // nunca "cargar igual" (mismo criterio que bloqueoPaciente en buscarHuecos).
+    const diasBloqueadosPaciente = diasBloqueadosPorPaciente(pacienteId, turnosExistentes, turnoIdExcluir);
+    if (diasBloqueadosPaciente.has(fechaISOFija)) {
+      return { exito: false, motivo: "pacienteMismoDia" };
+    }
+
+    // Etapa 5C (P2, decisión de Elías): el horario exacto tampoco sirve para cargar
+    // retroactivo — una hora de hoy que ya pasó se rechaza. Va después de "un turno por
+    // día" (el bloqueo más básico) y antes de mirar sedes/sillones. Una hora igual a la
+    // actual se acepta.
+    if (ahora && ahora.fechaISO === fechaISOFija && Number.isFinite(ahora.minuto) &&
+        minutoDesdeString(horaInicioString) < ahora.minuto) {
+      return { exito: false, motivo: "horaPasada", horaActual: stringDesdeMinuto(ahora.minuto) };
+    }
+
     const sedesABuscar = sedeIdManual
       ? [sedeIdManual]
       : await determinarSedesABuscar(medicoId, obraSocialPaciente, medicosCacheLectura);
@@ -1376,7 +1487,8 @@ async function buscarSillonHorarioFijo(
 
       const turnosDelDiaReales = turnosExistentes.filter(t =>
         t.sedeId === sedeId && t.fecha === fechaISOFija &&
-        typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
+        typeof t.horarioInicio === "string" && typeof t.horarioFin === "string" &&
+        !(turnoIdExcluir && t.id === turnoIdExcluir) // el propio turno no choca contra sí mismo
       );
       const pseudoTurnosBloqueo = bloqueosCacheLectura
         ? pseudoTurnosBloqueoEnFecha(
@@ -1541,6 +1653,116 @@ function calcularReacomodoSillones(horaInicioCandidato, horaFinCandidato, turnos
   return { sillonCandidato: asignacion.get("__candidato__"), cambios };
 }
 
+// Etapa 5C (auditoría del motor, decisión de Elías) — búsqueda EXACTA del reacomodo.
+// calcularReacomodoSillones (arriba) colorea de a un turno por orden de llegada: siempre
+// da una solución válida cuando la devuelve, pero medido contra el óptimo por fuerza
+// bruta (1) a veces dice "no entra" cuando sí entraba (~1,6% de los días factibles: pasa
+// solo cuando hay turnos fijos o bloqueos de por medio) y (2) a veces mueve más pacientes
+// de lo necesario (~11% de los casos, hasta 3 de más). Esta función busca, con
+// backtracking, la asignación válida que mueve la MENOR cantidad posible de turnos.
+//
+// Seguridad: tiene un límite de nodos. Si se agota antes de terminar, devuelve la mejor
+// solución válida que haya encontrado (o null si no encontró ninguna) — nunca una
+// inválida. cotaCambios: si se pasa, solo busca soluciones que muevan ESTRICTAMENTE
+// menos turnos que eso (la del barrido ya se tiene).
+const LIMITE_NODOS_REACOMODO_EXACTO = 20000;
+
+function calcularReacomodoSillonesExacto(horaInicioCandidato, horaFinCandidato, turnosFijos, turnosReacomodables, sillonesDisponibles, cotaCambios) {
+  const fijos = (turnosFijos || []).map(t => ({
+    sillon: t.sillon, inicio: minutoDesdeString(t.horarioInicio), fin: minutoDesdeString(t.horarioFin)
+  }));
+  const items = [
+    ...(turnosReacomodables || []).map(t => ({
+      id: t.id, sillonOriginal: t.sillon,
+      inicio: minutoDesdeString(t.horarioInicio), fin: minutoDesdeString(t.horarioFin)
+    })),
+    { id: "__candidato__", sillonOriginal: null, inicio: horaInicioCandidato, fin: horaFinCandidato }
+  ].sort((a, b) => a.inicio - b.inicio);
+
+  // Dominio de cada intervalo: sillones que ningún fijo ocupa en su tramo; el original
+  // primero (no cuesta un cambio).
+  for (const it of items) {
+    const libres = sillonesDisponibles.filter(sl =>
+      !fijos.some(f => f.sillon === sl && it.inicio < f.fin && it.fin > f.inicio)
+    );
+    it.dominio = (it.sillonOriginal != null && libres.includes(it.sillonOriginal))
+      ? [it.sillonOriginal, ...libres.filter(sl => sl !== it.sillonOriginal)]
+      : libres;
+    if (it.dominio.length === 0) return null; // ese intervalo no entra en ningún sillón
+  }
+
+  let mejorCosto = (typeof cotaCambios === "number") ? cotaCambios : Infinity;
+  let mejorAsignacion = null;
+  let nodos = 0;
+  const asignado = new Array(items.length);
+
+  function recorrer(i, costo) {
+    if (costo >= mejorCosto) return;
+    if (nodos++ > LIMITE_NODOS_REACOMODO_EXACTO) return;
+    if (i === items.length) { mejorCosto = costo; mejorAsignacion = asignado.slice(); return; }
+    const it = items[i];
+    for (const sl of it.dominio) {
+      let choca = false;
+      for (let j = 0; j < i; j++) {
+        if (asignado[j] === sl && items[j].fin > it.inicio && items[j].inicio < it.fin) { choca = true; break; }
+      }
+      if (choca) continue;
+      asignado[i] = sl;
+      recorrer(i + 1, costo + (it.sillonOriginal != null && sl !== it.sillonOriginal ? 1 : 0));
+      if (costo >= mejorCosto) break; // ya no puede mejorar por esta rama
+    }
+    asignado[i] = undefined;
+  }
+  recorrer(0, 0);
+  if (!mejorAsignacion) return null;
+
+  const porId = new Map(items.map((it, k) => [it.id, mejorAsignacion[k]]));
+  const cambios = (turnosReacomodables || [])
+    .filter(t => porId.get(t.id) !== t.sillon)
+    .map(t => ({ turnoId: t.id, sillonAnterior: t.sillon, sillonNuevo: porId.get(t.id) }));
+  return { sillonCandidato: porId.get("__candidato__"), cambios };
+}
+
+// Chequeo rápido y necesario (no suficiente): en cada instante del tramo del candidato,
+// los turnos reacomodables activos + el candidato no pueden superar los sillones que los
+// fijos dejan libres en ese instante. Si falla, es imposible que entre — se evita
+// gastar la búsqueda exacta en horarios sin ninguna chance.
+function capacidadAlcanzaParaReacomodo(horaInicioCandidato, horaFinCandidato, turnosFijos, turnosReacomodables, sillonesDisponibles) {
+  const puntos = new Set([horaInicioCandidato]);
+  for (const t of [...(turnosFijos || []), ...(turnosReacomodables || [])]) {
+    const ini = minutoDesdeString(t.horarioInicio);
+    if (ini > horaInicioCandidato && ini < horaFinCandidato) puntos.add(ini);
+  }
+  for (const x of puntos) {
+    const ocupadosFijos = new Set();
+    for (const f of (turnosFijos || [])) {
+      if (minutoDesdeString(f.horarioInicio) <= x && minutoDesdeString(f.horarioFin) > x) ocupadosFijos.add(f.sillon);
+    }
+    const libres = sillonesDisponibles.filter(sl => !ocupadosFijos.has(sl)).length;
+    const activos = (turnosReacomodables || []).filter(t =>
+      minutoDesdeString(t.horarioInicio) <= x && minutoDesdeString(t.horarioFin) > x
+    ).length + 1;
+    if (activos > libres) return false;
+  }
+  return true;
+}
+
+// Combina las dos: primero el barrido de siempre (rápido); si no entra, o si entra pero
+// moviendo turnos, se intenta la búsqueda exacta para encontrar una solución (o una que
+// mueva menos). Nunca empeora el resultado del barrido.
+function calcularReacomodoSillonesOptimo(horaInicioCandidato, horaFinCandidato, turnosFijos, turnosReacomodables, sillonesDisponibles) {
+  const barrido = calcularReacomodoSillones(horaInicioCandidato, horaFinCandidato, turnosFijos, turnosReacomodables, sillonesDisponibles);
+  if (barrido && barrido.cambios.length === 0) return barrido;
+  if (!barrido && !capacidadAlcanzaParaReacomodo(horaInicioCandidato, horaFinCandidato, turnosFijos, turnosReacomodables, sillonesDisponibles)) {
+    return null;
+  }
+  const exacto = calcularReacomodoSillonesExacto(
+    horaInicioCandidato, horaFinCandidato, turnosFijos, turnosReacomodables, sillonesDisponibles,
+    barrido ? barrido.cambios.length : undefined
+  );
+  return exacto || barrido;
+}
+
 // Envoltorio de alto nivel: intenta primero buscarHuecos() tal cual (sin tocar nada), y
 // solo si falla por falta de disponibilidad FÍSICA (nunca si la causa es atadura, cupo,
 // franja o el bloqueo por paciente — el reacomodo de sillones no puede arreglar ninguna
@@ -1571,17 +1793,35 @@ async function buscarHuecosConReacomodo(
   medicoId, obraSocialPaciente, duracionMinutos, fechaSolicitadaISO,
   medicosCacheLectura, sedesCacheLectura, turnosExistentes, esRolMedico,
   sedeIdManual, cuposCacheLectura, pacienteId, turnoIdExcluir,
-  bloqueosCacheLectura, soloSillonTipo, turnosNoReacomodablesIds, probarDiasPosteriores
+  bloqueosCacheLectura, soloSillonTipo, turnosNoReacomodablesIds, probarDiasPosteriores,
+  ofrecerAlternativaDiaPedido, // opcional (Etapa 5C, decisión de Elías): ver más abajo
+  ahora // opcional (Etapa 5C, P2): { fechaISO, minuto } — mismo piso de hora actual para la
+        // búsqueda normal, el reacomodo y la alternativa (ver inicioMinimoPorAhora)
 ) {
   const resultadoNormal = await buscarHuecos(
     medicoId, obraSocialPaciente, duracionMinutos, fechaSolicitadaISO,
     medicosCacheLectura, sedesCacheLectura, turnosExistentes, esRolMedico,
     sedeIdManual, cuposCacheLectura, pacienteId, turnoIdExcluir,
-    bloqueosCacheLectura, soloSillonTipo
+    bloqueosCacheLectura, soloSillonTipo, ahora
   );
 
+  // Etapa 5C (decisión de Elías): antes, el reacomodo era solo el último recurso — si la
+  // búsqueda normal encontraba lugar en CUALQUIER día de la ventana, el paciente iba ahí
+  // aunque el día pedido entrara moviendo sillones. Con ofrecerAlternativaDiaPedido, si el
+  // lugar encontrado es OTRO día, además se prueba reacomodar el día pedido y se devuelve
+  // como alternativaReacomodo ({ hueco, cambios }) para que la persona elija entre las dos
+  // (cartel aprobado por Elías, solo administrador/enfermería). Sin el parámetro, nada
+  // cambia: mismo resultado de siempre, alternativaReacomodo siempre null.
   if (resultadoNormal.exito) {
-    return { ...resultadoNormal, reacomodo: null };
+    let alternativaReacomodo = null;
+    const primerHueco = resultadoNormal.huecosEncontrados && resultadoNormal.huecosEncontrados[0];
+    if (ofrecerAlternativaDiaPedido && primerHueco && primerHueco.fecha !== fechaSolicitadaISO) {
+      const intento = await intentarReacomodoEnDias([0]);
+      if (intento) {
+        alternativaReacomodo = { hueco: intento.huecosEncontrados[0], cambios: intento.reacomodo.cambios };
+      }
+    }
+    return { ...resultadoNormal, reacomodo: null, alternativaReacomodo };
   }
 
   const causaEsFisica = !resultadoNormal.bloqueoAtadura && !resultadoNormal.bloqueoCupo &&
@@ -1590,6 +1830,16 @@ async function buscarHuecosConReacomodo(
     return { ...resultadoNormal, reacomodo: null };
   }
 
+  const diasDesdeARecorrer = probarDiasPosteriores
+    ? Array.from({ length: TOPE_DIAS_BUSQUEDA }, (_, i) => i + 1) // 1..TOPE_DIAS_BUSQUEDA
+    : [0];
+  const intento = await intentarReacomodoEnDias(diasDesdeARecorrer);
+  return intento || { ...resultadoNormal, reacomodo: null };
+
+  // Etapa 5C: el barrido de reacomodo de siempre, encapsulado sin cambios de lógica para
+  // poder usarlo también desde el caso de "alternativa en el día pedido" de arriba.
+  // Devuelve el resultado con reacomodo, o null si no encontró solución (o si hubo error).
+  async function intentarReacomodoEnDias(diasDesdeARecorrer) {
   try {
     const medicoDoc = soloSillonTipo ? null : (medicosCacheLectura || []).find(m => m.id === medicoId);
     const sedesABuscar = sedeIdManual
@@ -1598,10 +1848,6 @@ async function buscarHuecosConReacomodo(
     const diasBloqueadosPaciente = diasBloqueadosPorPaciente(pacienteId, turnosExistentes, turnoIdExcluir);
     const idsNoReacomodables = new Set(turnosNoReacomodablesIds || []);
     const diasEnEspanol = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-
-    const diasDesdeARecorrer = probarDiasPosteriores
-      ? Array.from({ length: TOPE_DIAS_BUSQUEDA }, (_, i) => i + 1) // 1..TOPE_DIAS_BUSQUEDA
-      : [0];
 
     for (const diasDesde of diasDesdeARecorrer) {
       const fechaActual = fechaDesdeISO(fechaSolicitadaISO);
@@ -1622,7 +1868,9 @@ async function buscarHuecosConReacomodo(
           .filter(s => soloSillonTipo ? s.tipo === soloSillonTipo : s.tipo === "regular")
           .map(s => s.numero);
 
-        const turnosEnSede = (turnosExistentes || []).filter(t => t.sedeId === sedeId);
+        const turnosEnSede = (turnosExistentes || []).filter(t =>
+          t.sedeId === sedeId && !(turnoIdExcluir && t.id === turnoIdExcluir) // ver arreglo 1 en buscarHuecos
+        );
         const turnosDelDiaReales = turnosEnSede.filter(t =>
           t.fecha === fechaActualISO &&
           typeof t.horarioInicio === "string" && typeof t.horarioFin === "string"
@@ -1654,8 +1902,24 @@ async function buscarHuecosConReacomodo(
           limiteInicioFranja = minutoDesdeString(medicoDoc.franjaHoraria.horaFin);
         }
 
-        const turnosRealesFijos = turnosDelDiaReales.filter(t => idsNoReacomodables.has(t.id));
-        const turnosRealesReacomodables = turnosDelDiaReales.filter(t => !idsNoReacomodables.has(t.id));
+        // Etapa 5C (P2): hoy el reacomodo tampoco propone horarios que ya pasaron.
+        const inicioMinimoHoyReacomodo = inicioMinimoPorAhora(ahora, fechaActualISO, horaAperturaMinutos);
+        if (inicioMinimoHoyReacomodo !== null) {
+          horaAperturaBusqueda = Math.max(horaAperturaBusqueda, inicioMinimoHoyReacomodo);
+        }
+
+        // Etapa 5C (auditoría del motor): solo participan del reacomodo los turnos que
+        // ocupan un sillón físico. Antes entraban también los sobreturnos y los
+        // internados (sillon null): el barrido les asignaba un sillón como a cualquier
+        // otro — al confirmar, eso se escribía en Firestore (un sobreturno "Sin asignar"
+        // pasaba a un sillón, incluso el backup si la búsqueda era de ese tipo), movía a
+        // otros pacientes para hacerles lugar, y un internado le restaba capacidad a un
+        // día que sí tenía lugar. Además, un turno en un sillón que no es del pool de
+        // esta búsqueda (p. ej. el backup, en una búsqueda regular) queda fijo: el
+        // reacomodo nunca lo mueve de tipo de sillón.
+        const turnosConSillon = turnosDelDiaReales.filter(t => t.sillon != null);
+        const turnosRealesFijos = turnosConSillon.filter(t => idsNoReacomodables.has(t.id) || !sillones.includes(t.sillon));
+        const turnosRealesReacomodables = turnosConSillon.filter(t => !idsNoReacomodables.has(t.id) && sillones.includes(t.sillon));
         const pseudoTurnosBloqueo = turnosDelDia.filter(t => t.esBloqueo);
         const todosLosFijos = [...turnosRealesFijos, ...pseudoTurnosBloqueo];
 
@@ -1665,7 +1929,7 @@ async function buscarHuecosConReacomodo(
             (limiteInicioFranja === null || minutoActual <= limiteInicioFranja);
           minutoActual += GRANO_MINUTOS
         ) {
-          const reacomodo = calcularReacomodoSillones(
+          const reacomodo = calcularReacomodoSillonesOptimo( // Etapa 5C: barrido + búsqueda exacta
             minutoActual, minutoActual + duracionNormalizada, todosLosFijos, turnosRealesReacomodables, sillones
           );
           if (reacomodo) {
@@ -1694,10 +1958,11 @@ async function buscarHuecosConReacomodo(
     // informa la falta de lugar tal como la calculó buscarHuecos(), sin proponer ningún
     // cambio. A partir de acá, si hace falta lugar, la única vía es mover HORARIOS de
     // otros turnos a mano — este mecanismo nunca lo hace.
-    return { ...resultadoNormal, reacomodo: null };
+    return null;
   } catch (error) {
     console.error("Error en buscarHuecosConReacomodo:", error);
-    return { ...resultadoNormal, reacomodo: null };
+    return null;
+  }
   }
 }
 
@@ -1719,6 +1984,9 @@ if (typeof module !== "undefined" && module.exports) {
     validarModificacionTurno,
     buscarSillonHorarioFijo,
     calcularReacomodoSillones,
+    calcularReacomodoSillonesExacto,
+    calcularReacomodoSillonesOptimo,
+    capacidadAlcanzaParaReacomodo,
     buscarHuecosConReacomodo,
     minutoDesdeString,
     stringDesdeMinuto,

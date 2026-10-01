@@ -209,6 +209,12 @@
             Premedicación / control de signos vitales (+30 min fijos)
           </label>
 
+          <!-- Etapa 5C, punto 2.1 — mismo criterio que carga.html -->
+          <label class="check-linea" id="bloque-internado" style="display:none;font-size:12.5px;color:var(--color-muted);">
+            <input type="checkbox" id="campo-internado" onchange="alternarInternado()" style="width:14px;height:14px;vertical-align:middle;" />
+            Paciente internado (no ocupa sillón ni imprime comprobante)
+          </label>
+
           <div id="resumen-duracion" class="resumen-suma ok" style="margin:0 0 20px;"></div>
 
           <label class="check-linea" id="bloque-sillon-backup" style="display:none;font-size:15px;font-weight:600;padding:10px 12px;background:var(--color-warning-soft);border:1px solid var(--color-warning);border-radius:6px;color:var(--color-warning-text);">
@@ -261,7 +267,7 @@
           </div>
 
           <div style="font-size:12.5px;color:var(--color-muted);margin-bottom:14px;padding:8px;background:#f9f9f9;border-radius:4px;">
-            ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada, salvo que completes el horario manual de arriba (solo administrador).
+            ℹ️ El horario se asignará automáticamente según la disponibilidad encontrada, salvo que completes el horario manual de arriba (administrador o enfermería).
             Si lo completás, se fuerza ese horario por encima de la atadura de día, el cupo por porcentaje y la franja horaria del médico. Siempre
             se respeta que haya sillón libre a esa hora, los bloqueos vigentes y el horario de apertura y cierre de la sede.
           </div>
@@ -417,10 +423,21 @@
       </div>
       <h2 style="margin-top:0;font-size:17px;">Reasignar turno</h2>
       <div id="resumen-reasignar-grilla" style="margin-bottom:14px;"></div>
-      <label for="campo-fecha-reasignar-grilla" style="font-size:13px;color:var(--color-muted);">Buscar disponibilidad a partir de:</label>
+      <label id="etiqueta-fecha-reasignar-grilla" for="campo-fecha-reasignar-grilla" style="font-size:13px;color:var(--color-muted);">Buscar disponibilidad a partir de:</label>
       <input type="date" id="campo-fecha-reasignar-grilla" style="max-width:200px;display:block;margin-top:4px;" />
+
+      <!-- Etapa 5C, punto 2.8 — horario exacto, solo administrador (visibilidad la
+           decide abrirReasignarGrilla en turnero-grilla.js). La fecha de arriba sirve
+           para las dos cosas: fecha de referencia para la búsqueda automática, o fecha
+           exacta cuando además se completa este horario. -->
+      <div id="bloque-horario-manual-reasignar-grilla" class="campo" style="display:none;margin-top:10px;margin-bottom:0;">
+        <label for="campo-horario-manual-reasignar-grilla">Horario exacto (opcional, forzado)</label>
+        <input type="time" id="campo-horario-manual-reasignar-grilla" style="max-width:150px;" />
+      </div>
+
       <div id="mensaje-reasignar-grilla" class="mensaje-info" style="display:none;margin-top:10px;"></div>
       <button type="button" id="boton-buscar-reasignar-grilla" class="boton-principal" style="margin-top:14px;" onclick="buscarReasignarGrilla()">Buscar disponibilidad</button>
+      <button type="button" id="boton-horario-manual-reasignar-grilla" class="boton-secundario" style="display:none;margin-top:8px;width:100%;" onclick="buscarReasignarHorarioManualGrilla()">Cargar a la fecha y hora exactas</button>
     </div>
   </div>
 
@@ -436,7 +453,15 @@
       <h2 style="margin-top:0;font-size:17px;">Modificar turno</h2>
       <div id="resumen-modificar-grilla" style="margin-bottom:14px;"></div>
 
-      <div class="titulo-bloque">Médico tratante</div>
+      <!-- Etapa 5C, punto 2.8 — sede editable, solo administrador (poblarSelectSedeModificar
+           en turnero-grilla.js). Para el resto de los roles, un único option fijo y select
+           deshabilitado, mismo criterio que "Médico tratante" para el rol médico. -->
+      <div class="titulo-bloque">Sede</div>
+      <div class="campo" style="margin-bottom:0;">
+        <select id="campo-sede-modificar" onchange="cambiarSedeModificar()"></select>
+      </div>
+
+      <div class="titulo-bloque" style="margin-top:14px;">Médico tratante</div>
       <div class="campo" style="margin-bottom:0;">
         <select id="campo-medico-modificar" onchange="actualizarBloqueMedicoOtroModificar()"></select>
       </div>
