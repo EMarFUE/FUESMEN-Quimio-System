@@ -15,21 +15,6 @@ const SEDE_ENTRE_RIOS_NOMBRE = "Entre Ríos";
 const SEDE_CIVIT_DIRECCION = "Emilio Civit esq. Maza, San Rafael, Mza.";
 const SEDE_ENTRE_RIOS_DIRECCION = "Entre Ríos 345, San Rafael, Mza.";
 const MEDICO_OCCHIPINTI_ID = "occhipinti";
-
-// Etapa 5C (a pedido de Elías): en "Reasignar" la sede es SIEMPRE la que ya tiene el
-// turno — en los dos botones ("Buscar disponibilidad" y "Cargar a la fecha y hora
-// exactas") y en todos sus caminos de guardado (sobreturnos, internado). Para cambiar
-// de sede está "Modificar" (administrador). Antes, si el turno tenía sede automática
-// (p. ej. Occhipinti), se volvía a calcular la sede desde cero con la regla de T0
-// (Entre Ríos primero para obras sociales que no son POP) y el turno podía saltar de
-// sede según el botón usado. En "+ nuevo turno" (modoReasignar falsy) no cambia nada.
-function sedeIdManualParaMotor(datosBasicos) {
-  if (datosBasicos.modoReasignar) return datosBasicos.sedeId;
-  return datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId;
-}
-function recalcularSedeOcchipinti(datosBasicos) {
-  return datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID && !datosBasicos.modoReasignar;
-}
 const ROLES_MEDICO_OTRO = ["administrador", "enfermeria"];
 const PREMEDICACION_MINUTOS = 30;
 // Etapa 1 del plan post-integración: 60 → 190. Hay tratamientos que se agendan a seis
@@ -153,15 +138,6 @@ function fechaLocalHoy() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// Etapa 5C (P2): la hora actual para el motor — hoy y el minuto del día (sin segundos), del
-// reloj de la PC (el mismo que ya usa calcularTurnosNoReacomodablesIds). El motor no
-// ofrece ningún horario de hoy anterior a este minuto (ver inicioMinimoPorAhora en
-// turnero-motor.js). El arrastre semanal NO lo usa, a propósito (decisión de Elías).
-function ahoraParaMotor() {
-  const d = new Date();
-  return { fechaISO: fechaLocalHoy(), minuto: d.getHours() * 60 + d.getMinutes() };
-}
-
 // Ronda "reacomodo automático de sillones": criterio temporal para turnosNoReacomodablesIds
 // (confirmado con Elías, b.3) — protege los turnos de HOY cuyo horarioFin ya pasó respecto
 // de la hora actual. No hace falta ningún campo nuevo (hoy el sistema no tiene noción de
@@ -169,23 +145,12 @@ function ahoraParaMotor() {
 // que este cálculo solo protege algo cuando la fecha evaluada por el motor es HOY — se
 // puede pasar igual en cualquier búsqueda (con o sin reacomodo multi-día) sin necesidad de
 // recalcularlo por día.
-//
-// Etapa 5C (auditoría del motor, decisión de Elías): además de los que ya terminaron, se
-// protegen (a) los de HOY que ya EMPEZARON aunque no hayan terminado — el paciente está
-// sentado en ese sillón ahora mismo, moverlo "en papel" no tiene sentido — y (b) los
-// marcados como presentes (turno.presente === true), en cualquier fecha: el paciente ya
-// llegó, su sillón deja de ser intercambiable. Antes solo se protegía horarioFin < ahora.
-// También (c) los cargados con horario manual (turno.horarioManual === true).
 function calcularTurnosNoReacomodablesIds() {
   const hoyISO = fechaLocalHoy();
   const ahora = new Date();
-  const minutoActual = ahora.getHours() * 60 + ahora.getMinutes();
+  const horaActualString = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
   return turnosExistentes
-    .filter((t) =>
-      t.presente === true ||
-      t.horarioManual === true || // Etapa 5C (decisión de Elías): cargado con horario manual, "se dio así por algo"
-      (t.fecha === hoyISO && typeof t.horarioInicio === "string" && minutoDesdeString(t.horarioInicio) <= minutoActual)
-    )
+    .filter((t) => t.fecha === hoyISO && typeof t.horarioFin === "string" && t.horarioFin < horaActualString)
     .map((t) => t.id);
 }
 
@@ -307,6 +272,216 @@ function capitalizarPalabras(texto) {
     .split(/\s+/)
     .map((palabra) => palabra.charAt(0).toUpperCase() + palabra.slice(1).toLowerCase())
     .join(" ");
+}
+
+// --- Nombre del médico "Otro": formato obligatorio + aviso de nombres ya cargados ---
+// El campo es texto libre y se escribía de muchas formas distintas (OCCHIPINTI, occhipinti,
+// "Dr Occhipinti"). Acá se (1) fuerza el formato "Apellido Nombre" con inicial mayúscula,
+// (2) bloquea cargar como "Otro" a un médico que ya está en el catálogo, y (3) avisa de
+// nombres parecidos ya cargados, con un botón para usar la forma ya existente.
+// Es validación de pantalla (las reglas de Firestore no restringen el formato).
+// Lo usan "+ nuevo turno" (turnero-carga.js) y "Modificar" (turnero-grilla.js).
+const MEDICO_OTRO_UMBRAL_PARECIDO = 0.85;
+const MEDICO_OTRO_TITULOS = ["dr", "dra", "dres", "doctor", "doctora", "sr", "sra"];
+const MEDICO_OTRO_CAMPOS = {
+  carga: { input: "campo-medico-otro-nombre", caja: "sugerencias-medico-otro-carga", selector: "campo-medico" },
+  modificar: { input: "campo-medico-otro-nombre-modificar", caja: "sugerencias-medico-otro-modificar", selector: "campo-medico-modificar" }
+};
+let medicoOtroParecidoConfirmado = { carga: "", modificar: "" };
+
+function formatearNombreMedicoOtro(texto) {
+  return (texto || "")
+    .toString()
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/(^|[\s\-'’.])(\p{L})/gu, (m, previo, letra) => previo + letra.toUpperCase());
+}
+
+function nombreMedicoOtroTieneFormatoValido(texto) {
+  const t = (texto || "").toString().trim();
+  return /^[\p{L}][\p{L}\s.\-'’]*$/u.test(t) && (t.match(/\p{L}/gu) || []).length >= 2;
+}
+
+function claveNombreMedicoOtro(texto) {
+  const palabras = normalizarTexto(texto)
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter((p) => p && !MEDICO_OTRO_TITULOS.includes(p));
+  return palabras.sort().join(" ");
+}
+
+function distanciaEdicionMedicoOtro(a, b) {
+  const fila = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let anterior = fila[0];
+    fila[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = fila[j];
+      fila[j] = Math.min(fila[j] + 1, fila[j - 1] + 1, anterior + (a[i - 1] === b[j - 1] ? 0 : 1));
+      anterior = temp;
+    }
+  }
+  return fila[b.length];
+}
+
+function similitudClavesMedicoOtro(a, b) {
+  const largo = Math.max(a.length, b.length);
+  return largo === 0 ? 1 : 1 - distanciaEdicionMedicoOtro(a, b) / largo;
+}
+
+// Nombres con los que comparar: los médicos del catálogo y los nombres "Otro" que ya
+// aparecen en los turnos que la pantalla tiene en memoria (0 lecturas extra).
+function candidatosNombresMedicoOtro() {
+  const catalogo = (typeof medicosCacheCarga !== "undefined" ? medicosCacheCarga : [])
+    .filter((m) => m && m.nombre)
+    .map((m) => ({ tipo: "catalogo", id: m.id, nombre: m.nombre, clave: claveNombreMedicoOtro(m.nombre) }));
+  const vistos = new Set();
+  const otros = [];
+  const fuentes = [
+    typeof turnosExistentes !== "undefined" ? turnosExistentes : [],
+    typeof turnosCacheGrilla !== "undefined" ? turnosCacheGrilla : []
+  ];
+  fuentes.forEach((lista) => (lista || []).forEach((t) => {
+    if (!t || t.esMedicoOtro !== true || !t.medicoNombre || vistos.has(t.medicoNombre)) return;
+    vistos.add(t.medicoNombre);
+    otros.push({ tipo: "otro", id: null, nombre: t.medicoNombre, clave: claveNombreMedicoOtro(t.medicoNombre) });
+  }));
+  return catalogo.concat(otros);
+}
+
+// Evaluación al guardar: ¿coincide exacto con un médico del catálogo? ¿hay parecidos?
+function evaluarNombreMedicoOtro(nombreFormateado) {
+  const clave = claveNombreMedicoOtro(nombreFormateado);
+  const palabras = clave ? clave.split(" ") : [];
+  const resultado = { exactoCatalogo: null, parecidos: [] };
+  candidatosNombresMedicoOtro().forEach((c) => {
+    if (c.tipo === "otro" && c.nombre === nombreFormateado) return; // mismo nombre ya usado: está bien
+    if (c.tipo === "catalogo" && c.clave === clave) { resultado.exactoCatalogo = c; return; }
+    const palabrasC = c.clave ? c.clave.split(" ") : [];
+    const contenido = palabras.length > 0 && palabrasC.length > 0 && (
+      palabras.every((p) => p.length >= 3 && palabrasC.includes(p)) ||
+      palabrasC.every((p) => p.length >= 3 && palabras.includes(p)));
+    if (c.clave === clave || contenido || similitudClavesMedicoOtro(clave, c.clave) >= MEDICO_OTRO_UMBRAL_PARECIDO) {
+      resultado.parecidos.push(c);
+    }
+  });
+  return resultado;
+}
+
+// Sugerencias mientras se escribe: además de los parecidos, las que EMPIEZAN igual.
+function sugerenciasEscrituraMedicoOtro(texto) {
+  const clave = claveNombreMedicoOtro(texto);
+  if (clave.replace(/ /g, "").length < 3) return [];
+  const palabras = clave.split(" ");
+  const formateado = formatearNombreMedicoOtro(texto);
+  const salida = [];
+  candidatosNombresMedicoOtro().forEach((c) => {
+    if (c.tipo === "otro" && c.nombre === formateado) return;
+    const palabrasC = c.clave ? c.clave.split(" ") : [];
+    const empieza = palabras.every((p) => palabrasC.some((pc) => pc.startsWith(p)));
+    if (empieza || c.clave === clave || similitudClavesMedicoOtro(clave, c.clave) >= MEDICO_OTRO_UMBRAL_PARECIDO) {
+      salida.push(c);
+    }
+  });
+  salida.sort((a, b) => (a.tipo === b.tipo ? a.nombre.localeCompare(b.nombre, "es") : (a.tipo === "catalogo" ? -1 : 1)));
+  return salida.slice(0, 5);
+}
+
+function renderizarSugerenciasMedicoOtro(contexto, items, titulo) {
+  const campos = MEDICO_OTRO_CAMPOS[contexto];
+  const input = document.getElementById(campos.input);
+  if (!input) return;
+  let caja = document.getElementById(campos.caja);
+  if (!caja) {
+    caja = document.createElement("div");
+    caja.id = campos.caja;
+    caja.style.cssText = "margin-top:6px;padding:6px 10px;border-left:3px solid var(--color-accent);font-size:12.5px;display:none;";
+    input.insertAdjacentElement("afterend", caja);
+  }
+  caja.innerHTML = "";
+  if (!items || items.length === 0) { caja.style.display = "none"; return; }
+  if (titulo) {
+    const t = document.createElement("div");
+    t.style.cssText = "margin-bottom:4px;";
+    t.textContent = titulo;
+    caja.appendChild(t);
+  }
+  items.forEach((c) => {
+    const fila = document.createElement("div");
+    fila.style.cssText = "margin-bottom:2px;";
+    const negrita = document.createElement("strong");
+    negrita.textContent = c.nombre;
+    fila.appendChild(negrita);
+    fila.appendChild(document.createTextNode(c.tipo === "catalogo" ? " — médico de la lista " : " — ya cargado antes "));
+    const boton = document.createElement("button");
+    boton.type = "button";
+    boton.className = "enlace-accion";
+    boton.textContent = c.tipo === "catalogo" ? "elegirlo de la lista" : "usar";
+    boton.addEventListener("click", () => usarSugerenciaMedicoOtro(contexto, c));
+    fila.appendChild(boton);
+    caja.appendChild(fila);
+  });
+  caja.style.display = "block";
+}
+
+function usarSugerenciaMedicoOtro(contexto, candidato) {
+  const campos = MEDICO_OTRO_CAMPOS[contexto];
+  const input = document.getElementById(campos.input);
+  if (candidato.tipo === "catalogo") {
+    const select = document.getElementById(campos.selector);
+    if (select) {
+      select.value = candidato.id;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    renderizarSugerenciasMedicoOtro(contexto, []);
+    return;
+  }
+  input.value = candidato.nombre;
+  medicoOtroParecidoConfirmado[contexto] = "";
+  renderizarSugerenciasMedicoOtro(contexto, []);
+}
+
+// Punto único de validación al guardar. nombreOriginal: en "Modificar", el nombre que ya
+// tenía el turno; si no lo tocaron no se revalida (no se bloquea editar otro dato de un
+// turno viejo por culpa de cómo se escribió su nombre en el pasado).
+function validarNombreMedicoOtro(contexto, textoCrudo, nombreOriginal) {
+  const campos = MEDICO_OTRO_CAMPOS[contexto];
+  const input = document.getElementById(campos.input);
+  const crudo = (textoCrudo || "").trim();
+  if (nombreOriginal && crudo === nombreOriginal) return { ok: true, nombre: nombreOriginal };
+  if (!nombreMedicoOtroTieneFormatoValido(crudo)) {
+    return { ok: false, mensaje: "El nombre del profesional solo puede tener letras, espacios, guion, apóstrofe y punto (mínimo 2 letras)." };
+  }
+  const nombre = formatearNombreMedicoOtro(crudo);
+  if (input) input.value = nombre;
+  const evaluacion = evaluarNombreMedicoOtro(nombre);
+  if (evaluacion.exactoCatalogo) {
+    renderizarSugerenciasMedicoOtro(contexto, [evaluacion.exactoCatalogo]);
+    return { ok: false, mensaje: `${evaluacion.exactoCatalogo.nombre} ya está en la lista de médicos. Elegilo del selector en vez de cargarlo como "Otro".` };
+  }
+  if (evaluacion.parecidos.length > 0 && medicoOtroParecidoConfirmado[contexto] !== nombre) {
+    medicoOtroParecidoConfirmado[contexto] = nombre;
+    renderizarSugerenciasMedicoOtro(contexto, evaluacion.parecidos.slice(0, 5), "Hay nombres parecidos ya cargados:");
+    return { ok: false, mensaje: "Hay nombres parecidos ya cargados (ver debajo del campo). Elegí uno con \"usar\" o tocá Guardar de nuevo para cargarlo igual." };
+  }
+  return { ok: true, nombre };
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("input", (e) => {
+    const id = e.target && e.target.id;
+    const contexto = Object.keys(MEDICO_OTRO_CAMPOS).find((k) => MEDICO_OTRO_CAMPOS[k].input === id);
+    if (!contexto) return;
+    medicoOtroParecidoConfirmado[contexto] = "";
+    renderizarSugerenciasMedicoOtro(contexto, sugerenciasEscrituraMedicoOtro(e.target.value));
+  });
+  // Al salir del campo se muestra ya con el formato correcto.
+  document.addEventListener("change", (e) => {
+    const id = e.target && e.target.id;
+    const contexto = Object.keys(MEDICO_OTRO_CAMPOS).find((k) => MEDICO_OTRO_CAMPOS[k].input === id);
+    if (contexto && e.target.value.trim()) e.target.value = formatearNombreMedicoOtro(e.target.value);
+  });
 }
 
 function soloDigitos(texto) {
@@ -787,6 +962,8 @@ function actualizarBloqueMedico() {
   sedeAutomaticaInfo.style.display = "none";
   selectSedeManual.value = "";
   document.getElementById("campo-medico-otro-nombre").value = "";
+  medicoOtroParecidoConfirmado.carga = "";
+  renderizarSugerenciasMedicoOtro("carga", []);
 
   if (!medicoValor) return;
 
@@ -1091,9 +1268,8 @@ function actualizarResumenDuracion() {
 
 // --- Ronda "mejoras motor" (post T12): visibilidad de horario manual y sillón backup ---
 //
-// Frente 2 (horario manual): administrador y enfermería (Etapa 5C, punto 2.5 — antes
-// exclusivo administrador; médico y administrativo siguen sin verlo). No depende de
-// médico ni protocolos, solo del rol.
+// Frente 2 (horario manual, exclusivo administrador): no depende de médico ni
+// protocolos, solo del rol.
 // Frente 3 (sillón backup): visible recién después de elegir médico y protocolo(s), para
 // cualquier rol que pueda cargar turnos (administrador, enfermería o médico) — el sillón
 // backup está disponible para todos los médicos por igual, sin permiso individual.
@@ -1102,34 +1278,10 @@ function actualizarVisibilidadCamposEspeciales() {
   const bloqueBackup = document.getElementById("bloque-sillon-backup");
   if (!bloqueHorarioManual || !bloqueBackup) return; // por si se llama antes de que el DOM esté armado
 
-  const puedeHorarioManual = rolActualCarga === "administrador" || rolActualCarga === "enfermeria";
-  bloqueHorarioManual.style.display = puedeHorarioManual ? "block" : "none";
-  if (!puedeHorarioManual) {
+  bloqueHorarioManual.style.display = rolActualCarga === "administrador" ? "block" : "none";
+  if (rolActualCarga !== "administrador") {
     const campoHorarioManual = document.getElementById("campo-horario-manual");
     if (campoHorarioManual) campoHorarioManual.value = "";
-  }
-
-  // Etapa 5C, punto 2.1 — mismo rol que horario manual. Al tildar "Internado" (ver
-  // alternarInternado), el horario manual pasa a ser obligatorio y deja de buscar
-  // sillón — por eso comparten exactamente el mismo gateo de rol acá.
-  const bloqueInternado = document.getElementById("bloque-internado");
-  if (bloqueInternado) {
-    bloqueInternado.style.display = puedeHorarioManual ? "block" : "none";
-    if (!puedeHorarioManual) {
-      const campoInternado = document.getElementById("campo-internado");
-      if (campoInternado) campoInternado.checked = false;
-    }
-  }
-
-  // Etapa 4, punto 8 — semáforo de prioridad: visible/editable solo médico y administrador.
-  const bloquePrioridad = document.getElementById("bloque-prioridad-turno");
-  if (bloquePrioridad) {
-    const puedePrioridad = rolActualCarga === "medico" || rolActualCarga === "administrador";
-    bloquePrioridad.style.display = puedePrioridad ? "block" : "none";
-    if (!puedePrioridad) {
-      const campoPrioridad = document.getElementById("campo-prioridad-turno");
-      if (campoPrioridad) campoPrioridad.value = "";
-    }
   }
 
   const medicoSelect = document.getElementById("campo-medico");
@@ -1142,36 +1294,6 @@ function actualizarVisibilidadCamposEspeciales() {
     const campoBackup = document.getElementById("campo-sillon-backup");
     if (campoBackup) campoBackup.checked = false;
   }
-}
-
-// Etapa 5C, punto 2.1 — al tildar "Internado": el horario manual pasa a obligatorio
-// (por eso se fuerza visible acá, aunque actualizarVisibilidadCamposEspeciales ya lo
-// muestre para estos mismos roles — no hace daño repetirlo) y el checkbox de sillón
-// backup deja de tener sentido (un internado nunca ocupa ningún sillón, ni siquiera el
-// de inyectables) — se oculta y se destilda. Al destildar "Internado", se restaura el
-// estado normal llamando de nuevo a actualizarVisibilidadCamposEspeciales().
-function alternarInternado() {
-  const tildado = document.getElementById("campo-internado").checked;
-  const bloqueHorarioManual = document.getElementById("bloque-horario-manual");
-  const bloqueBackup = document.getElementById("bloque-sillon-backup");
-
-  if (tildado) {
-    bloqueHorarioManual.style.display = "block";
-    bloqueBackup.style.display = "none";
-    const campoBackup = document.getElementById("campo-sillon-backup");
-    if (campoBackup) campoBackup.checked = false;
-  } else {
-    actualizarVisibilidadCamposEspeciales();
-  }
-}
-
-// Etapa 4, punto 9 — despliega la nota inicial opcional (mismo patrón que "+ agregar
-// otro protocolo": arranca colapsado como un botón, se despliega recién al tocarlo).
-function mostrarNotaInicialCarga() {
-  document.getElementById("boton-abrir-nota-inicial-turno").style.display = "none";
-  const contenedor = document.getElementById("contenedor-nota-inicial-turno");
-  contenedor.style.display = "block";
-  document.getElementById("campo-nota-inicial-turno").focus();
 }
 
 // --- Guardado del turno (Etapa T3: motor de búsqueda de huecos) ---
@@ -1200,6 +1322,12 @@ async function intentarGuardarTurno() {
       mostrarMensajeGeneral("Falta el nombre del profesional en \"Otro\".", "error");
       return;
     }
+    const validacionOtro = validarNombreMedicoOtro("carga", medicoNombre, null);
+    if (!validacionOtro.ok) {
+      mostrarMensajeGeneral(validacionOtro.mensaje, "error");
+      return;
+    }
+    medicoNombre = validacionOtro.nombre;
   } else {
     const medico = medicosCacheCarga.find((m) => m.id === medicoValor);
     if (!medico) {
@@ -1303,54 +1431,17 @@ async function intentarGuardarTurno() {
     fecha,
     diasSolicitados,
     fechaCalculadaDesdeDias,
-    pacienteObraSocial: pacienteSeleccionadoCarga.obraSocial || "", // T7: ver guardarComoSobreturnoFisico (caso Occhipinti)
-    pacienteId: pacienteSeleccionadoCarga.id, // Etapa 5C: regla "un turno por día" en el horario exacto
-    // Etapa 4, punto 8: se lee del <select> solo si el rol puede definirlo — para el
-    // resto de los roles el bloque está oculto y campoPrioridad.value siempre es "" de
-    // todas formas, pero se refuerza acá para no depender solo del CSS del lado del cliente.
-    prioridad: (() => {
-      if (rolActualCarga !== "medico" && rolActualCarga !== "administrador") return null;
-      const campoPrioridad = document.getElementById("campo-prioridad-turno");
-      return (campoPrioridad && campoPrioridad.value) || null;
-    })(),
-    // Etapa 4, punto 9: habilitado para los cuatro roles, sin gating por rol acá (a
-    // diferencia de prioridad).
-    notaInicial: (() => {
-      const campoNota = document.getElementById("campo-nota-inicial-turno");
-      const texto = campoNota ? campoNota.value.trim() : "";
-      return texto ? texto.slice(0, 200) : null;
-    })()
+    pacienteObraSocial: pacienteSeleccionadoCarga.obraSocial || "" // T7: ver guardarComoSobreturnoFisico (caso Occhipinti)
   };
 
-  // Ronda "mejoras motor": horario manual (Frente 2, administrador y enfermería desde
-  // la Etapa 5C, punto 2.5) y checkbox de "solo sillón backup" (Frente 3) — ninguno de
-  // los dos aplica a "Reasignar" (que no pasa por acá, tiene su propio flujo en
-  // turnero-grilla.js).
+  // Ronda "mejoras motor": horario manual (Frente 2, exclusivo administrador) y checkbox
+  // de "solo sillón backup" (Frente 3) — ninguno de los dos aplica a "Reasignar" (que no
+  // pasa por acá, tiene su propio flujo en turnero-grilla.js).
   const campoHorarioManual = document.getElementById("campo-horario-manual");
-  const horarioManual = ((rolActualCarga === "administrador" || rolActualCarga === "enfermeria") && campoHorarioManual)
-    ? campoHorarioManual.value : "";
+  const horarioManual = (rolActualCarga === "administrador" && campoHorarioManual) ? campoHorarioManual.value : "";
   const campoBackup = document.getElementById("campo-sillon-backup");
   const bloqueBackup = document.getElementById("bloque-sillon-backup");
   const soloBackup = !!(campoBackup && bloqueBackup && bloqueBackup.style.display !== "none" && campoBackup.checked);
-
-  // Etapa 5C, punto 2.1 — turno de internado: nunca busca sillón (ni siquiera backup),
-  // nunca evalúa atadura/cupo/franja, nunca pasa por buscarHuecos ni
-  // buscarSillonHorarioFijo. El horario manual de arriba es OBLIGATORIO acá (a
-  // diferencia del Frente 2 normal, donde es opcional) porque es el único dato que le
-  // dice al sistema a qué hora arranca el tratamiento.
-  const campoInternado = document.getElementById("campo-internado");
-  const esInternado = !!(campoInternado
-    && (rolActualCarga === "administrador" || rolActualCarga === "enfermeria")
-    && campoInternado.checked);
-
-  if (esInternado) {
-    if (!horarioManual) {
-      mostrarMensajeGeneral("Para un turno de internado, cargá el horario en que arranca el tratamiento.", "error");
-      return;
-    }
-    await guardarTurnoInternado(datosBasicos, horarioManual);
-    return;
-  }
 
   if (horarioManual) {
     // Frente 2: horario fijado a mano, pasa por encima de atadura/cupo/franja. Si
@@ -1397,14 +1488,10 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
     // hay con qué reacomodar), así que llamarla es inocuo pero el resultado nunca trae
     // reacomodo.
     const usaReacomodo = !datosBasicos.modoReasignar;
+    const buscarFn = usaReacomodo ? buscarHuecosConReacomodo : buscarHuecos;
     const idsNoReacomodables = usaReacomodo ? calcularTurnosNoReacomodablesIds() : undefined;
 
-    // Etapa 5C (P2): hoy no se ofrece ningún horario anterior a la hora actual. Las dos
-    // búsquedas se llaman por separado (antes era un único buscarFn): sus parámetros a
-    // partir del 15° no significan lo mismo, así que `ahora` no se puede pasar "por
-    // posición" a ambas con una sola lista de argumentos.
-    const ahora = ahoraParaMotor();
-    const argsBusqueda = [
+    const resultado = await buscarFn(
       datosBasicos.medicoId || datosBasicos.medicoNombre, // Para "Otro", pasamos nombre; el motor lo maneja
       paciente.obraSocial || "",
       datosBasicos.duracionTotalMinutos,
@@ -1413,26 +1500,15 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
       sedesCacheCarga,
       turnosExistentes,
       rolActualCarga === "medico",
-      sedeIdManualParaMotor(datosBasicos), // sede elegida a mano, si aplica (en Reasignar: siempre la del turno)
+      datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId, // sede elegida a mano, si aplica
       cuposCacheCarga, // Etapa T4
       paciente.id, // regla nueva: un turno por paciente por día (transversal a sedes)
       datosBasicos.turnoIdParaReasignar, // T7: excluye el propio turno del chequeo de "un turno por día" — undefined en un alta nueva, no afecta nada
       bloqueosCacheCarga, // Etapa T9
       datosBasicos.soloSillonTipo || null, // Ronda "mejoras motor", Frente 3: "backup" si se tildó el checkbox dedicado de "+ nuevo turno"; también "backup" desde "Reasignar" (Etapa 2, punto 4) cuando el turno que se reasigna ya estaba en ese tipo de sillón (ver buscarReasignarGrilla en turnero-grilla.js); null/undefined en cualquier otro caso
-    ];
-    const resultado = usaReacomodo
-      ? await buscarHuecosConReacomodo(
-          ...argsBusqueda,
-          idsNoReacomodables,
-          false, // probarDiasPosteriores: intento inicial, siempre acotado a la fecha pedida
-          // Etapa 5C (decisión de Elías): si el lugar encontrado es OTRO día, ofrecer también
-          // reacomodar el día pedido — solo en "+ nuevo turno" (usaReacomodo) y solo para
-          // quien puede autorizar un reacomodo (administrador/enfermería; el médico sigue
-          // viendo solo el otro día, como antes).
-          rolActualCarga !== "medico",
-          ahora
-        )
-      : await buscarHuecos(...argsBusqueda, ahora);
+      idsNoReacomodables, // buscarHuecos ignora este parámetro de más — inocuo cuando usaReacomodo es false
+      false // probarDiasPosteriores: intento inicial, siempre acotado a la fecha pedida
+    );
 
     ultimaBusquedaHuecos = resultado;
 
@@ -1442,10 +1518,6 @@ async function buscarYMostrarHuecos(datosBasicos, pacienteInfo) {
         // El hueco encontrado exige mover de sillón a otro(s) turno(s) ya cargados (nunca
         // su horario ni fecha) — acción deliberada, nunca se aplica sin confirmar (a.2).
         mostrarConfirmarReacomodo(resultado, datosBasicos);
-      } else if (resultado.alternativaReacomodo) {
-        // Etapa 5C: hay lugar otro día sin mover a nadie, pero el día pedido también entra
-        // reacomodando sillones — la persona elige (cartel aprobado por Elías).
-        mostrarElegirOtroDiaOReacomodo(resultado, datosBasicos);
       } else {
         // El sistema elige automáticamente el mejor hueco (el primero de la lista, que está ordenado por mejor ajuste)
         await guardarTurnoConHueco(datosBasicos, mejorHueco, null);
@@ -1640,91 +1712,6 @@ function mostrarConfirmarReacomodo(resultadoBusqueda, datosBasicos) {
   modal.style.display = "block";
 }
 
-// Etapa 5C (cartel aprobado por Elías): la búsqueda normal encontró lugar en OTRO día
-// sin mover a nadie, y el día pedido también entra pero reacomodando sillones. Se
-// muestran las dos opciones; nunca se elige sola ninguna. Solo llega acá con
-// administrador/enfermería (carga no pide la alternativa para el rol médico).
-function fechaCortaCarga(fechaISOString) {
-  const dias = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
-  const d = new Date(fechaISOString + "T00:00:00");
-  return `${dias[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
-}
-
-function nombrePacienteDeTurnoCarga(turnoId) {
-  const t = (turnosExistentes || []).find((x) => x.id === turnoId);
-  if (!t || !t.paciente) return "Paciente";
-  return `${t.paciente.apellido || ""}, ${t.paciente.nombre || ""}`.trim();
-}
-
-function mostrarElegirOtroDiaOReacomodo(resultadoBusqueda, datosBasicos) {
-  let modal = document.getElementById("modal-sobreturno");
-  if (!modal) {
-    modal = document.createElement("div");
-    modal.id = "modal-sobreturno";
-    modal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.5);
-      display: none;
-      z-index: 1000;
-      overflow-y: auto;
-    `;
-    document.body.appendChild(modal);
-  }
-
-  const huecoOtroDia = resultadoBusqueda.huecosEncontrados[0];
-  const alternativa = resultadoBusqueda.alternativaReacomodo;
-  const huecoDiaPedido = alternativa.hueco;
-  const fechaPedidaLegibleOriginal = formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00"));
-  // "El lunes, 7 de octubre…" — en minúscula, va en medio de la frase del título.
-  const fechaPedidaLegible = fechaPedidaLegibleOriginal.charAt(0).toLowerCase() + fechaPedidaLegibleOriginal.slice(1);
-
-  const listaCambios = alternativa.cambios.map((c) =>
-    `<li>${escaparHtml(nombrePacienteDeTurnoCarga(c.turnoId))}: sillón ${escaparHtml(String(c.sillonAnterior))} → ${escaparHtml(String(c.sillonNuevo))}</li>`
-  ).join("");
-
-  const datosOtroDia = { ...datosBasicos, hueco: huecoOtroDia };
-  const datosConReacomodo = { ...datosBasicos, hueco: huecoDiaPedido, cambiosReacomodo: alternativa.cambios };
-
-  modal.innerHTML = `
-    <div style="background: white; margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 8px;">
-      <h2 style="margin-top: 0;">El ${escaparHtml(fechaPedidaLegible)} está completo</h2>
-      <p>Hay dos formas de darle el turno:</p>
-
-      <div style="border: 1px solid var(--color-border, #ddd); border-radius: 6px; padding: 12px; margin-bottom: 12px;">
-        <div style="font-weight: 600; margin-bottom: 4px;">Otro día, sin mover a nadie</div>
-        <div style="margin-bottom: 10px;">${escaparHtml(huecoOtroDia.fechaLegible)} · ${escaparHtml(huecoOtroDia.horaInicio)} a ${escaparHtml(huecoOtroDia.horaFin)} · Sillón ${escaparHtml(String(huecoOtroDia.sillon))}</div>
-        <button type="button" class="boton-principal" style="width: 100%;"
-          onclick="elegirOtroDiaSinReacomodo(${JSON.stringify(datosOtroDia).replace(/"/g, '&quot;')})">
-          Dar el turno el ${escaparHtml(fechaCortaCarga(huecoOtroDia.fecha))}
-        </button>
-      </div>
-
-      <div style="border: 1px solid var(--color-border, #ddd); border-radius: 6px; padding: 12px; margin-bottom: 12px;">
-        <div style="font-weight: 600; margin-bottom: 4px;">El día pedido, reacomodando sillones</div>
-        <div style="margin-bottom: 6px;">${escaparHtml(huecoDiaPedido.fechaLegible)} · ${escaparHtml(huecoDiaPedido.horaInicio)} a ${escaparHtml(huecoDiaPedido.horaFin)} · Sillón ${escaparHtml(String(huecoDiaPedido.sillon))}</div>
-        <div style="font-size: 14px; color: var(--color-muted);">Cambian de sillón (mismo horario):</div>
-        <ul style="margin: 4px 0 10px; font-size: 14px;">${listaCambios}</ul>
-        <button type="button" class="boton-principal" style="width: 100%;"
-          onclick="confirmarYGuardarConReacomodo(${JSON.stringify(datosConReacomodo).replace(/"/g, '&quot;')})">
-          Reacomodar y dar el turno el ${escaparHtml(fechaCortaCarga(huecoDiaPedido.fecha))}
-        </button>
-      </div>
-
-      <button type="button" class="boton-secundario" onclick="cerrarModalSobreturno()">Cancelar</button>
-    </div>
-  `;
-  modal.style.display = "block";
-}
-
-async function elegirOtroDiaSinReacomodo(datosOtroDia) {
-  cerrarModalSobreturno();
-  await guardarTurnoConHueco(datosOtroDia, datosOtroDia.hueco, null);
-}
-
 async function confirmarYGuardarConReacomodo(datosConReacomodo) {
   cerrarModalSobreturno();
   await guardarTurnoConHueco(datosConReacomodo, datosConReacomodo.hueco, null, datosConReacomodo.cambiosReacomodo);
@@ -1812,9 +1799,7 @@ async function buscarFechaPosteriorConReacomodo(datosBasicos) {
       bloqueosCacheCarga,
       datosBasicos.soloSillonTipo || null,
       idsNoReacomodables,
-      true, // probarDiasPosteriores
-      undefined, // ofrecerAlternativaDiaPedido: no aplica en esta búsqueda
-      ahoraParaMotor() // Etapa 5C (P2)
+      true // probarDiasPosteriores
     );
 
     if (resultado.exito && resultado.reacomodo) {
@@ -2023,15 +2008,10 @@ function mostrarBloqueoAtadura(resultadoBusqueda, datosBasicos) {
       `;
   } else {
     // Rol enfermería/administrador: sí necesitan el motivo para decidir.
-    // Etapa 5C (P1): si el día pedido ADEMÁS no tenía lugar (sinHuecoFisico), se avisa las
-    // dos cosas — antes ese caso caía en "no hay lugar en 10 días" y la atadura no se veía.
-    const diaCompleto = !!(bloqueo.huecoDisponible && bloqueo.huecoDisponible.sinHuecoFisico);
     cuerpoHTML = `
       <p>${escaparHtml(datosBasicos.medicoNombre)} no atiende en ${escaparHtml(bloqueo.sedeNombre)} el ${bloqueo.fechaLegible}.</p>
       <p style="font-size: 14px; color: var(--color-muted);">
-        ${diaCompleto
-          ? "Además, ese día no queda lugar en ningún sillón. Se puede cargar igual como sobreturno sin sillón ese mismo día."
-          : "Se puede cargar igual, como sobreturno de ese mismo día."}
+        Se puede cargar igual, como sobreturno de ese mismo día.
       </p>
       <button type="button" class="boton-principal" style="margin-bottom: 10px; width: 100%;"
         onclick="guardarConSobreturnoPorAtadura(${JSON.stringify(bloqueo.huecoDisponible).replace(/"/g, '&quot;')}, ${JSON.stringify(datosBasicos).replace(/"/g, '&quot;')})">
@@ -2060,48 +2040,18 @@ function cerrarModalBloqueoAtadura() {
 
 // Etapa T4 (31/8): enfermería/admin confirman cargar igual, saltando la atadura de día.
 // Se guarda como sobreturno (sillon: null) usando el hueco físico real que ya había ese
-// día (candidatoAtaduraExcedida en el motor ya lo buscó ignorando la atadura) — en ese
-// caso no hace falta calcularBloqueSobreturno porque ese hueco ya es un bloque completo.
-// Etapa 5C (P1): si el día pedido no tenía lugar (huecoDisponible.sinHuecoFisico, sin
-// horario), no hay bloque real: el horario se calcula como en cualquier sobreturno sin
-// sillón (calcularBloqueSobreturno), sin contar al propio turno si se está reasignando.
+// día (candidatoAtaduraExcedida en el motor ya lo buscó ignorando la atadura) — no hace
+// falta calcularBloqueSobreturno acá porque ese hueco ya es un bloque físico completo.
 async function guardarConSobreturnoPorAtadura(huecoDisponible, datosBasicos) {
   cerrarModalBloqueoAtadura();
-
-  let horaInicioSobreturno = huecoDisponible.horaInicio;
-  let horaFinSobreturno = huecoDisponible.horaFin;
-  if (huecoDisponible.sinHuecoFisico) {
-    const sedeDocAtadura = sedesCacheCarga.find((s) => s.id === huecoDisponible.sedeId);
-    const turnosDelDiaAtadura = turnosExistentes.filter((t) =>
-      t.sedeId === huecoDisponible.sedeId && t.fecha === huecoDisponible.fecha &&
-      !(datosBasicos.turnoIdParaReasignar && t.id === datosBasicos.turnoIdParaReasignar)
-    );
-    const sillonesAtadura = sedeDocAtadura ? (sedeDocAtadura.sillones || []).map((s) => s.numero) : [];
-    const pseudoTurnosBloqueoAtadura = sedeDocAtadura
-      ? pseudoTurnosBloqueoEnFecha(
-          bloqueosCacheCarga, huecoDisponible.sedeId, huecoDisponible.fecha,
-          sillonesAtadura, sedeDocAtadura.horaApertura, sedeDocAtadura.horaCierre
-        )
-      : [];
-    const bloqueAtadura = sedeDocAtadura
-      ? calcularBloqueSobreturno(
-          sedeDocAtadura.horaApertura,
-          sedeDocAtadura.horaCierre,
-          [...turnosDelDiaAtadura, ...pseudoTurnosBloqueoAtadura],
-          datosBasicos.duracionTotalMinutos
-        )
-      : { horaInicio: "09:00", horaFin: "10:00" }; // resguardo si la sede no está en caché (mismo criterio que guardarComoSobreturnoFisico)
-    horaInicioSobreturno = bloqueAtadura.horaInicio;
-    horaFinSobreturno = bloqueAtadura.horaFin;
-  }
 
   const hueco = {
     sedeId: huecoDisponible.sedeId,
     sedeNombre: huecoDisponible.sedeNombre,
     fecha: huecoDisponible.fecha,
     fechaLegible: huecoDisponible.fechaLegible,
-    horaInicio: horaInicioSobreturno,
-    horaFin: horaFinSobreturno,
+    horaInicio: huecoDisponible.horaInicio,
+    horaFin: huecoDisponible.horaFin,
     sillon: null // no ocupa un sillón real: es un sobreturno por atadura, no disponibilidad física
   };
 
@@ -2204,7 +2154,7 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
   let sedeIdSobreturno = datosBasicos.sedeId;
   let sedeNombreSobreturno = datosBasicos.sedeNombre;
 
-  if (recalcularSedeOcchipinti(datosBasicos)) { // en Reasignar se respeta la sede del turno
+  if (datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID) {
     // Occhipinti: incluso en sobreturno, la sede se determina según la obra social
     // (misma regla de T0 que usa la búsqueda normal, primera opción de la lista).
     // T7: usa datosBasicos.pacienteObraSocial, no pacienteSeleccionadoCarga directo —
@@ -2225,13 +2175,8 @@ async function guardarComoSobreturnoFisico(datosBasicos) {
   // completa, se acomoda en lo que quede; si no queda nada de lugar, se carga con 1
   // minuto (marca administrativa). Ver calcularBloqueSobreturno en turnero-motor.js.
   const sedeDocParaHorario = sedesCacheCarga.find((s) => s.id === sedeIdSobreturno);
-  // Etapa 5C (P3): en Reasignar, el turno que se está reasignando NO cuenta para calcular el
-  // horario del sobreturno (antes sí: si estaba ese mismo día, el sobreturno quedaba más
-  // tarde de lo necesario, a veces como la marca de 1 minuto al cierre). undefined en un
-  // alta nueva: sin cambios.
   const turnosDelDiaEnSede = turnosExistentes.filter((t) =>
-    t.sedeId === sedeIdSobreturno && t.fecha === datosBasicos.fecha &&
-    !(datosBasicos.turnoIdParaReasignar && t.id === datosBasicos.turnoIdParaReasignar)
+    t.sedeId === sedeIdSobreturno && t.fecha === datosBasicos.fecha
   );
   // Etapa T9: un sobreturno por falta de disponibilidad física es el último recurso del
   // motor (agotó los 10 días sin encontrar nada) — antes de esta etapa no tenía en cuenta
@@ -2318,7 +2263,7 @@ async function guardarComoSobreturnoSoloBackup(datosBasicos) {
   let sedeIdSobreturno = datosBasicos.sedeId;
   let sedeNombreSobreturno = datosBasicos.sedeNombre;
 
-  if (recalcularSedeOcchipinti(datosBasicos)) { // en Reasignar se respeta la sede del turno
+  if (datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID) {
     const sedesCandidatas = await determinarSedesABuscar(
       MEDICO_OCCHIPINTI_ID,
       datosBasicos.pacienteObraSocial || "",
@@ -2340,11 +2285,8 @@ async function guardarComoSobreturnoSoloBackup(datosBasicos) {
     return;
   }
 
-  // Etapa 5C (P3): mismo criterio que guardarComoSobreturnoFisico — el turno que se está
-  // reasignando no cuenta para calcular su propio horario.
   const turnosDelDiaEnSillonBackup = turnosExistentes.filter((t) =>
-    t.sedeId === sedeIdSobreturno && t.fecha === datosBasicos.fecha && t.sillon === sillonBackup.numero &&
-    !(datosBasicos.turnoIdParaReasignar && t.id === datosBasicos.turnoIdParaReasignar)
+    t.sedeId === sedeIdSobreturno && t.fecha === datosBasicos.fecha && t.sillon === sillonBackup.numero
   );
   const pseudoTurnosBloqueoBackup = pseudoTurnosBloqueoEnFecha(
     bloqueosCacheCarga, sedeIdSobreturno, datosBasicos.fecha,
@@ -2382,151 +2324,60 @@ async function guardarComoSobreturnoSoloBackup(datosBasicos) {
   await guardarTurnoConHueco(datosBasicos, hueco, TIPO_SOBRETURNO_SIN_DISPONIBILIDAD);
 }
 
-// --- Ronda "mejoras motor", Frente 2: horario manual (administrador y enfermería desde
-// la Etapa 5C, punto 2.5) ---
+// --- Ronda "mejoras motor", Frente 2: horario manual (exclusivo administrador) ---
 //
 // A diferencia de buscarYMostrarHuecos (que recorre hasta 10 días con buscarHuecos()),
 // este camino valida UN horario puntual con buscarSillonHorarioFijo() — pasa por encima
 // de atadura, cupo y franja horaria a propósito, pero nunca de sillón físicamente libre,
-// bloqueos vigentes ni el horario de la sede.
-//
-// Etapa 5C, punto 2.8: ahora SÍ se usa desde "Reasignar" (turnero-grilla.js,
-// buscarReasignarHorarioManualGrilla) además de "+ nuevo turno" — guardarTurnoConHueco
-// ya sabía redirigir a abrirMotivoReasignarGrilla cuando datosBasicos.modoReasignar es
-// true, así que el guardado en sí no necesitó tocarse. Lo que si hacía falta: esta
-// función tenía "#mensaje-general" y "#boton-guardar-turno" (los de "+ nuevo turno")
-// escritos a mano adentro — si Reasignar la llamaba tal cual, sus propios mensajes de
-// error (horario fuera de sede, bloqueado) aparecían en el formulario equivocado,
-// escondido, y quien reasigna no veía nada. El parámetro opcional "opciones" resuelve
-// esto: por defecto usa mostrarMensajeGeneral/"boton-guardar-turno" (cero cambio para
-// "+ nuevo turno", que no pasa el 4to argumento), y Reasignar pasa los suyos propios.
-// Etapa 5C, punto 2.1 — a diferencia de buscarYGuardarConHorarioManual (que SÍ intenta
-// encontrar un sillón físico libre a esa hora, y recién si no hay ofrece sobreturno),
-// acá nunca se intenta: un internado no ocupa sillón nunca, por más que a esa hora haya
-// uno libre. Se arma un "hueco" a mano (sillon: null) y se reutiliza
-// guardarTurnoConHueco tal cual, igual que ya hace guardarComoSobreturnoHorarioFijo,
-// incluida la resolución de sede para Occhipinti (determinarSedesABuscar) porque acá
-// tampoco pasa por el motor que la resolvería de otra forma.
-async function guardarTurnoInternado(datosBasicos, horarioManualString) {
-  let sedeId = datosBasicos.sedeId;
-  let sedeNombre = datosBasicos.sedeNombre;
-
-  if (recalcularSedeOcchipinti(datosBasicos)) { // en Reasignar se respeta la sede del turno
-    const sedesCandidatas = await determinarSedesABuscar(
-      MEDICO_OCCHIPINTI_ID,
-      datosBasicos.pacienteObraSocial || "",
-      medicosCacheCarga
-    );
-    sedeId = sedesCandidatas[0];
-    const sedeDoc = sedesCacheCarga.find((s) => s.id === sedeId);
-    sedeNombre = sedeDoc ? sedeDoc.nombre : sedeId;
-  }
-
-  const horaFinString = stringDesdeMinuto(minutoDesdeString(horarioManualString) + datosBasicos.duracionTotalMinutos);
-  const hueco = {
-    sedeId,
-    sedeNombre,
-    fecha: datosBasicos.fecha,
-    fechaLegible: formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00")),
-    horaInicio: horarioManualString,
-    horaFin: horaFinString,
-    sillon: null
-  };
-  await guardarTurnoConHueco({ ...datosBasicos, internado: true }, hueco, null);
-}
-
-async function buscarYGuardarConHorarioManual(datosBasicos, horarioManualString, soloBackup, opciones) {
-  const mostrarMensaje = (opciones && opciones.mostrarMensaje) || mostrarMensajeGeneral;
-  const botonId = (opciones && opciones.botonId) || "boton-guardar-turno";
-
+// bloqueos vigentes ni el horario de la sede. No se usa nunca desde "Reasignar" (el
+// arrastre de grilla queda sin cambios, ver Handoff_planificacion_mejoras_motor_turnero.md).
+async function buscarYGuardarConHorarioManual(datosBasicos, horarioManualString, soloBackup) {
   buscandoHuecos = true;
-  document.getElementById(botonId).disabled = true;
-  mostrarMensaje("Verificando el horario indicado…", "info");
+  document.getElementById("boton-guardar-turno").disabled = true;
+  mostrarMensajeGeneral("Verificando el horario indicado…", "info");
 
   try {
     const resultado = await buscarSillonHorarioFijo(
       datosBasicos.medicoId || datosBasicos.medicoNombre,
-      // Bug reportado por Elías (Etapa 5C, 2.8): esta función se escribió originalmente
-      // solo para "+ nuevo turno" y usaba pacienteSeleccionadoCarga.obraSocial directo —
-      // en Reasignar no hay ningún paciente elegido en ESTE formulario, esa variable
-      // global queda en null y explota. Mismo criterio ya establecido en el resto del
-      // archivo (ver comentario en buscarComoSobreturnoFisico, línea ~1981): usar
-      // datosBasicos.pacienteObraSocial, que tanto "+ nuevo turno" (buscarYMostrarHuecos)
-      // como Reasignar (buscarReasignarGrilla/buscarReasignarHorarioManualGrilla) ya
-      // completan antes de llamar para acá.
-      datosBasicos.pacienteObraSocial || "",
+      pacienteSeleccionadoCarga.obraSocial || "",
       datosBasicos.duracionTotalMinutos,
       datosBasicos.fecha,
       horarioManualString,
       medicosCacheCarga,
       sedesCacheCarga,
       turnosExistentes,
-      sedeIdManualParaMotor(datosBasicos), // en Reasignar: siempre la sede del turno
+      datosBasicos.sedeAutomatica ? null : datosBasicos.sedeId,
       bloqueosCacheCarga,
-      soloBackup,
-      // Etapa 5C, bug de Reasignar con horario exacto: sin esto el turno que se está
-      // reasignando se contaba a sí mismo como ocupando su sillón. undefined en un alta
-      // nueva (datosBasicos no trae turnoIdParaReasignar), sin ningún cambio para ese caso.
-      datosBasicos.turnoIdParaReasignar,
-      // Etapa 5C: regla "un turno por paciente por día" también para el horario exacto.
-      // Se toma SIEMPRE de datosBasicos (nunca de pacienteSeleccionadoCarga directo): en
-      // Reasignar esa variable global puede tener un paciente viejo de un "+ nuevo turno"
-      // anterior, o null.
-      datosBasicos.pacienteId,
-      ahoraParaMotor() // Etapa 5C (P2): una hora de hoy que ya pasó se rechaza
+      soloBackup
     );
 
     if (resultado.exito) {
-      // Etapa 5C (decisión de Elías): un turno con horario manual "se dio así por algo" —
-      // queda marcado (turno.horarioManual) y el reacomodo nunca lo mueve de sillón (ver
-      // calcularTurnosNoReacomodablesIds). En Reasignar, la marca viaja en el hueco hasta
-      // abrirMotivoReasignarGrilla (turnero-grilla.js).
-      await guardarTurnoConHueco(datosBasicos, { ...resultado.hueco, horarioManual: true }, null);
-      return;
-    }
-
-    // Etapa 5C: bloqueo total, mismo criterio y mismo texto que bloqueoPaciente en la
-    // búsqueda automática — nunca se ofrece sobreturno.
-    if (resultado.motivo === "pacienteMismoDia") {
-      mostrarMensaje(
-        `Este paciente ya tiene un turno cargado el ${formatearFechaLegible(new Date(datosBasicos.fecha + "T00:00:00"))}. No se puede agendar otro el mismo día.`,
-        "error"
-      );
-      return;
-    }
-
-    // Etapa 5C (P2, decisión de Elías): el horario exacto no sirve para cargar retroactivo.
-    // Corte total, sin sobreturno (la hora ya pasó, no es un problema de sillón).
-    if (resultado.motivo === "horaPasada") {
-      mostrarMensaje(
-        `Esa hora ya pasó (ahora son las ${resultado.horaActual}). Elegí una hora de ahí en adelante.`,
-        "error"
-      );
+      await guardarTurnoConHueco(datosBasicos, resultado.hueco, null);
       return;
     }
 
     if (resultado.motivo === "horarioFueraDeSede" || resultado.motivo === "sinSede") {
-      mostrarMensaje(
+      mostrarMensajeGeneral(
         "Ese horario queda fuera del horario de atención de la sede (o antes de que termine el turno). Elegí un horario dentro del horario de apertura y cierre.",
         "error"
       );
       buscandoHuecos = false;
-      document.getElementById(botonId).disabled = false;
+      document.getElementById("boton-guardar-turno").disabled = false;
       return;
     }
 
     // Feedback post-testeo (Etapa 2): ese horario cae sobre un bloqueo administrativo
     // vigente — corte total, mismo criterio que bloqueoPaciente en la búsqueda
     // automática: nunca se ofrece "cargar igual", para ningún rol (acá "horario manual"
-    // ya es exclusivo de administrador/enfermería, así que no hay una versión más
-    // restringida que mostrarle a otro rol).
+    // ya es exclusivo de administrador, así que no hay una versión más restringida que
+    // mostrarle a otro rol).
     if (resultado.motivo === "bloqueado") {
-      mostrarMensaje(
+      mostrarMensajeGeneral(
         `Ese horario está bloqueado${resultado.motivoBloqueo ? ` (${resultado.motivoBloqueo})` : ""}. No se puede cargar un turno ahí — elegí otro horario.`,
         "error"
       );
       buscandoHuecos = false;
-      document.getElementById(botonId).disabled = false;
+      document.getElementById("boton-guardar-turno").disabled = false;
       return;
     }
 
@@ -2534,18 +2385,17 @@ async function buscarYGuardarConHorarioManual(datosBasicos, horarioManualString,
     // ofrece el mismo modal de sobreturno de siempre, pero fijado a este horario puntual
     // en vez de calcular el próximo espacio libre del día (decisión del handoff de
     // planificación, Frente 2).
-    mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBackup, opciones);
+    mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBackup);
   } catch (error) {
     console.error("Error al validar el horario manual:", error);
-    mostrarMensaje(`Error en la búsqueda: ${error.message}`, "error");
+    mostrarMensajeGeneral(`Error en la búsqueda: ${error.message}`, "error");
   } finally {
     buscandoHuecos = false;
-    document.getElementById(botonId).disabled = false;
+    document.getElementById("boton-guardar-turno").disabled = false;
   }
 }
 
-function mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBackup, opciones) {
-  const mostrarMensaje = (opciones && opciones.mostrarMensaje) || mostrarMensajeGeneral;
+function mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBackup) {
   let modal = document.getElementById("modal-sobreturno");
   if (!modal) {
     modal = document.createElement("div");
@@ -2586,7 +2436,7 @@ function mostrarSobreturnoHorarioFijo(datosBasicos, horarioManualString, soloBac
   `;
 
   modal.style.display = "block";
-  mostrarMensaje("No se pudo cargar el turno como se pidió.", "error");
+  mostrarMensajeGeneral("No se pudo cargar el turno como se pidió.", "error");
 }
 
 // A diferencia de guardarComoSobreturnoSoloBackup (que busca el próximo espacio libre
@@ -2604,7 +2454,7 @@ async function guardarComoSobreturnoHorarioFijo(datosBasicos) {
   let sedeIdSobreturno = datosBasicos.sedeId;
   let sedeNombreSobreturno = datosBasicos.sedeNombre;
 
-  if (recalcularSedeOcchipinti(datosBasicos)) { // en Reasignar se respeta la sede del turno
+  if (datosBasicos.medicoId === MEDICO_OCCHIPINTI_ID) {
     const sedesCandidatas = await determinarSedesABuscar(
       MEDICO_OCCHIPINTI_ID,
       datosBasicos.pacienteObraSocial || "",
@@ -2678,19 +2528,6 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno, cambios
       horarioInicio: hueco.horaInicio,
       horarioFin: hueco.horaFin,
       tipoSobreturno: tipoSobreturno || null,
-      // Etapa 4, punto 8 — semáforo de prioridad. null si no se definió (incluye
-      // siempre: turno cargado por enfermería/administrativo, o médico/administrador
-      // que lo dejó "Sin definir").
-      prioridad: datosBasicos.prioridad || null,
-      // Etapa 4, punto 9 — contador denormalizado (ver comentario de
-      // contadorNotasValido() en firestore.rules). Se fija en 0 o 1 acá mismo, en la
-      // creación — no hace falta pasar por esa regla de "+1/-1" para el caso inicial,
-      // ya viene resuelto en el mismo batch de abajo.
-      cantidadNotas: datosBasicos.notaInicial ? 1 : 0,
-      // Etapa 5C, punto 2.1 — solo se agrega cuando corresponde; el resto de los turnos
-      // no lleva este campo en absoluto (no hace falta "internado: false" en cada uno).
-      ...(datosBasicos.internado ? { internado: true } : {}),
-      ...(hueco.horarioManual === true ? { horarioManual: true } : {}), // Etapa 5C: ver buscarYGuardarConHorarioManual
       // Standard
       estado: "activo",
       creadoPor: { uid: usuarioActualCarga.uid, nombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email },
@@ -2700,34 +2537,12 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno, cambios
     // Etapa T8: mismo mecanismo que guardarEntrega() en entregas.js — el turno y el
     // incremento del contador van en el mismo batch; el número real recién se lee (y se
     // escribe en el turno) después del commit.
-    //
-    // Etapa 5C, punto 2.1: un internado NUNCA imprime comprobante (decisión con Elías),
-    // así que tampoco consume un número — se salta el contador entero, no solo la
-    // impresión.
-    const esInternado = datosBasicos.internado === true;
     const turnoRef = db.collection("turnos").doc();
     const batch = db.batch();
     const anio = new Date().getFullYear().toString();
     const contadorRef = db.collection("contadores").doc("comprobantesTurno");
     batch.set(turnoRef, docTurno);
-    if (!esInternado) {
-      batch.set(contadorRef, { [anio]: firebase.firestore.FieldValue.increment(1) }, { merge: true });
-    }
-
-    // Etapa 4, punto 9 — nota inicial opcional (bloque colapsado del modal de carga). Va
-    // en el mismo batch que el turno: el "create" de una nota no depende de que el
-    // turno padre ya exista (ver /turnos/{id}/notas/{notaId} en firestore.rules), así
-    // que no hace falta un segundo viaje al servidor para esto.
-    if (datosBasicos.notaInicial) {
-      const notaRef = turnoRef.collection("notas").doc();
-      batch.set(notaRef, {
-        texto: datosBasicos.notaInicial,
-        autorUid: usuarioActualCarga.uid,
-        autorNombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email,
-        autorRol: rolActualCarga,
-        creadoEn: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    }
+    batch.set(contadorRef, { [anio]: firebase.firestore.FieldValue.increment(1) }, { merge: true });
 
     if (cambiosReacomodo && cambiosReacomodo.length > 0) {
       const quienDisparo = { uid: usuarioActualCarga.uid, nombre: datosUsuarioActualCarga.nombre || usuarioActualCarga.email };
@@ -2747,28 +2562,14 @@ async function guardarTurnoConHueco(datosBasicos, hueco, tipoSobreturno, cambios
 
     await batch.commit();
 
-    if (esInternado) {
-      // Elías reportó dos cosas que en realidad son la misma causa: (a) no hay una
-      // notificación clara de que se guardó, (b) el modal "+ nuevo turno" no se cierra
-      // solo como con cualquier otro turno. La razón: observarGuardadoTurnoGrilla() (en
-      // turnero-grilla.js) mira este mismo mensaje con
-      // startsWith("Turno guardado correctamente.") para cerrar el modal a los 900ms —
-      // "Turno DE INTERNADO guardado..." no matcheaba ese prefijo, así que nunca
-      // disparaba el cierre. No hace falta un pop-up nuevo: alcanza con que el mensaje
-      // empiece igual que el de siempre (el cartel que se desvanece solo, más el modal
-      // cerrándose a los 900ms, ya es la notificación que pidió).
-      mostrarMensajeGeneral("Turno guardado correctamente. No se generó comprobante: es un turno de internado.", "exito");
-      resetearFormularioCarga();
-    } else {
-      const contadorSnap = await contadorRef.get();
-      const numeroCorrelativo = contadorSnap.data()[anio];
-      const numeroComprobante = formatearNumeroComprobanteTurno(anio, numeroCorrelativo);
-      await turnoRef.update({ numeroComprobante });
+    const contadorSnap = await contadorRef.get();
+    const numeroCorrelativo = contadorSnap.data()[anio];
+    const numeroComprobante = formatearNumeroComprobanteTurno(anio, numeroCorrelativo);
+    await turnoRef.update({ numeroComprobante });
 
-      mostrarMensajeGeneral("Turno guardado correctamente. Abriendo comprobante…", "exito");
-      resetearFormularioCarga();
-      abrirComprobanteTurno(turnoRef.id);
-    }
+    mostrarMensajeGeneral("Turno guardado correctamente. Abriendo comprobante…", "exito");
+    resetearFormularioCarga();
+    abrirComprobanteTurno(turnoRef.id);
     setTimeout(() => {
       document.getElementById("mensaje-general").style.display = "none";
     }, 4000);
@@ -2806,26 +2607,6 @@ function resetearFormularioCarga() {
   if (campoHorarioManual) campoHorarioManual.value = "";
   const campoBackup = document.getElementById("campo-sillon-backup");
   if (campoBackup) campoBackup.checked = false;
-
-  // Etapa 5C, punto 2.1 — mismo motivo que horario manual/backup arriba: sin este
-  // reset, "Internado" quedaba tildado en el siguiente turno.
-  const campoInternado = document.getElementById("campo-internado");
-  if (campoInternado) campoInternado.checked = false;
-
-  // Etapa 4, punto 8 — mismo motivo que el bug de horario manual/backup de arriba: sin
-  // este reset, la prioridad del turno anterior quedaba pisada en el siguiente.
-  const campoPrioridad = document.getElementById("campo-prioridad-turno");
-  if (campoPrioridad) campoPrioridad.value = "";
-
-  // Etapa 4, punto 9 — mismo motivo: sin esto, una nota tipeada y no guardada (turno
-  // cancelado antes de guardar, o guardado con otra) quedaba pisada en el siguiente, y
-  // el bloque quedaba desplegado en vez de volver a su estado colapsado inicial.
-  const campoNotaInicial = document.getElementById("campo-nota-inicial-turno");
-  if (campoNotaInicial) campoNotaInicial.value = "";
-  const contenedorNotaInicial = document.getElementById("contenedor-nota-inicial-turno");
-  if (contenedorNotaInicial) contenedorNotaInicial.style.display = "none";
-  const botonNotaInicial = document.getElementById("boton-abrir-nota-inicial-turno");
-  if (botonNotaInicial) botonNotaInicial.style.display = "inline-block";
 
   modoFechaTurno = "dias";
   document.getElementById("campo-dias-turno").value = "";
