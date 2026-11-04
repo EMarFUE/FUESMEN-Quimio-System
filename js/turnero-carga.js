@@ -309,6 +309,218 @@ function capitalizarPalabras(texto) {
     .join(" ");
 }
 
+// --- Nombre del médico "Otro": formato obligatorio + aviso de nombres ya cargados ---
+// El campo es texto libre y se escribía de muchas formas distintas (OCCHIPINTI, occhipinti,
+// "Dr Occhipinti"). Acá se (1) fuerza el formato "Apellido Nombre" con inicial mayúscula,
+// (2) bloquea cargar como "Otro" a un médico que ya está en el catálogo, y (3) avisa de
+// nombres parecidos ya cargados, con un botón para usar la forma ya existente.
+// Es validación de pantalla (las reglas de Firestore no restringen el formato).
+// Lo usan "+ nuevo turno" (turnero-carga.js) y "Modificar" (turnero-grilla.js).
+const MEDICO_OTRO_UMBRAL_PARECIDO = 0.85;
+const MEDICO_OTRO_TITULOS = ["dr", "dra", "dres", "doctor", "doctora", "sr", "sra"];
+const MEDICO_OTRO_CAMPOS = {
+  carga: { input: "campo-medico-otro-nombre", caja: "sugerencias-medico-otro-carga", selector: "campo-medico" },
+  modificar: { input: "campo-medico-otro-nombre-modificar", caja: "sugerencias-medico-otro-modificar", selector: "campo-medico-modificar" }
+};
+let medicoOtroParecidoConfirmado = { carga: "", modificar: "" };
+
+function formatearNombreMedicoOtro(texto) {
+  return (texto || "")
+    .toString()
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/(^|[\s\-'’.])(\p{L})/gu, (m, previo, letra) => previo + letra.toUpperCase());
+}
+
+function nombreMedicoOtroTieneFormatoValido(texto) {
+  const t = (texto || "").toString().trim();
+  return /^[\p{L}][\p{L}\s.\-'’]*$/u.test(t) && (t.match(/\p{L}/gu) || []).length >= 2;
+}
+
+function claveNombreMedicoOtro(texto) {
+  const palabras = normalizarTexto(texto)
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter((p) => p && !MEDICO_OTRO_TITULOS.includes(p));
+  return palabras.sort().join(" ");
+}
+
+function distanciaEdicionMedicoOtro(a, b) {
+  const fila = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let anterior = fila[0];
+    fila[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = fila[j];
+      fila[j] = Math.min(fila[j] + 1, fila[j - 1] + 1, anterior + (a[i - 1] === b[j - 1] ? 0 : 1));
+      anterior = temp;
+    }
+  }
+  return fila[b.length];
+}
+
+function similitudClavesMedicoOtro(a, b) {
+  const largo = Math.max(a.length, b.length);
+  return largo === 0 ? 1 : 1 - distanciaEdicionMedicoOtro(a, b) / largo;
+}
+
+// Nombres con los que comparar: los médicos del catálogo y los nombres "Otro" que ya
+// aparecen en los turnos que la pantalla tiene en memoria (0 lecturas extra).
+function candidatosNombresMedicoOtro() {
+  const catalogo = (typeof medicosCacheCarga !== "undefined" ? medicosCacheCarga : [])
+    .filter((m) => m && m.nombre)
+    .map((m) => ({ tipo: "catalogo", id: m.id, nombre: m.nombre, clave: claveNombreMedicoOtro(m.nombre) }));
+  const vistos = new Set();
+  const otros = [];
+  const fuentes = [
+    typeof turnosExistentes !== "undefined" ? turnosExistentes : [],
+    typeof turnosCacheGrilla !== "undefined" ? turnosCacheGrilla : []
+  ];
+  fuentes.forEach((lista) => (lista || []).forEach((t) => {
+    if (!t || t.esMedicoOtro !== true || !t.medicoNombre || vistos.has(t.medicoNombre)) return;
+    vistos.add(t.medicoNombre);
+    otros.push({ tipo: "otro", id: null, nombre: t.medicoNombre, clave: claveNombreMedicoOtro(t.medicoNombre) });
+  }));
+  return catalogo.concat(otros);
+}
+
+// Evaluación al guardar: ¿coincide exacto con un médico del catálogo? ¿hay parecidos?
+function evaluarNombreMedicoOtro(nombreFormateado) {
+  const clave = claveNombreMedicoOtro(nombreFormateado);
+  const palabras = clave ? clave.split(" ") : [];
+  const resultado = { exactoCatalogo: null, parecidos: [] };
+  candidatosNombresMedicoOtro().forEach((c) => {
+    if (c.tipo === "otro" && c.nombre === nombreFormateado) return; // mismo nombre ya usado: está bien
+    if (c.tipo === "catalogo" && c.clave === clave) { resultado.exactoCatalogo = c; return; }
+    const palabrasC = c.clave ? c.clave.split(" ") : [];
+    const contenido = palabras.length > 0 && palabrasC.length > 0 && (
+      palabras.every((p) => p.length >= 3 && palabrasC.includes(p)) ||
+      palabrasC.every((p) => p.length >= 3 && palabras.includes(p)));
+    if (c.clave === clave || contenido || similitudClavesMedicoOtro(clave, c.clave) >= MEDICO_OTRO_UMBRAL_PARECIDO) {
+      resultado.parecidos.push(c);
+    }
+  });
+  return resultado;
+}
+
+// Sugerencias mientras se escribe: además de los parecidos, las que EMPIEZAN igual.
+function sugerenciasEscrituraMedicoOtro(texto) {
+  const clave = claveNombreMedicoOtro(texto);
+  if (clave.replace(/ /g, "").length < 3) return [];
+  const palabras = clave.split(" ");
+  const formateado = formatearNombreMedicoOtro(texto);
+  const salida = [];
+  candidatosNombresMedicoOtro().forEach((c) => {
+    if (c.tipo === "otro" && c.nombre === formateado) return;
+    const palabrasC = c.clave ? c.clave.split(" ") : [];
+    const empieza = palabras.every((p) => palabrasC.some((pc) => pc.startsWith(p)));
+    if (empieza || c.clave === clave || similitudClavesMedicoOtro(clave, c.clave) >= MEDICO_OTRO_UMBRAL_PARECIDO) {
+      salida.push(c);
+    }
+  });
+  salida.sort((a, b) => (a.tipo === b.tipo ? a.nombre.localeCompare(b.nombre, "es") : (a.tipo === "catalogo" ? -1 : 1)));
+  return salida.slice(0, 5);
+}
+
+function renderizarSugerenciasMedicoOtro(contexto, items, titulo) {
+  const campos = MEDICO_OTRO_CAMPOS[contexto];
+  const input = document.getElementById(campos.input);
+  if (!input) return;
+  let caja = document.getElementById(campos.caja);
+  if (!caja) {
+    caja = document.createElement("div");
+    caja.id = campos.caja;
+    caja.style.cssText = "margin-top:6px;padding:6px 10px;border-left:3px solid var(--color-accent);font-size:12.5px;display:none;";
+    input.insertAdjacentElement("afterend", caja);
+  }
+  caja.innerHTML = "";
+  if (!items || items.length === 0) { caja.style.display = "none"; return; }
+  if (titulo) {
+    const t = document.createElement("div");
+    t.style.cssText = "margin-bottom:4px;";
+    t.textContent = titulo;
+    caja.appendChild(t);
+  }
+  items.forEach((c) => {
+    const fila = document.createElement("div");
+    fila.style.cssText = "margin-bottom:2px;";
+    const negrita = document.createElement("strong");
+    negrita.textContent = c.nombre;
+    fila.appendChild(negrita);
+    fila.appendChild(document.createTextNode(c.tipo === "catalogo" ? " — médico de la lista " : " — ya cargado antes "));
+    const boton = document.createElement("button");
+    boton.type = "button";
+    boton.className = "enlace-accion";
+    boton.textContent = c.tipo === "catalogo" ? "elegirlo de la lista" : "usar";
+    boton.addEventListener("click", () => usarSugerenciaMedicoOtro(contexto, c));
+    fila.appendChild(boton);
+    caja.appendChild(fila);
+  });
+  caja.style.display = "block";
+}
+
+function usarSugerenciaMedicoOtro(contexto, candidato) {
+  const campos = MEDICO_OTRO_CAMPOS[contexto];
+  const input = document.getElementById(campos.input);
+  if (candidato.tipo === "catalogo") {
+    const select = document.getElementById(campos.selector);
+    if (select) {
+      select.value = candidato.id;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    renderizarSugerenciasMedicoOtro(contexto, []);
+    return;
+  }
+  input.value = candidato.nombre;
+  medicoOtroParecidoConfirmado[contexto] = "";
+  renderizarSugerenciasMedicoOtro(contexto, []);
+}
+
+// Punto único de validación al guardar. nombreOriginal: en "Modificar", el nombre que ya
+// tenía el turno; si no lo tocaron no se revalida (no se bloquea editar otro dato de un
+// turno viejo por culpa de cómo se escribió su nombre en el pasado).
+function validarNombreMedicoOtro(contexto, textoCrudo, nombreOriginal) {
+  const campos = MEDICO_OTRO_CAMPOS[contexto];
+  const input = document.getElementById(campos.input);
+  const crudo = (textoCrudo || "").trim();
+  if (nombreOriginal && crudo === nombreOriginal) return { ok: true, nombre: nombreOriginal };
+  if (!nombreMedicoOtroTieneFormatoValido(crudo)) {
+    return { ok: false, mensaje: "El nombre del profesional solo puede tener letras, espacios, guion, apóstrofe y punto (mínimo 2 letras)." };
+  }
+  const nombre = formatearNombreMedicoOtro(crudo);
+  if (input) input.value = nombre;
+  const evaluacion = evaluarNombreMedicoOtro(nombre);
+  // Coincidencia exacta con un médico de la lista: ya no se bloquea. Se avisa igual que un
+  // parecido (primero la sugerencia de elegirlo de la lista, segundo Guardar lo carga como "Otro").
+  const sugeridos = (evaluacion.exactoCatalogo ? [evaluacion.exactoCatalogo] : []).concat(evaluacion.parecidos);
+  if (sugeridos.length > 0 && medicoOtroParecidoConfirmado[contexto] !== nombre) {
+    medicoOtroParecidoConfirmado[contexto] = nombre;
+    renderizarSugerenciasMedicoOtro(contexto, sugeridos.slice(0, 5),
+      evaluacion.exactoCatalogo ? "Ese médico ya está en la lista:" : "Hay nombres parecidos ya cargados:");
+    return { ok: false, mensaje: evaluacion.exactoCatalogo
+      ? `${evaluacion.exactoCatalogo.nombre} ya está en la lista de médicos. Elegilo con el botón de abajo, o tocá Guardar de nuevo para cargarlo igual como "Otro".`
+      : "Hay nombres parecidos ya cargados (ver debajo del campo). Elegí uno con \"usar\" o tocá Guardar de nuevo para cargarlo igual." };
+  }
+  return { ok: true, nombre };
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("input", (e) => {
+    const id = e.target && e.target.id;
+    const contexto = Object.keys(MEDICO_OTRO_CAMPOS).find((k) => MEDICO_OTRO_CAMPOS[k].input === id);
+    if (!contexto) return;
+    medicoOtroParecidoConfirmado[contexto] = "";
+    renderizarSugerenciasMedicoOtro(contexto, sugerenciasEscrituraMedicoOtro(e.target.value));
+  });
+  // Al salir del campo se muestra ya con el formato correcto.
+  document.addEventListener("change", (e) => {
+    const id = e.target && e.target.id;
+    const contexto = Object.keys(MEDICO_OTRO_CAMPOS).find((k) => MEDICO_OTRO_CAMPOS[k].input === id);
+    if (contexto && e.target.value.trim()) e.target.value = formatearNombreMedicoOtro(e.target.value);
+  });
+}
+
 function soloDigitos(texto) {
   return (texto || "").toString().replace(/\D/g, "");
 }
@@ -787,6 +999,8 @@ function actualizarBloqueMedico() {
   sedeAutomaticaInfo.style.display = "none";
   selectSedeManual.value = "";
   document.getElementById("campo-medico-otro-nombre").value = "";
+  medicoOtroParecidoConfirmado.carga = "";
+  renderizarSugerenciasMedicoOtro("carga", []);
 
   if (!medicoValor) return;
 
@@ -1200,6 +1414,12 @@ async function intentarGuardarTurno() {
       mostrarMensajeGeneral("Falta el nombre del profesional en \"Otro\".", "error");
       return;
     }
+    const validacionOtro = validarNombreMedicoOtro("carga", medicoNombre, null);
+    if (!validacionOtro.ok) {
+      mostrarMensajeGeneral(validacionOtro.mensaje, "error");
+      return;
+    }
+    medicoNombre = validacionOtro.nombre;
   } else {
     const medico = medicosCacheCarga.find((m) => m.id === medicoValor);
     if (!medico) {

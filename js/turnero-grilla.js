@@ -1745,6 +1745,8 @@ function poblarSelectMedicoModificar(turno) {
   select.disabled = false;
   select.value = turno.esMedicoOtro ? "otro" : (turno.medicoId || "");
   document.getElementById("campo-medico-otro-nombre-modificar").value = turno.esMedicoOtro ? (turno.medicoNombre || "") : "";
+  medicoOtroParecidoConfirmado.modificar = "";
+  renderizarSugerenciasMedicoOtro("modificar", []);
   actualizarBloqueMedicoOtroModificar();
 }
 
@@ -1975,6 +1977,12 @@ async function guardarModificacionGrilla() {
       mostrarMensajeModificarGrilla("Cargá el nombre del profesional.", "error");
       return;
     }
+    const validacionOtro = validarNombreMedicoOtro("modificar", medicoNombre, turno.esMedicoOtro ? turno.medicoNombre : null);
+    if (!validacionOtro.ok) {
+      mostrarMensajeModificarGrilla(validacionOtro.mensaje, "error");
+      return;
+    }
+    medicoNombre = validacionOtro.nombre;
   } else {
     if (!medicoValor) {
       mostrarMensajeModificarGrilla("Elegí un médico.", "error");
